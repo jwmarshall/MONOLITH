@@ -1,0 +1,67 @@
+@import "tailwindcss" source(none);
+@import "phoenix-colocated/wallace/colocated.css";
+@source "../css";
+@source "../js";
+@source "../../lib/wallace_web";
+@source "../../_build/dev/phoenix-colocated/wallace/*/";
+
+@plugin "../vendor/heroicons";
+
+/* Keep the generated component primitives, but give Wallace its own visual tokens. */
+@plugin "daisyui/packages/bundle/daisyui" {
+  themes: false;
+}
+
+@plugin "daisyui/packages/bundle/daisyui-theme" {
+  name: "wallace";
+  default: true;
+  prefersdark: true;
+  color-scheme: "dark";
+  --color-base-100: #141412;
+  --color-base-200: #1b1b18;
+  --color-base-300: #34342e;
+  --color-base-content: #eeede5;
+  --color-primary: #d6aa69;
+  --color-primary-content: #19150e;
+  --color-secondary: #b9b3a5;
+  --color-secondary-content: #141412;
+  --color-accent: #d6aa69;
+  --color-accent-content: #19150e;
+  --color-neutral: #34342e;
+  --color-neutral-content: #eeede5;
+  --color-info: #9bb8c5;
+  --color-info-content: #141412;
+  --color-success: #a5bb91;
+  --color-success-content: #141412;
+  --color-warning: #d6aa69;
+  --color-warning-content: #19150e;
+  --color-error: #dc9487;
+  --color-error-content: #141412;
+  --radius-selector: 0.125rem;
+  --radius-field: 0.125rem;
+  --radius-box: 0.125rem;
+  --size-selector: 0.25rem;
+  --size-field: 0.25rem;
+  --border: 1px;
+  --depth: 0;
+  --noise: 0;
+}
+
+@custom-variant phx-click-loading (.phx-click-loading&, .phx-click-loading &);
+@custom-variant phx-submit-loading (.phx-submit-loading&, .phx-submit-loading &);
+@custom-variant phx-change-loading (.phx-change-loading&, .phx-change-loading &);
+@custom-variant dark (&:where([data-theme=wallace], [data-theme=wallace] *));
+
+[data-phx-session], [data-phx-teleported-src] {
+  display: contents;
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 4px;
+}
+
+::selection {
+  background: #d6aa69;
+  color: #141412;
+}
