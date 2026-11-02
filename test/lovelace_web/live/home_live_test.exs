@@ -76,7 +76,7 @@ defmodule LovelaceWeb.HomeLiveTest do
     assert has_element?(view, "#workspace-content[inert]")
     assert has_element?(view, "#workspace-list[phx-update=stream]")
     assert has_element?(view, "#directory-heading", "Workspaces")
-    assert has_element?(view, ".workspace-row-name", "Personal")
+    assert has_element?(view, ".workspace-card-name", "Personal")
     refute has_element?(view, ".workspace-wordmark", "lovelace")
     assert has_element?(view, "#workspace-background[aria-hidden=true]")
     assert has_element?(view, "#main-content[aria-labelledby=workspace-title]")
@@ -110,6 +110,21 @@ defmodule LovelaceWeb.HomeLiveTest do
 
     assert has_element?(view, "#workspace-pane[phx-click][phx-focus]")
     assert has_element?(view, "#main-content[phx-window-keydown][phx-key=Escape]")
+  end
+
+  test "Lock is a CSRF-protected POST inside the working gate, never a scenery reset", %{
+    conn: conn
+  } do
+    {:ok, view, _html} = live(conn, ~p"/")
+
+    assert has_element?(
+             view,
+             "#workspace-content[inert] .workspace-topline #owner-lock-form[action='/lock'][method=post]"
+           )
+
+    assert has_element?(view, "#owner-lock-form input[type=hidden][name=_csrf_token]")
+    assert has_element?(view, "#owner-lock-form button[type=submit]", "Lock")
+    refute has_element?(view, "#owner-lock-form[phx-click], #owner-lock-form button[phx-click]")
   end
 
   test "exposes configurable idle duration and shared sticky focus/reset commands", %{conn: conn} do

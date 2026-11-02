@@ -114,13 +114,22 @@ make its usual eligible, potentially billable image attempt. To avoid that, expl
 disable it in your private configuration first. Gmail itself never starts a browser
 or requests consent automatically.
 
-1. Open `http://localhost:4000`, unlock, enter a workspace and choose **Connect Google account**.
+1. Open `http://localhost:4000`, unlock, enter a workspace, choose **Add integration**, then
+   **Connect Google account**. Alternatively, open global **Connections** and explicitly
+   choose the workspace to receive the new connection.
 2. Choose the intended Google account and grant read-only mail access.
 3. LOVELACE binds the verified UserInfo `sub` to the connection. Email is a display
    attribute, not its stable identity. Reconnect cannot silently select another account.
 4. Open one account's inbox; search uses Gmail syntax across that account, including
    sent/archived mail. Spam/Trash follow Gmail's ordinary search behavior unless requested.
-5. In another workspace, use **Attach here** to reuse the connection without reauthorizing.
+5. In another workspace, use **Add integration → Add to workspace** to reuse the connection
+   without reauthorizing. Each attached Gmail tile opens only that account's inbox.
+
+Workspace card warnings reflect known connection problems, not a new live provider check.
+Unread totals are not shown yet: the bounded cached inbox page is not a reliable total.
+Global **Connections** lists reusable accounts and their last known health, with reconnect
+and confirmed disconnect-everywhere controls. Reconnecting globally explicitly selects a
+workspace and also adds the account there; workspace-local reconnect retains its workspace.
 
 Authorization uses system-browser code flow, S256 PKCE, offline access, single-use
 10-minute state bound to the unlocked owner session, and a fresh identity lookup.
@@ -179,7 +188,7 @@ interpreted as an absent credential during rollback.
 - Cache and errors show timestamps and stale status. **Refresh** explicitly requests
   another read. Locking the browser revokes its session, but background polling continues
   while the application and unlocked OS credential store are available.
-- **Detach here** removes one workspace association. It does not clear the shared cache,
+- **Remove from workspace** in an integration tile's management menu removes one workspace association. It does not clear the shared cache,
   delete credentials, revoke Google access or stop polling that reusable connection.
 - A remaining recovery limitation: a first connection can leave an unindexed Keychain
   item if the process dies after its credential write but before the identity commits,
@@ -188,7 +197,7 @@ interpreted as an absent credential during rollback.
   reconciliation is implemented; review the **LOVELACE Gmail** service in Keychain Access
   and Google application access after an interrupted/failed connection. Do not share item
   values. Successful-return failure paths attempt restoration/deletion and report failures.
-- **Disconnect everywhere** fences in-flight work, clears all workspace associations and
+- **Disconnect everywhere** in global **Connections** fences in-flight work, clears all workspace associations and
   cached records, deletes the Keychain item and attempts Google revocation. Local cleanup
   and revocation outcomes are reported separately. Failed credential deletion remains
   visible for retry; failed/uncertain revocation needs review at

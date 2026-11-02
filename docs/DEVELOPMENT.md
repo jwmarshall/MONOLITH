@@ -73,22 +73,11 @@ SHA-512 verification, local SHA-256 pins, license snapshot, and update procedure
 `mix audit` covers Hex packages, not vendored JavaScript; review GSAP advisories
 separately when updating. ExUnit checks the pinned files and retained license notices.
 
-`assets/js/hooks/brand_reveal.js` owns only the decorative, ignored brand subtree.
-LiveView client-side commands dispatch focus/reset events; CSS still owns glass blur
-and opacity. The hook traces the SVG with native dash properties, then flips eight
-HEEx-authored letters. It holds the finished logo for 250ms, then reverses the same
-letter/trace choreography at 1.8× speed before handing off to working content. No
-DrawSVG/SplitText plugin is used. It suppresses duplicate focus/click replays, pauses
-on Escape, restarts an interrupted entrance at normal speed on fresh focus, responds
-to reduced motion (including mid-exit), and reverts its GSAP context/removes listeners
-when destroyed. Keep business
-UI outside this `phx-update="ignore"` subtree. The always-present screen-reader heading
-is separate; decorative letter-by-letter rendering is hidden from assistive technology.
-
-Browser verification must include ordinary motion (not just reduced motion), stroke
-progress, letter order, repeated focus, interruption/replay, preference changes, hook
-teardown, LiveView updates, local-only requests, and the unchanged production CSP.
-No `unsafe-eval` or remote script allowance is necessary for this integration.
+Visual/interaction requirements, decorative DOM ownership, entrance lifecycle and the
+browser verification checklist live in [UI_CONTRACT.md](UI_CONTRACT.md). Implementation
+entry points are `assets/js/hooks/brand_reveal.js`, `workspace_entrance.js`,
+`workspace_idle.js` and `stage_background.js`; registration is in `assets/js/app.js`.
+No DrawSVG/SplitText plugin, `unsafe-eval` or remote script allowance is needed.
 
 ## Encrypted local environment
 
@@ -130,23 +119,22 @@ workspace records. Creation and rename use `AshPhoenix.Form`; names are trimmed,
 and bounded to 64 characters server-side. There are deliberately no delete/archive actions,
 or projects. Account connection and read-only mail are implemented separately in `Lovelace.Mail`.
 
-The shared `Layouts.stage/1` wraps both `Layouts.app/1` and static owner unlock/setup
-screens. All workspace/mail empty states remain within that glass shell. Static screens
-read the same app-wide local background without triggering generation; the image observer
-is shared with the LiveView hook and only reveals successfully loaded images. The palette
-is sea-glass teal (`#8BCBC1`, hover `#B5E2DA`) on charcoal (`#141918`), with distinct
-warning/error tokens. Workspace idle/Escape visually blurs the entire content plane
-(3px) and dims it; no DOM focus removal, authentication change, or privacy guarantee.
+`WorkspaceComponents.card/1` and `MailComponents` render directory and integration surfaces;
+`HomeLive`/`HomeMail` own in-page navigation and account-topic lifecycle. See
+[UI_CONTRACT.md](UI_CONTRACT.md#workspace-and-integration-navigation) for control semantics,
+management context and navigation behavior.
 
-`WorkspaceEntrance` gates server-owned content with `inert` until `BrandReveal` finishes its exit,
-then uses sticky LiveView JS attributes to preserve the entrance state through patches.
-The ignored decorative brand owns only its GSAP subtree. Escape during an unfinished reveal
-restarts it on next activation; after completion, Escape/idle only change focal planes and
-preserve the current view and unsaved form. The initial activation button is retired rather
-than layered over product controls. A full page reload starts a new entrance. New Node hook
-tests cover completion/replay/reduced motion and gate/focus/teardown; `mix test.js` discovers
-all `test/js/*_test.mjs`. Ordinary browser motion, keyboard and idle interaction must still be
-verified in a real browser, not inferred from fake-DOM tests.
+Workspace card health reads only Ash account/membership metadata, not message caches or
+provider APIs. Known problems are grouped by workspace/account, and subscriptions follow
+the current directory, workspace or global Connections context. A metadata update from
+another account never requests the selected inbox. Numeric unread inbox counts are deferred:
+conversation flags on a bounded page do not establish an account-wide unread total.
+
+`Layouts.stage/1` is shared by `Layouts.app/1` and static owner unlock/setup screens.
+Shared shell/focal-plane tokens live in `assets/css/app.css`; workspace card rules live
+in `assets/css/workspaces.css`. The [UI contract](UI_CONTRACT.md) is authoritative for
+visual behavior, gate/focus ownership and static/live differences. `mix test.js` discovers
+all `test/js/*_test.mjs`; its fake-DOM coverage does not certify rendered browser behavior.
 
 ## Image validation dependency
 
@@ -217,6 +205,35 @@ and `nosniff`. These are not an email sanitizer or a complete auth/security revi
 for retired packages. It is intentionally separate from the local quality gate
 because it accesses external registries/advisory repositories. CI runs both gates.
 A clean audit is a point-in-time result, not a guarantee about all transitive code.
+
+## Browser UI regressions
+
+```sh
+LOVELACE_STAGE_ENABLED=false mix test.ui
+# If Chrome/Chromium is not in its usual location:
+LOVELACE_BROWSER=/path/to/chrome LOVELACE_STAGE_ENABLED=false mix test.ui
+```
+
+This separate, explicit gate uses installed Chrome/Chromium and Node's built-in DevTools
+WebSocket client: no npm packages, browser download or third-party test service. It fails
+if a browser is unavailable; `mix check` and hosted CI do not automatically run it.
+The alias rebuilds deployed assets (including compressed copies, avoiding stale gzip),
+then `test/support/ui_browser.exs` starts a separate test-only app on an ephemeral loopback
+port with a new disposable SQLite database, scenery directory and Chrome profile.
+Migrations and synthetic owner/workspaces/account/image fixtures are local to that run.
+Gmail/vault responses are fake, Oban is manual, real transports/vault are refused by test
+builds and generation is disabled. It does not reuse a user's server/profile/private data.
+
+`test/browser/ui_contract.mjs` exercises the actual compiled assets and LiveView socket:
+normal entrance/reverse exit and gate; corner/Lock computed visibility and focusability;
+static unlock with/without JavaScript; static/live image success/failure; native menus;
+workspace/integration/Connections navigation; unsaved input, scroll and first-key/click wake;
+reduced-motion changes; forced colors; desktop/narrow layouts; and page errors/off-origin
+requests/CSP events across navigation. The real browser idle timer uses a shortened
+**disposable DOM setting**; native Node tests retain the actual three-minute deadline.
+Chrome is shut down and disposable data removed on completion. The runner has startup,
+protocol, overall and shutdown deadlines; it is not a cross-browser or screen-reader suite.
+See [UI_CONTRACT.md](UI_CONTRACT.md#verification-map) for coverage boundaries.
 
 ## Test conventions
 
@@ -344,7 +361,8 @@ be verified on GitHub; local runs do not prove runner/runtime availability.
 
 Deferred until justified:
 
-- Browser automation (e.g. PhoenixTestPlaywright) for real JavaScript/auth/navigation.
+- A broader browser framework (e.g. PhoenixTestPlaywright), cross-browser automation and
+  hosted browser CI beyond the explicit dependency-free `mix test.ui` regression gate.
 - Dialyzer/Dialyxir for a maintained static type-analysis workflow and PLT caching.
 - Dedicated property suites and mutation tests beyond Ash's existing generator support.
 - Mox, ExMachina, ExCoveralls, extra frontend test runners, and documentation generators.

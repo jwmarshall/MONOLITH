@@ -23,6 +23,9 @@ defmodule Lovelace.Mail.WorkspaceAccount do
       filter expr(workspace_id == ^arg(:workspace_id))
     end
 
+    # Local-owner connection overview; never reads cached messages or credentials.
+    read :directory
+
     read :for_account do
       argument :account_id, :uuid, allow_nil?: false
       filter expr(account_id == ^arg(:account_id))

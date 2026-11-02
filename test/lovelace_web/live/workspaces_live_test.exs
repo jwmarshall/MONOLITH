@@ -96,6 +96,47 @@ defmodule LovelaceWeb.WorkspacesLiveTest do
     end
   end
 
+  test "navigation, save and cancel request heading focus but validation leaves input in place",
+       %{
+         conn: conn
+       } do
+    {:ok, view, _html} = live(conn, ~p"/")
+    view |> element("#open-#{@personal_id}") |> render_click()
+    assert_push_event(view, "workspace:focus-heading", %{})
+
+    view |> element("#show-connections") |> render_click()
+    assert_push_event(view, "workspace:focus-heading", %{})
+    view |> element("#back-from-connections") |> render_click()
+    assert_push_event(view, "workspace:focus-heading", %{})
+
+    view |> element("#rename-current-workspace") |> render_click()
+    view |> form("#workspace-form", workspace: %{name: "   "}) |> render_submit()
+    assert has_element?(view, "#workspace-name[aria-invalid=true]")
+    refute_push_event(view, "workspace:focus-heading", %{})
+
+    view |> form("#workspace-form", workspace: %{name: "Renamed"}) |> render_submit()
+    assert_push_event(view, "workspace:focus-heading", %{})
+
+    assert has_element?(
+             view,
+             "#directory-heading[data-workspace-heading][tabindex='-1']",
+             "Renamed"
+           )
+
+    view |> element("#rename-current-workspace") |> render_click()
+    view |> element("#workspace-form button[type=button]") |> render_click()
+    assert_push_event(view, "workspace:focus-heading", %{})
+    refute has_element?(view, "#workspace-form")
+
+    view |> element("#back-to-workspaces") |> render_click()
+    assert_push_event(view, "workspace:focus-heading", %{})
+    view |> element("#show-connections") |> render_click()
+    assert_push_event(view, "workspace:focus-heading", %{})
+    view |> element("#back-from-connections") |> render_click()
+    assert_push_event(view, "workspace:focus-heading", %{})
+    assert has_element?(view, "#workspace-list")
+  end
+
   test "background updates preserve the current workspace and unsaved form", %{conn: conn} do
     {:ok, view, _html} = live(conn, ~p"/")
     view |> element("#open-#{@personal_id}") |> render_click()

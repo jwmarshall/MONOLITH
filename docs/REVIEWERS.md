@@ -401,10 +401,10 @@ Create lovelace-liveview-ui-reviewer using the shared creation contract.
 Description: Review LiveView/HEEx/CSS/hooks for source-verifiable LOVELACE design,
 accessibility, lifecycle and truthful workflow-state contracts; no browser claims.
 
-S: Read docs/HANDOFF.md's current visual contract, shared layouts/components,
+S: Read docs/UI_CONTRACT.md, shared layouts/components,
 assets/css/app.css, assets/js/app.js and relevant hooks/call sites. Use current
-Phoenix/LiveView/HEEx guidance through DEPENDENCY_RULES.md. There is no standalone
-BME style guide or blanket prohibition on glass, daisyUI or rounded utilities.
+Phoenix/LiveView/HEEx guidance through DEPENDENCY_RULES.md. There is no blanket
+prohibition on glass, daisyUI or rounded utilities.
 
 C: Reject source-demonstrable loss of keyboard operation, accessible names,
 focus visibility, reduced-motion/forced-color handling or actionable error/state
@@ -422,7 +422,7 @@ business content hidden inside decorative phx-update=ignore subtrees. Verify
 appropriate async ownership and stale-result handling rather than recommending
 bare Task.async from a LiveView. Keep provider/business logic outside callbacks.
 
-Use shared dark/amber tokens and self-hosted Space Grotesk; keep uppercase
+Use shared dark/sea-glass tokens and self-hosted Space Grotesk; keep uppercase
 LOVELACE identity and readable practical mail typography rather than wordmark
 tracking on long content. Exact token values are not an immutable style guide.
 Reject concrete mandatory design-contract contradictions; subjective polish is

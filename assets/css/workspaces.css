@@ -1,0 +1,90 @@
+/* Quiet glass entry surfaces. Opening and management are sibling controls. */
+.workspace-list, .integration-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 270px), 1fr));
+  gap: 18px;
+  align-items: start;
+}
+.workspace-card, .integration-tile, .connection-card, .integration-add-panel, .connection-new {
+  position: relative;
+  min-width: 0;
+  border: 1px solid rgb(233 239 236 / 24%);
+  border-radius: 6px;
+  background: rgb(20 25 24 / 32%);
+}
+.workspace-card:focus-within, .integration-tile:focus-within { border-color: var(--color-primary); }
+.workspace-card-open, .integration-tile-open {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  width: 100%;
+  min-width: 0;
+  min-height: 200px;
+  padding: 26px;
+  gap: 12px;
+  border-radius: 6px;
+  text-align: left;
+  cursor: pointer;
+  transition: background 160ms;
+}
+.workspace-card-open:hover, .integration-tile-open:hover { background: rgb(139 203 193 / 7%); }
+.workspace-card-eyebrow { color: var(--color-secondary); font-size: 10px; text-transform: uppercase; letter-spacing: 0.13em; padding-right: 44px; }
+.workspace-card-name { padding-right: 24px; font-size: 23px; font-weight: 400; letter-spacing: -0.025em; overflow-wrap: anywhere; }
+.workspace-card-health { display: flex; flex-direction: column; gap: 8px; margin-top: auto; padding: 12px 28px 0 0; color: var(--color-secondary); font-size: 12px; line-height: 1.6; }
+.workspace-card-problem { overflow-wrap: anywhere; }
+.workspace-card-arrow { position: absolute; bottom: 24px; right: 22px; color: var(--color-primary); }
+.connection-warning { color: var(--color-warning); }
+.workspace-menu { position: absolute; top: 12px; right: 12px; z-index: 1; }
+.workspace-menu[open] { z-index: 2; }
+.workspace-menu summary { display: flex; align-items: center; justify-content: center; width: 44px; height: 44px; border: 1px solid transparent; border-radius: 4px; cursor: pointer; list-style: none; }
+.workspace-menu summary::-webkit-details-marker { display: none; }
+.workspace-menu summary:hover, .workspace-menu[open] summary { background: rgb(139 203 193 / 12%); border-color: rgb(233 239 236 / 24%); }
+.workspace-menu-actions { position: absolute; top: 48px; right: 0; min-width: 180px; padding: 6px; background: var(--color-base-100); border: 1px solid var(--color-base-300); border-radius: 4px; box-shadow: 0 8px 24px rgb(0 0 0 / 25%); }
+.workspace-menu-actions .workspace-action { justify-content: flex-start; width: 100%; white-space: normal; text-align: left; }
+.workspace-directory-heading > .workspace-menu { position: relative; top: auto; right: auto; flex-shrink: 0; }
+.workspace-directory-heading { align-items: center; }
+.workspace-topline { gap: 12px; visibility: hidden; }
+.glass-workspace:has(#workspace-pane[aria-pressed="true"]) .workspace-glass[data-entered="true"] .workspace-topline { visibility: visible; }
+.workspace-landing { border-top: 0; padding-top: 0; }
+.workspace-landing > .mail-panel { border-top: 0; padding-top: 0; margin-top: 0; }
+.integration-tile-open { min-height: 228px; padding-top: 24px; }
+.integration-icon { color: var(--color-primary); flex-shrink: 0; }
+.integration-name { display: block; padding-right: 12px; font-size: 17px; overflow-wrap: anywhere; }
+.integration-tile-open .mail-muted { padding-right: 22px; }
+.integration-tile-open .mail-eyebrow { margin-bottom: 0; }
+.integration-recovery { padding: 0 24px 24px; }
+.integration-empty { padding: 28px 0; display: flex; flex-direction: column; align-items: flex-start; gap: 10px; color: var(--color-secondary); }
+.integration-add-panel { margin-top: 24px; padding: 24px; }
+.integration-add-panel h4 { font-size: 20px; font-weight: 400; }
+.integration-add-panel .mail-heading { margin-bottom: 16px; }
+.connection-row { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 20px 0; border-bottom: 1px solid var(--color-base-300); }
+.connections-panel { display: flex; flex-direction: column; gap: 20px; font-size: 14px; line-height: 1.65; }
+.connection-card, .connection-new { padding: 24px; }
+.connection-identity { display: flex; align-items: flex-start; gap: 16px; margin-bottom: 20px; }
+.connection-identity h3, .connection-new h3 { font-size: 18px; overflow-wrap: anywhere; }
+.connection-new .mail-oauth { margin-top: 20px; }
+.connection-workspace-select { display: block; width: 100%; min-height: 44px; padding: 10px 14px; background: var(--color-base-100); color: var(--color-base-content); border: 1px solid var(--color-base-300); border-radius: 4px; }
+.connections-panel .mail-oauth { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px; }
+.connections-panel .mail-oauth > div { margin-bottom: 0; min-width: min(220px, 100%); }
+.connections-panel .label { color: var(--color-secondary); font-size: 12px; }
+.connection-explanation { max-width: 680px; }
+@media (max-width: 640px) {
+  .workspace-directory-heading { flex-direction: row; flex-wrap: wrap; }
+  .workspace-list, .integration-grid { grid-template-columns: 1fr; }
+  .workspace-card-open { min-height: 180px; }
+  .connection-row { flex-direction: column; align-items: flex-start; }
+  .mail-heading { flex-wrap: wrap; }
+  .integration-add-panel, .connection-card, .connection-new { padding: 20px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .workspace-card-open, .integration-tile-open, .workspace-action { transition: none; }
+}
+@media (forced-colors: active) {
+  .workspace-card, .integration-tile, .connection-card, .integration-add-panel, .connection-new,
+  .workspace-menu-actions, .workspace-menu summary, .connection-workspace-select { border-color: CanvasText; background: Canvas; box-shadow: none; }
+  .workspace-card *, .integration-tile *, .connections-panel *, .integration-add-panel *,
+  .workspace-action, .workspace-action:hover { color: CanvasText; text-shadow: none; }
+  .workspace-action, .workspace-action:hover { background: ButtonFace; border-color: ButtonText; }
+  .workspace-card-open:hover, .integration-tile-open:hover, .workspace-menu summary:hover { background: Canvas; }
+}

@@ -2,10 +2,11 @@ defmodule LovelaceWeb.HomeLive do
   @moduledoc "The glass entrance and local owner's saved workspaces."
   use LovelaceWeb, :live_view
 
+  alias Lovelace.Mail
   alias Lovelace.Mail.ConnectionDiagnostics
   alias Lovelace.Workspaces
   alias Lovelace.Workspaces.Workspace
-  alias LovelaceWeb.{HomeMail, MailComponents}
+  alias LovelaceWeb.{HomeMail, MailComponents, WorkspaceComponents}
 
   # Capability minted only behind the HTTP and LiveView owner-session boundaries.
   @owner %{role: :local_owner}
@@ -26,6 +27,10 @@ defmodule LovelaceWeb.HomeLive do
         page_title: "Workspaces",
         background: background,
         selected: nil,
+        connections: false,
+        workspace_options: [],
+        workspace_health: %{},
+        directory_subscriptions: [],
         editor: nil,
         form: nil,
         form_failed: false,
@@ -46,7 +51,14 @@ defmodule LovelaceWeb.HomeLive do
     {:noreply, assign(socket, :background, background)}
   end
 
-  def handle_info({:mail_changed, _} = message, socket), do: HomeMail.handle_info(message, socket)
+  def handle_info({:mail_changed, id} = message, socket) do
+    if id in socket.assigns.directory_subscriptions do
+      {:noreply, load_workspaces(socket)}
+    else
+      HomeMail.handle_info(message, socket)
+    end
+  end
+
   def handle_info(_message, socket), do: {:noreply, socket}
 
   @impl true
@@ -55,6 +67,29 @@ defmodule LovelaceWeb.HomeLive do
   @impl true
   def handle_event("mail:" <> _ = event, params, socket),
     do: HomeMail.handle_event(event, params, socket)
+
+  def handle_event("show_connections", _params, socket) do
+    {:noreply,
+     socket
+     |> directory_subscriptions([])
+     |> assign(connections: true, editor: nil, form: nil, page_title: "Connections")
+     |> HomeMail.open_connections()
+     |> focus_heading()}
+  end
+
+  def handle_event("close_connections", _params, socket) do
+    if socket.assigns.selected do
+      workspace = socket.assigns.selected
+
+      {:noreply,
+       socket
+       |> assign(connections: false, page_title: workspace.name)
+       |> HomeMail.open_workspace(workspace)
+       |> focus_heading()}
+    else
+      handle_event("show_workspaces", %{}, socket)
+    end
+  end
 
   def handle_event("retry_workspaces", _params, socket) do
     {:noreply, load_workspaces(socket)}
@@ -111,7 +146,14 @@ defmodule LovelaceWeb.HomeLive do
       {:ok, %Workspace{} = workspace} ->
         {:noreply,
          socket
-         |> assign(selected: workspace, editor: nil, form: nil, page_title: workspace.name)
+         |> directory_subscriptions([])
+         |> assign(
+           selected: workspace,
+           connections: false,
+           editor: nil,
+           form: nil,
+           page_title: workspace.name
+         )
          |> HomeMail.open_workspace(workspace)
          |> focus_heading()}
 
@@ -124,7 +166,13 @@ defmodule LovelaceWeb.HomeLive do
     {:noreply,
      socket
      |> HomeMail.leave_workspace()
-     |> assign(selected: nil, editor: nil, form: nil, page_title: "Workspaces")
+     |> assign(
+       selected: nil,
+       connections: false,
+       editor: nil,
+       form: nil,
+       page_title: "Workspaces"
+     )
      |> load_workspaces()
      |> focus_heading()}
   end
@@ -156,11 +204,58 @@ defmodule LovelaceWeb.HomeLive do
     with {:ok, _personal} <- Workspaces.initialize_personal(actor: @owner),
          {:ok, workspaces} <- Workspaces.list_workspaces(actor: @owner) do
       socket
-      |> assign(workspaces_error: false, loading: false)
+      |> assign(
+        workspaces_error: false,
+        loading: false,
+        workspace_options: Enum.map(workspaces, &{&1.name, &1.id})
+      )
+      |> load_workspace_health(workspaces)
       |> stream(:workspaces, workspaces, reset: true)
     else
       _ -> assign(socket, workspaces_error: true, loading: false)
     end
+  end
+
+  # Read only connection metadata, never cached message payloads or provider counts.
+  defp load_workspace_health(socket, workspaces) do
+    with {:ok, accounts} <- Mail.list_accounts(actor: @owner),
+         {:ok, memberships} <- Mail.list_workspace_accounts(actor: @owner) do
+      by_id = Map.new(accounts, &{&1.id, &1})
+      grouped = Enum.group_by(memberships, & &1.workspace_id, & &1.account_id)
+
+      health =
+        Map.new(workspaces, fn workspace ->
+          attached =
+            grouped
+            |> Map.get(workspace.id, [])
+            |> Enum.map(&Map.get(by_id, &1))
+            |> Enum.reject(&is_nil/1)
+
+          problems =
+            attached
+            |> Enum.filter(&(&1.status != :ready || not is_nil(&1.last_error)))
+            |> Enum.map(&Map.take(&1, [:id, :email, :status, :last_error]))
+
+          {workspace.id, %{total: length(attached), problems: problems}}
+        end)
+
+      ids = Enum.map(memberships, & &1.account_id) |> Enum.uniq()
+      ids = if socket.assigns.selected || socket.assigns.connections, do: [], else: ids
+      socket |> assign(:workspace_health, health) |> directory_subscriptions(ids)
+    else
+      _ -> socket |> assign(:workspace_health, %{}) |> directory_subscriptions([])
+    end
+  end
+
+  defp directory_subscriptions(socket, ids) do
+    old = socket.assigns.directory_subscriptions
+
+    if connected?(socket) do
+      Enum.each(old -- ids, &Phoenix.PubSub.unsubscribe(Lovelace.PubSub, "mail:#{&1}"))
+      Enum.each(ids -- old, &Phoenix.PubSub.subscribe(Lovelace.PubSub, "mail:#{&1}"))
+    end
+
+    assign(socket, :directory_subscriptions, ids)
   end
 
   defp resume_connection(socket, params) do
@@ -184,6 +279,7 @@ defmodule LovelaceWeb.HomeLive do
       case Workspaces.get_workspace(params["workspace"], actor: @owner) do
         {:ok, workspace} ->
           socket
+          |> directory_subscriptions([])
           |> assign(selected: workspace, page_title: workspace.name)
           |> HomeMail.open_workspace(workspace)
 
@@ -226,6 +322,16 @@ defmodule LovelaceWeb.HomeLive do
       <div id="workspace-content" class="workspace-content" inert>
         <p id="workspace-save-status" class="sr-only" role="status">{@save_status}</p>
         <div class="workspace-topline">
+          <button
+            :if={!@connections}
+            id="show-connections"
+            type="button"
+            class="workspace-action"
+            phx-click="show_connections"
+            disabled={!!@editor || @loading || @workspaces_error}
+          >
+            <.icon name="hero-squares-plus" class="size-4" /> Connections
+          </button>
           <.form for={%{}} action="/lock" method="post" id="owner-lock-form">
             <button type="submit" class="workspace-action">Lock</button>
           </.form>
@@ -233,7 +339,7 @@ defmodule LovelaceWeb.HomeLive do
 
         <section class="workspace-directory" aria-labelledby="directory-heading">
           <button
-            :if={@selected}
+            :if={@selected && !@connections}
             id="back-to-workspaces"
             type="button"
             class="workspace-back workspace-action"
@@ -242,32 +348,42 @@ defmodule LovelaceWeb.HomeLive do
             <span aria-hidden="true">←</span> All workspaces
           </button>
 
+          <button
+            :if={@connections}
+            id="back-from-connections"
+            type="button"
+            class="workspace-back workspace-action"
+            phx-click="close_connections"
+          >
+            <.icon name="hero-arrow-left" class="size-4" />
+            {if @selected, do: @selected.name, else: "All workspaces"}
+          </button>
+
           <div class="workspace-directory-heading">
             <div>
               <h2 id="directory-heading" tabindex="-1" data-workspace-heading>
-                {if @selected, do: @selected.name, else: "Workspaces"}
+                {cond do
+                  @connections -> "Connections"
+                  @selected -> @selected.name
+                  true -> "Workspaces"
+                end}
               </h2>
             </div>
             <button
-              :if={!@selected && !@editor}
+              :if={!@selected && !@connections && !@editor}
               id="new-workspace"
               type="button"
               class="workspace-action"
               phx-click="new_workspace"
               disabled={@loading || @workspaces_error}
             >
-              New workspace
+              <.icon name="hero-plus" class="size-4" /> New workspace
             </button>
-            <button
-              :if={@selected && !@editor}
-              id="rename-current-workspace"
-              type="button"
-              class="workspace-action"
-              phx-click="rename_workspace"
-              phx-value-id={@selected.id}
-            >
-              Rename workspace
-            </button>
+            <WorkspaceComponents.workspace_menu
+              :if={@selected && !@connections && !@editor}
+              workspace={@selected}
+              current
+            />
           </div>
 
           <.form
@@ -310,30 +426,18 @@ defmodule LovelaceWeb.HomeLive do
             </div>
           </.form>
 
-          <div :if={!@selected} class="workspace-list" id="workspace-list" phx-update="stream">
-            <div :for={{dom_id, workspace} <- @streams.workspaces} id={dom_id} class="workspace-row">
-              <button
-                id={"open-#{workspace.id}"}
-                type="button"
-                class="workspace-open"
-                phx-click="open_workspace"
-                phx-value-id={workspace.id}
-                aria-label={"Open #{workspace.name}"}
-              >
-                <span class="workspace-row-name">{workspace.name}</span>
-                <span class="workspace-row-enter" aria-hidden="true">Open</span>
-              </button>
-              <button
-                id={"rename-#{workspace.id}"}
-                type="button"
-                class="workspace-row-rename workspace-action"
-                phx-click="rename_workspace"
-                phx-value-id={workspace.id}
-                aria-label={"Rename #{workspace.name}"}
-              >
-                Rename
-              </button>
-            </div>
+          <div
+            :if={!@selected && !@connections}
+            class="workspace-list"
+            id="workspace-list"
+            phx-update="stream"
+          >
+            <WorkspaceComponents.card
+              :for={{dom_id, workspace} <- @streams.workspaces}
+              id={dom_id}
+              workspace={workspace}
+              health={Map.get(@workspace_health, workspace.id)}
+            />
           </div>
 
           <p :if={@loading} id="workspaces-loading" class="workspace-notice" role="status">
@@ -344,7 +448,17 @@ defmodule LovelaceWeb.HomeLive do
             <button type="button" class="workspace-action" phx-click="retry_workspaces">Try again</button>
           </div>
 
-          <div :if={@selected && !@editor} id="workspace-landing" class="workspace-landing">
+          <MailComponents.connections
+            :if={@connections}
+            mail={@mail}
+            workspace_options={@workspace_options}
+          />
+
+          <div
+            :if={@selected && !@connections && !@editor}
+            id="workspace-landing"
+            class="workspace-landing"
+          >
             <MailComponents.panel mail={@mail} workspace={@selected} />
           </div>
         </section>

@@ -88,6 +88,46 @@ defmodule LovelaceWeb.OwnerControllerTest do
     assert {:error, _} = Owner.verify_session(token)
   end
 
+  test "Lock rejects missing or invalid CSRF without revoking, then accepts the rendered token",
+       %{
+         conn: conn
+       } do
+    conn = authenticate_owner(conn)
+    owner_token = get_session(conn, :owner_session_token)
+
+    conn =
+      conn
+      |> put_private(:plug_skip_csrf_protection, false)
+      |> get("/")
+
+    [csrf] =
+      conn
+      |> html_response(200)
+      |> LazyHTML.from_document()
+      |> LazyHTML.query("#owner-lock-form input[name=_csrf_token]")
+      |> LazyHTML.attribute("value")
+
+    for params <- [%{}, %{"_csrf_token" => "invalid-synthetic-csrf"}] do
+      assert_raise Plug.CSRFProtection.InvalidCSRFTokenError, fn ->
+        conn
+        |> recycle()
+        |> put_private(:plug_skip_csrf_protection, false)
+        |> post("/lock", params)
+      end
+
+      assert {:ok, _} = Owner.verify_session(owner_token)
+    end
+
+    locked =
+      conn
+      |> recycle()
+      |> put_private(:plug_skip_csrf_protection, false)
+      |> post("/lock", %{"_csrf_token" => csrf})
+
+    assert redirected_to(locked) == "/unlock"
+    assert {:error, _} = Owner.verify_session(owner_token)
+  end
+
   test "login failure is generic and never echoes credentials", %{conn: conn} do
     configure()
     conn = post_password(conn, "private wrong value")

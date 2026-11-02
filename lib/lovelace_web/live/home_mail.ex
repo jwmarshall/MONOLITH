@@ -2,8 +2,10 @@ defmodule LovelaceWeb.HomeMail do
   @moduledoc """
   Mail state and callbacks delegated by HomeLive after owner unlock.
 
-  Call `init/1` at mount, `open_workspace/2` on entry and `leave_workspace/1`
-  on exit. Delegate `mail:*` events, `{:mail_changed, id}` messages and async
+  Call `init/1` at mount, `open_workspace/2` or `open_connections/1` on entry
+  and `leave_workspace/1` on exit. Subscriptions track attached accounts or the
+  global connection list; only updates for the selected account refresh its view.
+  Delegate `mail:*` events, `{:mail_changed, id}` messages and async
   names beginning with `:mail`. Render `MailComponents.panel mail={@mail}
   workspace={@selected}`. All state lives in `:mail`; it contains no credentials
   or provider content. `:data_ref` resolves through Mail.ViewData only at render.
@@ -27,9 +29,16 @@ defmodule LovelaceWeb.HomeMail do
     |> load_accounts()
   end
 
+  def open_connections(socket) do
+    socket
+    |> leave_workspace()
+    |> put(%{scope: :connections})
+    |> load_accounts()
+  end
+
   def leave_workspace(socket) do
     socket = cancel_view(socket)
-    unsubscribe(socket.assigns.mail.account_id)
+    Enum.each(socket.assigns.mail.subscriptions, &unsubscribe/1)
     ViewData.clear()
     assign(socket, :mail, initial())
   end
@@ -38,11 +47,15 @@ defmodule LovelaceWeb.HomeMail do
     {:noreply, event(event, params, socket)}
   end
 
-  def handle_info({:mail_changed, id}, %{assigns: %{mail: %{account_id: id}}} = socket)
-      when not is_nil(id) do
-    socket = load_accounts(socket)
-    # Polling already fetched the inbox. Do not force another provider request.
-    {:noreply, if(socket.assigns.mail.account_id, do: request(socket, false), else: socket)}
+  def handle_info({:mail_changed, id}, socket) do
+    if id in socket.assigns.mail.subscriptions do
+      socket = load_accounts(socket)
+      # Metadata updates from another account must never fetch the selected inbox.
+      refresh = socket.assigns.mail.account_id == id
+      {:noreply, if(refresh, do: request(socket, false), else: socket)}
+    else
+      {:noreply, socket}
+    end
   end
 
   def handle_info(_, socket), do: {:noreply, socket}
@@ -80,6 +93,9 @@ defmodule LovelaceWeb.HomeMail do
   defp initial do
     %{
       workspace_id: nil,
+      scope: :workspace,
+      subscriptions: [],
+      adding: false,
       account_id: nil,
       accounts: [],
       memberships: [],
@@ -112,6 +128,11 @@ defmodule LovelaceWeb.HomeMail do
       socket
     end
   end
+
+  defp event("mail:add", _, socket),
+    do: socket |> put(%{adding: true}) |> load_accounts()
+
+  defp event("mail:close_add", _, socket), do: put(socket, %{adding: false})
 
   defp event("mail:accounts", _, socket), do: socket |> clear_view(nil) |> load_accounts()
 
@@ -190,7 +211,9 @@ defmodule LovelaceWeb.HomeMail do
          Enum.any?(mail.accounts, &(&1.id == id && &1.status == :ready)) do
       case Mail.link(mail.workspace_id, id, actor: @owner) do
         {:ok, true} ->
-          socket |> put(%{notice: "Account attached to this workspace."}) |> load_accounts()
+          socket
+          |> put(%{adding: false, notice: "Account attached to this workspace."})
+          |> load_accounts()
 
         _ ->
           put(socket, %{notice: "The account could not be attached. Try again."})
@@ -227,7 +250,7 @@ defmodule LovelaceWeb.HomeMail do
     socket = load_accounts(socket)
     mail = socket.assigns.mail
 
-    if mail.workspace_id && !mail.command &&
+    if mail.scope == :connections && !mail.command &&
          Enum.any?(mail.accounts, &(&1.id == id)) && connected?(socket) do
       socket = clear_view(socket, nil)
       mail = socket.assigns.mail
@@ -317,19 +340,26 @@ defmodule LovelaceWeb.HomeMail do
     })
   end
 
-  defp load_accounts(%{assigns: %{mail: %{workspace_id: nil}}} = socket), do: socket
+  defp load_accounts(%{assigns: %{mail: %{workspace_id: nil, scope: :workspace}}} = socket),
+    do: socket
 
   defp load_accounts(socket) do
     mail = socket.assigns.mail
 
     with {:ok, accounts} <- Mail.list_accounts(actor: @owner),
-         {:ok, memberships} <- Mail.workspace_accounts(mail.workspace_id, actor: @owner) do
+         {:ok, memberships} <- workspace_memberships(mail) do
       accounts =
         Enum.reject(accounts, &(&1.status == :disconnected && &1.last_error != :keychain))
 
       ids = Enum.map(memberships, & &1.account_id)
       ids = Enum.filter(ids, fn id -> Enum.any?(accounts, &(&1.id == id)) end)
-      socket = put(socket, %{accounts: accounts, memberships: ids, directory_error: false})
+
+      socket =
+        socket
+        |> put(%{accounts: accounts, memberships: ids, directory_error: false})
+        |> subscribe_accounts(
+          if(mail.scope == :connections, do: Enum.map(accounts, & &1.id), else: ids)
+        )
 
       if mail.account_id && mail.account_id not in ids do
         socket
@@ -343,26 +373,29 @@ defmodule LovelaceWeb.HomeMail do
         socket
         |> clear_view(nil)
         |> put(%{accounts: [], memberships: [], directory_error: true})
+        |> subscribe_accounts([])
     end
   end
 
   defp clear_view(socket, account_id) do
     socket = cancel_view(socket)
     old = socket.assigns.mail
-    unsubscribe(old.account_id)
     ViewData.clear()
-
-    if account_id && connected?(socket) do
-      Phoenix.PubSub.subscribe(Lovelace.PubSub, topic(account_id))
-    end
-
     fresh = initial()
 
     put(
       socket,
       Map.merge(
         fresh,
-        Map.take(old, [:workspace_id, :accounts, :memberships, :directory_error, :command])
+        Map.take(old, [
+          :workspace_id,
+          :scope,
+          :subscriptions,
+          :accounts,
+          :memberships,
+          :directory_error,
+          :command
+        ])
       )
       |> Map.put(:account_id, account_id)
     )
@@ -388,6 +421,20 @@ defmodule LovelaceWeb.HomeMail do
       nil -> socket
       name -> socket |> cancel_async(name) |> put(%{task: nil, loading: false})
     end
+  end
+
+  defp workspace_memberships(%{scope: :connections}), do: {:ok, []}
+  defp workspace_memberships(mail), do: Mail.workspace_accounts(mail.workspace_id, actor: @owner)
+
+  defp subscribe_accounts(socket, ids) do
+    old = socket.assigns.mail.subscriptions
+
+    if connected?(socket) do
+      Enum.each(old -- ids, &unsubscribe/1)
+      Enum.each(ids -- old, &Phoenix.PubSub.subscribe(Lovelace.PubSub, topic(&1)))
+    end
+
+    put(socket, %{subscriptions: ids})
   end
 
   defp member?(mail, id), do: mail.workspace_id != nil && id in mail.memberships

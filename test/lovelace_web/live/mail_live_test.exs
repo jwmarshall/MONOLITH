@@ -103,7 +103,8 @@ defmodule LovelaceWeb.MailLiveTest do
 
   test "landing lists attached accounts separately and uses CSRF-protected POST connect",
        context do
-    html = panel(context.socket, context.workspace)
+    assert {:noreply, socket} = HomeMail.handle_event("mail:add", %{}, context.socket)
+    html = panel(socket, context.workspace)
     assert html =~ context.first.email
     assert html =~ context.second.email
     assert html =~ "Separate accounts"
@@ -111,7 +112,8 @@ defmodule LovelaceWeb.MailLiveTest do
     assert html =~ ~s(method="post")
     assert html =~ ~s(name="_csrf_token")
     assert html =~ ~s(name="workspace_id" value="#{context.workspace.id}")
-    assert html =~ "EVERY workspace"
+    refute html =~ "Disconnect everywhere"
+    assert html =~ "Remove from workspace"
     refute html =~ "mail-search"
     refute html =~ "Send"
   end

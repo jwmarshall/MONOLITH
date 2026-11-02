@@ -29,7 +29,13 @@ defmodule Lovelace.MixProject do
 
   def cli do
     [
-      preferred_envs: [check: :test, lint: :test, credo: :test, precommit: :test]
+      preferred_envs: [
+        check: :test,
+        lint: :test,
+        credo: :test,
+        precommit: :test,
+        "test.ui": :test
+      ]
     ]
   end
 
@@ -145,6 +151,7 @@ defmodule Lovelace.MixProject do
       security: ["sobelow --private --exit low --skip"],
       audit: ["deps.audit", "hex.audit"],
       "test.js": &test_js/1,
+      "test.ui": ["assets.deploy", "run --no-start test/support/ui_browser.exs"],
       check: [
         "format --check-formatted",
         "lint",

@@ -23,7 +23,9 @@ defmodule LovelaceWeb.MailComponents do
       <div class="mail-heading">
         <div>
           <p class="mail-eyebrow">Read-only Gmail</p>
-          <h3 id="mail-heading" tabindex="-1">{if @account, do: @account.email, else: "Mail"}</h3>
+          <h3 id="mail-heading" tabindex="-1">
+            {if @account, do: @account.email, else: "Integrations"}
+          </h3>
           <p class="mail-muted">Separate accounts. Nothing sent, changed, or marked as read.</p>
         </div>
         <button
@@ -34,6 +36,16 @@ defmodule LovelaceWeb.MailComponents do
         >
           All accounts
         </button>
+        <button
+          :if={!@account && !@mail.adding}
+          id="add-integration"
+          type="button"
+          class="workspace-action workspace-action-primary"
+          phx-click="mail:add"
+          disabled={!!@mail.command || @mail.directory_error}
+        >
+          <.icon name="hero-plus" class="size-4" /> Add integration
+        </button>
       </div>
 
       <p :if={@mail.notice} id="mail-notice" class="mail-notice" role="status">{@mail.notice}</p>
@@ -43,74 +55,23 @@ defmodule LovelaceWeb.MailComponents do
       </div>
 
       <div :if={!@account && !@mail.directory_error} id="mail-accounts">
-        <h4 class="mail-section-title">In this workspace</h4>
-        <p :if={@mail.memberships == []} class="mail-muted">
-          No accounts attached yet. Connect Google once, then reuse the account in any workspace.
-        </p>
-        <div
-          :for={account <- @mail.accounts}
-          :if={account.id in @mail.memberships}
-          class="mail-account-row"
-          id={"mail-account-#{account.id}"}
-        >
-          <div class="mail-account-identity">
-            <button
-              type="button"
-              class="mail-account-open"
-              phx-click={JS.push("mail:select") |> JS.focus(to: "#mail-heading")}
-              phx-value-id={account.id}
-              disabled={!!@mail.command}
-            >
-              {account.email}<span class="mail-muted">Open inbox →</span>
-            </button>
-            <p class="mail-muted">{account_status(account)}</p>
-          </div>
-          <div class="mail-actions">
-            <.connect :if={account.status == :reconnect} workspace={@workspace} account={account} />
-            <button
-              type="button"
-              class="workspace-action"
-              phx-click="mail:detach"
-              phx-value-id={account.id}
-              disabled={!!@mail.command}
-            >Detach here</button>
-            <.disconnect account={account} busy={!!@mail.command} />
-          </div>
-        </div>
-
-        <h4 class="mail-section-title">Available to attach</h4>
-        <p :if={!Enum.any?(@mail.accounts, &(&1.id not in @mail.memberships))} class="mail-muted">
-          No other connected accounts.
-        </p>
-        <div
-          :for={account <- @mail.accounts}
-          :if={account.id not in @mail.memberships}
-          class="mail-account-row"
-          id={"mail-available-#{account.id}"}
-        >
-          <div class="mail-account-identity">
-            <p>{account.email}</p>
-            <p class="mail-muted">{account_status(account)}</p>
-          </div>
-          <div class="mail-actions">
-            <button
-              :if={account.status == :ready}
-              type="button"
-              class="workspace-action"
-              phx-click="mail:attach"
-              phx-value-id={account.id}
-              disabled={!!@mail.command}
-            >Attach here</button>
-            <.connect :if={account.status == :reconnect} workspace={@workspace} account={account} />
-            <.disconnect account={account} busy={!!@mail.command} />
-          </div>
-        </div>
-        <div class="mail-connect">
-          <.connect workspace={@workspace} />
+        <div :if={@mail.memberships == []} class="integration-empty">
+          <.icon name="hero-squares-plus" class="size-7" />
+          <p>No accounts attached yet.</p>
           <p class="mail-muted">
-            Google grants read-only access. Detach removes only this workspace link; disconnect removes the account from every workspace.
+            Add Gmail to bring a separate, read-only inbox into this workspace.
           </p>
         </div>
+        <div class="integration-grid">
+          <.integration_tile
+            :for={account <- @mail.accounts}
+            :if={account.id in @mail.memberships}
+            account={account}
+            workspace={@workspace}
+            busy={!!@mail.command}
+          />
+        </div>
+        <.add_panel :if={@mail.adding} mail={@mail} workspace={@workspace} />
       </div>
 
       <div :if={@account} id="mail-account-view">
@@ -232,8 +193,189 @@ defmodule LovelaceWeb.MailComponents do
     """
   end
 
+  attr :account, :map, required: true
   attr :workspace, :map, required: true
+  attr :busy, :boolean, required: true
+
+  defp integration_tile(assigns) do
+    ~H"""
+    <article id={"mail-account-#{@account.id}"} class="integration-tile">
+      <button
+        type="button"
+        class="mail-account-open integration-tile-open"
+        phx-click={JS.push("mail:select") |> JS.focus(to: "#mail-heading")}
+        phx-value-id={@account.id}
+        disabled={@busy}
+        aria-label={"Open inbox for #{@account.email}"}
+        aria-describedby={"integration-status-#{@account.id}"}
+      >
+        <.icon name="hero-envelope" class="integration-icon size-6" />
+        <span class="mail-eyebrow">Gmail</span>
+        <span class="integration-name">{@account.email}</span>
+        <span
+          id={"integration-status-#{@account.id}"}
+          class={["mail-muted", needs_attention?(@account) && "connection-warning"]}
+        >
+          {account_status(@account)}
+        </span>
+        <.icon name="hero-arrow-up-right" class="workspace-card-arrow size-5" />
+      </button>
+      <details id={"integration-menu-#{@account.id}"} class="workspace-menu">
+        <summary aria-label={"Manage #{@account.email}"} title={"Manage #{@account.email}"}>
+          <.icon name="hero-ellipsis-horizontal" class="size-5" />
+        </summary>
+        <div class="workspace-menu-actions">
+          <button
+            id={"detach-#{@account.id}"}
+            type="button"
+            class="workspace-action"
+            phx-click={
+              JS.remove_attribute("open", to: "#integration-menu-#{@account.id}")
+              |> JS.push("mail:detach")
+              |> JS.focus(to: "#mail-heading")
+            }
+            phx-value-id={@account.id}
+            disabled={@busy}
+          >Remove from workspace</button>
+        </div>
+      </details>
+      <div :if={@account.status == :reconnect} class="integration-recovery">
+        <.connect workspace={@workspace} account={@account} busy={@busy} />
+      </div>
+    </article>
+    """
+  end
+
+  attr :mail, :map, required: true
+  attr :workspace, :map, required: true
+
+  defp add_panel(assigns) do
+    ~H"""
+    <section
+      id="integration-add-panel"
+      class="integration-add-panel"
+      aria-labelledby="integration-add-heading"
+    >
+      <div class="mail-heading">
+        <div>
+          <h4 id="integration-add-heading" tabindex="-1" phx-mounted={JS.focus()}>Add integration</h4>
+          <p class="mail-muted">
+            Reuse a connection or connect another Google account. Gmail is currently the only integration.
+          </p>
+        </div>
+        <button
+          id="close-add-integration"
+          type="button"
+          class="workspace-action"
+          phx-click={JS.push("mail:close_add") |> JS.focus(to: "#mail-heading")}
+        >
+          Done
+        </button>
+      </div>
+      <h5 class="mail-section-title">Available connections</h5>
+      <p :if={!Enum.any?(@mail.accounts, &(&1.id not in @mail.memberships))} class="mail-muted">
+        No other connected accounts.
+      </p>
+      <div
+        :for={account <- @mail.accounts}
+        :if={account.id not in @mail.memberships}
+        id={"mail-available-#{account.id}"}
+        class="connection-row"
+      >
+        <div class="mail-account-identity">
+          <p>{account.email}</p>
+          <p class="mail-muted">{account_status(account)}</p>
+        </div>
+        <button
+          :if={account.status == :ready}
+          id={"attach-#{account.id}"}
+          type="button"
+          class="workspace-action"
+          phx-click={JS.push("mail:attach") |> JS.focus(to: "#mail-heading")}
+          phx-value-id={account.id}
+          disabled={!!@mail.command}
+        >
+          <.icon name="hero-plus" class="size-4" /> Add to workspace
+        </button>
+        <.connect
+          :if={account.status == :reconnect}
+          workspace={@workspace}
+          account={account}
+          busy={!!@mail.command}
+        />
+        <p :if={account.status == :disconnected} class="mail-muted">
+          Retry credential removal in Connections.
+        </p>
+      </div>
+      <div class="mail-connect">
+        <.connect workspace={@workspace} busy={!!@mail.command} />
+        <p class="mail-muted">
+          Google grants read-only access. Existing connections can be reused in more than one workspace.
+        </p>
+      </div>
+    </section>
+    """
+  end
+
+  attr :mail, :map, required: true
+  attr :workspace_options, :list, required: true
+
+  def connections(assigns) do
+    ~H"""
+    <section id="connections-panel" class="connections-panel" aria-label="Google connections">
+      <p class="mail-muted">
+        Reusable Google connections · read-only Gmail. Each inbox stays separate.
+      </p>
+      <p :if={@mail.notice} id="mail-notice" class="mail-notice" role="status">{@mail.notice}</p>
+      <div :if={@mail.directory_error} class="mail-notice" role="alert">
+        <p>Connections could not be loaded. No mailbox changes were made.</p>
+        <button type="button" class="workspace-action" phx-click="mail:reload_accounts">Try again</button>
+      </div>
+      <p :if={!@mail.directory_error && @mail.accounts == []} class="integration-empty">
+        No Google connections yet.
+      </p>
+      <article
+        :for={account <- @mail.accounts}
+        id={"connection-account-#{account.id}"}
+        class="connection-card"
+      >
+        <div class="connection-identity">
+          <.icon name="hero-envelope" class="integration-icon size-6" />
+          <div class="mail-account-identity">
+            <h3>{account.email}</h3>
+            <p class={["mail-muted", needs_attention?(account) && "connection-warning"]}>
+              {account_status(account)}
+            </p>
+          </div>
+        </div>
+        <div class="mail-actions">
+          <.connect
+            :if={account.status == :reconnect}
+            account={account}
+            workspace_options={@workspace_options}
+            busy={!!@mail.command}
+          />
+          <.disconnect account={account} busy={!!@mail.command} />
+        </div>
+      </article>
+      <div :if={!@mail.directory_error} class="connection-new">
+        <h3>Add Google connection</h3>
+        <p class="mail-muted">
+          Choose the workspace to receive this connection. You can reuse it elsewhere later.
+        </p>
+        <.connect workspace_options={@workspace_options} busy={!!@mail.command} />
+      </div>
+      <p class="mail-muted connection-explanation">
+        Remove from workspace only removes that workspace link. Disconnect everywhere removes all workspace links, local cached mail and credentials, and attempts Google revocation. Your Gmail mailbox is not changed.
+      </p>
+    </section>
+    """
+  end
+
+  attr :workspace, :map, default: nil
+  attr :workspace_options, :list, default: []
   attr :account, :map, default: nil
+  attr :busy, :boolean, default: false
 
   defp connect(assigns) do
     assigns =
@@ -242,7 +384,7 @@ defmodule LovelaceWeb.MailComponents do
         :form,
         to_form(
           %{
-            "workspace_id" => assigns.workspace.id,
+            "workspace_id" => if(assigns.workspace, do: assigns.workspace.id, else: ""),
             "expected_account_id" => if(assigns.account, do: assigns.account.id, else: "")
           },
           as: nil
@@ -258,9 +400,22 @@ defmodule LovelaceWeb.MailComponents do
       class="mail-oauth"
     >
       <.input
+        :if={@workspace}
         field={@form[:workspace_id]}
         id={"mail-workspace-#{if @account, do: @account.id, else: "new"}"}
         type="hidden"
+      />
+      <.input
+        :if={!@workspace}
+        field={@form[:workspace_id]}
+        id={"mail-workspace-#{if @account, do: @account.id, else: "new"}"}
+        type="select"
+        label={if @account, do: "Reconnect and add to", else: "Connect and add to"}
+        options={@workspace_options}
+        prompt="Choose workspace"
+        class="connection-workspace-select"
+        required
+        disabled={@busy}
       />
       <.input
         :if={@account}
@@ -268,7 +423,7 @@ defmodule LovelaceWeb.MailComponents do
         id={"mail-expected-#{@account.id}"}
         type="hidden"
       />
-      <button type="submit" class="workspace-action workspace-action-primary">{if @account,
+      <button type="submit" class="workspace-action workspace-action-primary" disabled={@busy}>{if @account,
         do: "Reconnect Google",
         else: "Connect Google account"}</button>
     </.form>
@@ -290,6 +445,8 @@ defmodule LovelaceWeb.MailComponents do
     >Disconnect everywhere</button>
     """
   end
+
+  defp needs_attention?(account), do: account.status != :ready || not is_nil(account.last_error)
 
   defp present(value, fallback) when value in [nil, ""], do: fallback
   defp present(value, _), do: value

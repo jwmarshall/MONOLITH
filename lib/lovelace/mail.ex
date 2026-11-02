@@ -13,6 +13,7 @@ defmodule Lovelace.Mail do
 
     resource Lovelace.Mail.WorkspaceAccount do
       define :workspace_accounts, action: :read, args: [:workspace_id]
+      define :list_workspace_accounts, action: :directory
       define :attach_account, action: :attach
       define :detach_account, action: :detach
     end

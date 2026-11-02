@@ -41,23 +41,10 @@ tier, not full desktop-native resolution; revisit visual quality after a real ge
 
 ## Inactivity / scenery mode
 
-After **three minutes** without intentional interaction, the glass returns to its
-background-focused state and pauses/resets the brand reveal. Clicks, keyboard input,
-scrolling, and touch renew the timer. Mouse movement does not count or wake the workspace.
-Clicking or typing restores workspace focus; Escape still returns to the scenery.
-All workspace content, including view names and mail, softly blurs (3px) and dims in
-this mode; it sharpens again on wake. This is a visual effect, not a privacy guarantee.
-Forced colors removes the blur/dimming so controls remain usable.
-
-The unlock and terminal-setup screens share the same edge-to-edge stage/glass shell
-and current validated local image (or original SVG fallback). These static pages stay
-focused, without an idle timer or entrance gate. The read-only background lookup never
-starts a generation. Their image-load observer does not require a LiveView socket.
-
-The timer is client-only, preserves keyboard focus on existing controls, counts elapsed
-hidden-tab/sleep time, and is not reset by a LiveView patch or new background. Listener
-and timer cleanup happens on hook destruction. Reduced motion and forced colors retain
-their existing behavior. This is a visual screensaver, **not a lock screen or authentication**.
+The [visual and interaction contract](UI_CONTRACT.md) owns focal-plane, inactivity,
+entrance, static/live image-load, accessibility and preference behavior. The idle setting
+is listed below; scenery mode is visual only, not authentication. No idle/wake/page event
+starts generation.
 
 ## Encrypted local setup
 
@@ -72,8 +59,8 @@ and a three-minute idle timer without restarting the then-running server. A late
 read-only model-metadata check succeeded; one explicitly authorized diagnostic attempt
 returned HTTP 429 / `RESOURCE_EXHAUSTED`, with no automatic follow-up. Subsequently,
 the user restarted with JPEG support and authorized one successful generation, then
-confirmed its display after refreshing (see `HANDOFF.md` sections 16–18). These are
-separate historical operations, not actions performed during remediation. Model metadata
+confirmed its display after refreshing. These are separate historical operations, not
+standing authorization for further attempts or actions performed during remediation. Model metadata
 access alone does not establish billing or quota. Eligible restarts may incur a charge.
 
 For a **fresh checkout only**, from the repository root:

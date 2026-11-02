@@ -69,6 +69,23 @@ defmodule Lovelace.MailTest do
     )
   end
 
+  test "workspace connection overview is owner-only metadata", %{workspace: w, a: a, b: b} do
+    other = Lovelace.Workspaces.create_workspace!("Another area", actor: @owner)
+    assert {:ok, true} = Mail.link(other.id, a.id, actor: @owner)
+
+    rows = Mail.list_workspace_accounts!(actor: @owner)
+
+    assert MapSet.new(rows, &{&1.workspace_id, &1.account_id}) ==
+             MapSet.new([{w.id, a.id}, {w.id, b.id}, {other.id, a.id}])
+
+    assert {:error, _} = Mail.list_workspace_accounts()
+
+    assert {:error, _} =
+             Mail.list_workspace_accounts(actor: %{role: :mail_service, account_id: a.id})
+
+    assert Lovelace.TestMail.calls() == []
+  end
+
   test "same provider IDs are namespaced and reads never mutate Gmail", %{
     workspace: w,
     a: a,

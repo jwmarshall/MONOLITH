@@ -12,8 +12,8 @@ Projects and mailbox writes remain deferred.
 
 ## Start here
 
-- [Agent handoff: requirements, architecture, guardrails, and next steps](docs/HANDOFF.md)
-- [Completed remediation: historical review and regression record](docs/REMEDIATION_HANDOFF.md)
+- [Current handoff: implementation, open work and verification](docs/HANDOFF.md)
+- [Visual and interaction contract: shared stage, navigation and accessibility](docs/UI_CONTRACT.md)
 - [Read-only Gmail: Google setup, local unlock, Keychain and privacy](docs/GMAIL.md)
 - [Development tooling and testing conventions](docs/DEVELOPMENT.md)
 - [Focused reviewer skills, routing, and Scopewright creation prompts](docs/REVIEWERS.md)
@@ -23,14 +23,10 @@ Projects and mailbox writes remain deferred.
 
 ## Identity and naming
 
-The project name is **LOVELACE**, always uppercase. Its icon is an original double
-cursive `l` monogram. The glass fills the viewport: at rest, the landscape is sharp
-and the branding is hidden. Click or keyboard-focus the pane to soften the landscape
-and reveal the centered monogram with **LOVELACE** beneath it; Escape restores the view.
-The cursive `ll` traces onto the focused glass, followed by the LOVELACE letters flipping
-up one at a time. Escape cancels the sequence; focusing again replays it. After three
-minutes without intentional interaction, focus returns to the scenery; click or type to
-resume. Mouse movement does not count. Reduced-motion mode shows the finished brand immediately.
+The project name is **LOVELACE**, always uppercase, with an original double-cursive-`l`
+monogram and edge-to-edge sea-glass interface. See the [visual/interaction contract](docs/UI_CONTRACT.md)
+for branding, entrance, scenery/wake, navigation and accessibility behavior.
+Scenery mode is visual only; use **Lock** to revoke the browser session.
 
 GSAP, Space Grotesk, and the landscape are self-hosted. GSAP's pinned source is vendored
 under `assets/vendor/gsap/` with license, provenance, and integrity checks—no npm install,
@@ -48,7 +44,7 @@ separately; no particular checkout folder name is required to run the applicatio
 - **Ash** resources, domains, actions, and policies
 - **AshSqlite** over Ecto + SQLite (no separate database service)
 - AshPhoenix; AshAuthentication password strategy for one local owner
-- Tailwind CSS 4; generated daisyUI primitives with LOVELACE's dark/amber tokens
+- Tailwind CSS 4; generated daisyUI primitives with LOVELACE's dark/sea-glass tokens
 - Req, ExUnit, LiveViewTest, and Ash's testing helpers
 - Vix/libvips for bounded strict JPEG validation; original image bytes are kept locally
 
@@ -93,12 +89,15 @@ LiveDashboard is at `/dev/dashboard`; Tidewave MCP is at `/tidewave/mcp`.
 ```sh
 mix check                 # format, compile, lint/security, schema drift, Elixir/JS tests, assets
 mix audit                 # online: dependency advisories and retired Hex packages
+mix test.ui               # separate browser gate; installed Chrome/Chromium required
 ```
 
 `mix check` and its `mix precommit` alias run in the test environment and do not
 rewrite formatting or unlock dependencies. Run `mix format` to apply formatting.
 `mix lint` also selects the test environment so AshCredo can inspect compiled test
-resources. See the development guide for individual commands and conventions.
+resources. The separate browser gate uses a disposable app/database/profile and fake
+providers, not your running app or mailbox; set `LOVELACE_BROWSER` for a custom executable.
+See the development guide for individual commands, coverage and conventions.
 
 GitHub Actions runs checks and audits using the Elixir/OTP versions from
 `.tool-versions` and Node LTS for hook tests. No Google credentials, browser installation, or network services
@@ -140,5 +139,5 @@ directory, workspace-specific account list and separate read-only Gmail views. T
 no fake mail. `Lovelace.Workspaces`, `Lovelace.Owner` and `Lovelace.Mail` own their Ash
 resources/actions/policies and schema artifacts. `Lovelace.StageDesigner` retains the
 independent startup scenery workflow. Read [the Gmail guide](docs/GMAIL.md) before enabling
-Google access and [the handoff](docs/HANDOFF.md#23-read-only-gmail-and-owner-unlock) for
+Google access and [the handoff](docs/HANDOFF.md#recorded-verification-and-operational-limits) for
 current verification and remaining limits.
