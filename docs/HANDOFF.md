@@ -13,6 +13,10 @@ Treat **confirmed requirements** as product constraints. Architecture proposals 
 open questions below are not additional user commitments. Read the actual code and
 `mix.lock` before assuming a feature or dependency exists.
 
+**Current next work:** resolve the review blockers and regression gaps in
+[the remediation handoff](REMEDIATION_HANDOFF.md) before expanding product features.
+All remediation tasks remain outstanding; section 20 records the review outcome.
+
 LOVELACE's visual direction draws on the sterile, brutalist architecture in
 *Blade Runner*. The long-term purpose is a personal productivity and innovation
 homepage/dashboard, with custom integrations as needed. The first useful version is
@@ -756,3 +760,65 @@ but its local PubSub was not the running server's PubSub, hence the required ref
 Generation inside the running server already broadcasts a LiveView image update; no
 browser-visible regenerate control has been implemented. This distinction was explained
 to the user. Broader visual-quality review, hosted CI, and cross-browser checks remain open.
+
+## 19. Focused reviewer skills
+
+Eight project-local Scopewright reviewers were created as portable Pi skills under
+`.agents/skills/lovelace-*-reviewer/SKILL.md`: architecture, Ash/SQLite,
+security/privacy, integration reliability, LiveView/UI, test reliability, account
+isolation and final cross-file integration. See [reviewer routing and creation
+prompts](REVIEWERS.md) for the names, individual definitions, scope boundaries and
+invocation examples. Account isolation applies as account/Gmail work is introduced;
+its existence does not imply Gmail is implemented.
+
+Each skill embeds SCOPED criteria, evidence-based verdicts, exact failure markers,
+untrusted-input defenses and strict read-only limits, including no command execution,
+network access, delegation or private-data acquisition. Models are inherited, not
+pinned. These are portable instructions, not a tool-permission sandbox or native
+subagent adapters. Run `/reload` in an active Pi session, then invoke
+`/skill:<reviewer-name>` with explicit target paths; the skill loads in the current
+session rather than creating an isolated reviewer process.
+
+Full-file readback and static checks passed for all eight outputs: YAML frontmatter,
+names/descriptions, SCOPED section order, exact status markers, shared safety/reporting
+requirements, local documentation links and whitespace. Runtime skill activation was
+not exercised; reload/discovery and caller-controlled tool restrictions remain separate.
+
+This was reviewer/tooling documentation work, not an application review. No
+application/runtime/dependency/schema changes, private-data access, provider calls
+or mailbox activity were needed. `mix check` and `mix audit` were not rerun for this
+skills-only change; application verification records above remain historical.
+
+## 20. Current-state review and next-agent remediation
+
+All eight focused reviewers subsequently reviewed the current application tree.
+The final cross-file assessment rejected acceptance for three confirmed HIGH issues:
+
+1. Gemini's Req/Finch path emits credential-bearing request metadata into in-process
+   telemetry. No external export or credential compromise was established.
+2. Post-publication pruning uses a local stale manifest without cross-BEAM fencing,
+   allowing an older publisher to remove newer imagery after a later publication.
+3. Bundled Topbar lacks the required complete license/checksum asset records.
+
+The test review also found nondiscriminating dimension-limit and tamper/membership
+fixtures, missing stale publish/fail assertions, and missing identical-output retention
+coverage. Add real transport-instrumentation and cleanup-interleaving regressions,
+plus independent-connection reservation-commit evidence. Existing production image,
+hash, membership and SQL-version guards are present; coverage gaps do not establish
+that those guards currently fail. Ash/SQLite review found no source blockers, and
+account isolation was N/A for the deferred Gmail implementation.
+
+See [REMEDIATION_HANDOFF.md](REMEDIATION_HANDOFF.md) for F1–F3, G1–G8, secondary
+advisories, safe reproduction evidence, acceptance criteria, implementation boundaries,
+verification and re-review routing. **No fixes have been implemented.**
+
+Fresh review-time checks passed with generation explicitly disabled: `mix check`
+(**86 ExUnit + 32 Node tests**, lint/security/schema drift/assets), `mix audit`
+(no vulnerabilities or retired packages), and production warnings-as-errors compile.
+Synthetic probes confirmed credential/prompt presence in Finch telemetry before any
+connection and deletion of a newer temporary image by stale-list pruning. They used
+no real credentials or images and did not start LOVELACE; temporary data was removed.
+No application source, private configuration/data, runtime targets or dependencies
+were changed. Browser, release-runtime/native loading, hosted CI and live-provider
+behavior remain outside this fresh verification. Green gates are a baseline, not
+approval of the outstanding issues or evidence of completed remediation.

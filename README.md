@@ -9,7 +9,9 @@ The first product slice is an account-separated, project-oriented Gmail workspac
 ## Start here
 
 - [Agent handoff: requirements, architecture, guardrails, and next steps](docs/HANDOFF.md)
+- [Next remediation: review blockers and regression gaps](docs/REMEDIATION_HANDOFF.md)
 - [Development tooling and testing conventions](docs/DEVELOPMENT.md)
+- [Focused reviewer skills, routing, and Scopewright creation prompts](docs/REVIEWERS.md)
 - [Stage designer: encrypted configuration and agreed direction](docs/STAGE_DESIGNER.md)
 - [Repository working instructions](AGENTS.md)
 - [Dependency-supplied agent guidance](DEPENDENCY_RULES.md) (requires fetched dependencies)
