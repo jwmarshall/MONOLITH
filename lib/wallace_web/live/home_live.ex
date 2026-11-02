@@ -1,6 +1,6 @@
 defmodule WallaceWeb.HomeLive do
   @moduledoc """
-  The initial workspace shell. Integration and project features are not connected yet.
+  The glass workspace foundation. Product features are not connected yet.
   """
   use WallaceWeb, :live_view
 
@@ -13,42 +13,27 @@ defmodule WallaceWeb.HomeLive do
   def render(assigns) do
     ~H"""
     <Layouts.app flash={@flash}>
-      <section id="workspace" aria-labelledby="workspace-title">
-        <p class="text-xs uppercase tracking-[0.25em] text-primary">Personal workspace</p>
-        <h1 id="workspace-title" class="mt-5 text-5xl font-light tracking-tight sm:text-6xl">
-          Space for deliberate work.
-        </h1>
-        <p class="mt-6 max-w-xl text-base leading-7 text-stone-400">
-          A private workbench for your projects and conversations.
-          Each account stays separate. Each project has its place.
-        </p>
-
-        <div class="mt-16 grid gap-px border border-base-300 bg-base-300 lg:grid-cols-3">
-          <section id="accounts-empty" class="bg-base-100 p-8" aria-labelledby="accounts-title">
-            <h2 id="accounts-title" class="text-sm font-medium">Gmail accounts</h2>
-            <p class="mt-6 text-stone-300">No accounts connected.</p>
-            <p class="mt-3 text-sm leading-6 text-stone-400">
-              Account connection is not implemented yet. Inboxes will never be combined.
-            </p>
-          </section>
-
-          <section id="projects-empty" class="bg-base-100 p-8" aria-labelledby="projects-title">
-            <h2 id="projects-title" class="text-sm font-medium">Projects</h2>
-            <p class="mt-6 text-stone-300">A place for context.</p>
-            <p class="mt-3 text-sm leading-6 text-stone-400">
-              Projects will belong to one account, with conversations linked explicitly.
-            </p>
-          </section>
-
-          <section id="sync-status" class="bg-base-100 p-8" aria-labelledby="sync-title">
-            <h2 id="sync-title" class="text-sm font-medium">Synchronization</h2>
-            <p class="mt-6 text-stone-300">Not configured.</p>
-            <p class="mt-3 text-sm leading-6 text-stone-400">
-              Background sync and job reporting will appear here once Gmail is connected.
-            </p>
-          </section>
-        </div>
-      </section>
+      <h1 id="workspace-title" class="sr-only">LOVELACE</h1>
+      <div id="workspace-brand" class="workspace-brand" aria-hidden="true">
+        <svg
+          id="lovelace-monogram"
+          class="workspace-monogram"
+          viewBox="0 0 104 104"
+          fill="none"
+          xmlns="http://www.w3.org/2000/svg"
+          aria-hidden="true"
+          focusable="false"
+        >
+          <path
+            d="M16 82C34 65 64 23 56 12C48 1 33 37 29 63C24 94 41 88 57 70C73 51 89 18 80 12C70 3 56 42 52 66C47 91 62 90 88 71"
+            stroke="currentColor"
+            stroke-width="1.8"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          />
+        </svg>
+        <p class="workspace-wordmark">LOVELACE</p>
+      </div>
     </Layouts.app>
     """
   end

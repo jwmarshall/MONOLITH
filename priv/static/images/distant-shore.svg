@@ -1,0 +1,66 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="2400" height="1600" viewBox="0 0 2400 1600" fill="none">
+  <!-- Original local scenery for Wallace. No external images, fonts, or filters. -->
+  <defs>
+    <linearGradient id="sky" x1="1200" y1="0" x2="1200" y2="1050" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#303c3d"/>
+      <stop offset=".38" stop-color="#727973"/>
+      <stop offset=".74" stop-color="#c5b89b"/>
+      <stop offset="1" stop-color="#e4c99a"/>
+    </linearGradient>
+    <radialGradient id="light" cx="0" cy="0" r="1" gradientTransform="translate(1660 730) rotate(90) scale(680 1060)" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#f5d9a1" stop-opacity=".48"/>
+      <stop offset="1" stop-color="#e8c894" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="water" x1="1200" y1="930" x2="1200" y2="1600" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#999e8d"/>
+      <stop offset=".35" stop-color="#707f77"/>
+      <stop offset="1" stop-color="#354b4b"/>
+    </linearGradient>
+    <radialGradient id="reflection" cx="0" cy="0" r="1" gradientTransform="translate(1660 1016) rotate(90) scale(620 290)" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#e0c999" stop-opacity=".28"/>
+      <stop offset="1" stop-color="#d6c8a3" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="stone" x1="0" y1="900" x2="920" y2="1400" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#303e3c"/>
+      <stop offset="1" stop-color="#172c2d"/>
+    </linearGradient>
+    <pattern id="ripples" width="340" height="45" patternUnits="userSpaceOnUse">
+      <path d="M12 9h52m96 0h112M84 29h84m94 6h62" stroke="#d1c8ac" stroke-opacity=".13"/>
+      <path d="M0 19h29m82 0h98m90 0h41" stroke="#223e3e" stroke-opacity=".18"/>
+    </pattern>
+  </defs>
+
+  <path fill="url(#sky)" d="M0 0h2400v1600H0z"/>
+  <path fill="url(#light)" d="M0 0h2400v1300H0z"/>
+  <circle cx="1680" cy="683" r="48" fill="#ead7af" opacity=".78"/>
+
+  <!-- Distant ridgelines remain deliberately crisp in the resting state. -->
+  <path d="m0 855 121-29 112 20 116-94 81 38 137-126 70 33 90-64 89 81 105-37 72 57 104-21 76 70 125-57 106 33 105-88 72 26 123-83 66 42 110-57 133 96 81-14 81 35H2400v239H0Z" fill="#919488"/>
+  <path d="m0 921 131-30 109 15 95-41 128 32 140-104 95 32 86-62 91 75 83-23 105 80 110-29 97 45 135-61 111 36 126-73 109 31 98-42 128 43 132-22H2400v220H0Z" fill="#78867d"/>
+  <path d="m0 985 177-40 109 15 161-47 96 30 146-21 125 48 136-19 150 36 153-26 126 23 152-33 139 11 158-35 143 29 229-36H2400v194H0Z" fill="#5e756e"/>
+
+  <path fill="url(#water)" d="M0 1016h2400v584H0z"/>
+  <path d="M0 1016h2400v584H0Z" fill="url(#reflection)"/>
+  <path fill="url(#ripples)" d="M0 1032h2400v568H0z"/>
+  <g stroke="#dfd3b3" stroke-opacity=".25">
+    <path d="M1220 1036h534m-686 10h188m79 12h580m-406 18h352m-196 23h345m-596 23h387m-261 27h497m-720 31h405m-147 37h322m-631 45h460m-252 48h387m-557 61h266"/>
+  </g>
+
+  <!-- A quiet, inhabited shoreline anchors the scale across the water. -->
+  <path d="m0 1021 180-8 174 5 195-10 170 8 180-3 216 10H0Z" fill="#3e5752"/>
+  <path d="M578 992h78v21h-78zm91 8h117v13H669z" fill="#52645b"/>
+  <path d="M578 991h78v3h-78zm91 8h117v3H669z" fill="#c6ba98" opacity=".65"/>
+  <path d="M614 994v17m88-9v9m29-9v9m27-9v9" stroke="#344b47" stroke-width="3"/>
+
+  <!-- Near rock shelves frame the open water without becoming UI decoration. -->
+  <path d="m0 1060 152 38 111 60 164 34 124 81 143 37 128 92 180 64 209 134H0Z" fill="url(#stone)"/>
+  <path d="m0 1060 152 38 111 60 164 34 124 81-154-52-141-26-126-68L0 1098Z" fill="#58645a"/>
+  <path d="m0 1245 214 25 174 89 176 35 123 81 166 125H0Z" fill="#203536"/>
+  <path d="m0 1245 214 25 174 89 176 35-190-12-173-83L0 1280Z" fill="#3c4b45"/>
+  <path d="m2400 1158-160 44-104 72-158 29-124 79-209 55-173 163h928Z" fill="#233c3c"/>
+  <path d="m2400 1158-160 44-104 72-158 29-124 79 149-57 156-26 107-70 134-35Z" fill="#58665c"/>
+  <path d="m2400 1390-174 13-99 56-172 46-107 95h552Z" fill="#1b3234"/>
+  <g stroke="#8c8f77" stroke-opacity=".2">
+    <path d="m87 1128 100 19 61 41m103 46 99 24 48 34m-417 37 105 11 53 27m187 39 115 30m1644-66 62-15 52-37m-13 114 100-26 79-42"/>
+  </g>
+</svg>

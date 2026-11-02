@@ -7,7 +7,20 @@
 
 @plugin "../vendor/heroicons";
 
-/* Keep the generated component primitives, but give Wallace its own visual tokens. */
+@font-face {
+  font-family: "Space Grotesk";
+  font-style: normal;
+  font-weight: 300 700;
+  font-display: swap;
+  src: url("/fonts/space-grotesk/space-grotesk-variable.woff2") format("woff2");
+}
+
+@theme {
+  --font-sans: "Space Grotesk", ui-sans-serif, system-ui, sans-serif,
+    "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
+}
+
+/* Keep the generated component primitives with the workspace's visual tokens. */
 @plugin "daisyui/packages/bundle/daisyui" {
   themes: false;
 }
@@ -64,4 +77,152 @@
 ::selection {
   background: #d6aa69;
   color: #141412;
+}
+
+/* The workspace's two focal planes. Only the scenery and decorative chrome blur;
+   future working content, focus rings, and alerts must remain readable. */
+:root {
+  --workspace-focus-duration: 650ms;
+  --workspace-focus-easing: cubic-bezier(0.22, 1, 0.36, 1);
+  --workspace-scenery-blur: 14px;
+  --workspace-chrome-blur: 1.4px;
+}
+
+.glass-workspace {
+  position: relative;
+  isolation: isolate;
+  min-height: 100svh;
+  height: 100dvh;
+  overflow: hidden;
+  background: #514c40;
+}
+
+.workspace-background {
+  position: absolute;
+  z-index: -1;
+  inset: -24px;
+  background: #514c40 url("/images/distant-shore.svg") center / cover no-repeat;
+  filter: blur(0);
+  transition: filter var(--workspace-focus-duration) var(--workspace-focus-easing);
+  pointer-events: none;
+}
+
+.workspace-glass {
+  position: relative;
+  min-height: 100%;
+  background: rgb(18 22 21 / 2%);
+  transition: background var(--workspace-focus-duration) var(--workspace-focus-easing);
+}
+
+.workspace-pane {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  cursor: default;
+}
+
+/* A fine edge and a restrained reflection, not a floating frosted card. */
+.workspace-glass::after {
+  content: "";
+  position: absolute;
+  inset: 10px;
+  border: 1px solid rgb(238 237 229 / 12%);
+  background: linear-gradient(115deg, rgb(255 250 234 / 3%), transparent 38%);
+  filter: blur(var(--workspace-chrome-blur));
+  pointer-events: none;
+  transition: filter var(--workspace-focus-duration) var(--workspace-focus-easing);
+}
+
+.workspace-brand {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 20px;
+  padding: 32px;
+  color: #f3efe4;
+  opacity: 0;
+  filter: blur(var(--workspace-chrome-blur));
+  pointer-events: none;
+  transition:
+    opacity var(--workspace-focus-duration) var(--workspace-focus-easing),
+    filter var(--workspace-focus-duration) var(--workspace-focus-easing);
+}
+
+.workspace-monogram {
+  width: 104px;
+  height: 104px;
+  flex-shrink: 0;
+}
+
+.workspace-wordmark {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 300;
+  line-height: 1.5;
+  letter-spacing: 0.45em;
+  padding-left: 0.45em;
+}
+
+.glass-workspace:has(#workspace-pane[aria-pressed="true"]) {
+  .workspace-background {
+    filter: blur(var(--workspace-scenery-blur));
+  }
+
+  .workspace-glass {
+    background: rgb(18 22 21 / 18%);
+  }
+
+  .workspace-brand {
+    opacity: 1;
+    filter: blur(0);
+  }
+
+  .workspace-glass::after {
+    filter: blur(0);
+  }
+}
+
+.workspace-pane:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: -12px;
+}
+
+.workspace-skip-link {
+  position: absolute;
+  z-index: 2;
+  top: 16px;
+  left: 16px;
+  padding: 12px 16px;
+  background: var(--color-base-100);
+  color: var(--color-base-content);
+  transform: translateY(calc(-100% - 24px));
+}
+
+.workspace-skip-link:focus {
+  transform: translateY(0);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --workspace-focus-duration: 0ms;
+  }
+}
+
+@media (forced-colors: active) {
+  .workspace-background {
+    display: none;
+  }
+
+  .workspace-brand {
+    color: CanvasText;
+    filter: none;
+  }
 }

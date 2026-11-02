@@ -3,6 +3,9 @@
 ## 1. Purpose and authority
 
 This document records the product interview, repository bootstrap, and subsequent Ash/tooling foundation.
+The current UI trials the name **LOVELACE** (always uppercase) with a double cursive `l`
+monogram. This is a visual rebrand only: `:wallace`, `Wallace`, `WallaceWeb`, repository,
+configuration keys, and database paths remain unchanged pending a naming decision.
 See `DEVELOPMENT.md` for tooling commands and testing conventions.
 Treat **confirmed requirements** as product constraints. Architecture proposals and
 open questions below are not additional user commitments. Read the actual code and
@@ -69,13 +72,17 @@ Implemented:
 - Credo/AshCredo, Sobelow, mix_audit, Req/Req.Test, Igniter, UsageRules, and dev-only Tidewave.
 - A `mix check` quality gate and `mix audit` online dependency gate; GitHub Actions configured.
 - Explicit browser Content-Security-Policy; no security-scan findings suppressed.
-- `/` is a LiveView with a Wallace-branded shell and explicitly unconfigured account,
-  project, and sync sections. It has no domain actions or fake mailbox data.
-- Shared dark/amber design tokens, custom favicon, keyboard focus and skip-link support.
+- `/` is a full-viewport glass LiveView with an original local landscape. There is no
+  top title. Click/keyboard focus sharpens the pane, blurs the scenery, and reveals a
+  centered double cursive `l` monogram with **LOVELACE** beneath it. Escape hides the
+  brand and restores the scenery. No marketing, fake data, or product controls.
+  Screen-reader instructions explicitly identify the unconnected foundation.
+- Shared dark/amber design tokens, self-hosted Space Grotesk variable typography,
+  custom favicon, keyboard focus and skip-link support.
 - Tailwind/esbuild pipeline; generated daisyUI core component primitives retained.
 - Generated error handling, telemetry, and development-only LiveDashboard.
 - HTTP/LiveView shell and error tests plus test-only Ash persistence/validation/rollback,
-  Req.Test, CSP, and development-tool exclusion checks. See section 10 for the current count.
+  Req.Test, CSP, and development-tool exclusion checks. See section 11 for the current count.
 - Loopback-only dev **and production** listeners; development LiveView origin checks enabled.
 - Git ignore rules for local credentials, databases/sidecars, dependencies, and builds.
 
@@ -93,7 +100,7 @@ No job-runner dependency is installed. No Google credentials are needed to run t
 | `mix.exs`, `mix.lock` | Dependencies and Mix aliases |
 | `lib/wallace/application.ex` | Supervision tree (Repo, PubSub, endpoint, generated utilities) |
 | `lib/wallace/repo.ex` | AshSqlite/Ecto repository with transactional writes |
-| `lib/wallace_web/live/home_live.ex` | Current workspace placeholder |
+| `lib/wallace_web/live/home_live.ex` | Minimal glass workspace and wordmark |
 | `lib/wallace_web/router.ex` | Browser pipeline, root LiveView, dev dashboard |
 | `lib/wallace_web/components/` | Layouts and generated core UI components |
 | `assets/css/app.css` | Wallace theme tokens and Tailwind setup |
@@ -237,7 +244,8 @@ minimalist dark architecture. Translate the reference, do not reproduce film bra
 - Strong geometry, fine dividers, limited corner rounding, deliberate negative space.
 - Strong typographic hierarchy; readable practical density inside mail/project views.
 - Avoid neon cyberpunk, HUD decoration, excessive glow, animated backgrounds,
-  gratuitous glass/gradients, or a wall of ornamental widgets.
+  floating frosted cards, or a wall of ornamental widgets. The user-approved glass
+  direction below supersedes the original recommendation against glass.
 - Keep controls, active account, unread/selected states, errors, and focus indicators clear.
 - Never trade contrast or long-message readability for cinematic dimness.
 - Motion should be functional, subtle, and respect reduced-motion preferences.
@@ -245,6 +253,49 @@ minimalist dark architecture. Translate the reference, do not reproduce film bra
 Initial tokens are in `assets/css/app.css`: background `#141412`, secondary surface
 `#1b1b18`, border `#34342e`, text `#eeede5`, amber `#d6aa69`. They are a starting point,
 not a fully approved visual system. No external font/CDN is required.
+
+### Glass workspace standard (user-directed foundation)
+
+- Fill the viewport edge to edge, not a centered dashboard card. No top-centered title
+  or front-page marketing text. The user replaced the original `wallace` wordmark with
+  a trial **LOVELACE** identity: an original double cursive `l` above the uppercase name,
+  centered in the viewport and visible only when the glass is in focus.
+- The brand fades in/out with the focal-plane transition, without shifting layout or
+  intercepting clicks. An always-available screen-reader heading names the workspace;
+  the visual brand is decorative. The matching monogram is also the favicon.
+- The interface is a nearly transparent window onto a distant, in-focus background.
+  At rest, formal UI chrome is softly defocused (currently 1.4px); the scenery is sharp.
+- Clicking the pane or reaching it by keyboard swaps the focal planes: chrome sharpens,
+  scenery softens (currently 14px), and a restrained tint supports future working content.
+  Repeated clicks keep the pane focused. Escape restores the distant view; there is
+  no inactivity timer, hover switching, or surprise defocus while working.
+- Focus switching uses LiveView client-side JS commands and CSS, without server events,
+  persistence, or new JS dependencies. Keyboard focus indicators and alerts never blur.
+  Transitions respect reduced motion; forced-colors mode removes scenery and text blur.
+- `priv/static/images/distant-shore.svg` is original, replaceable local scenery, not a
+  remotely fetched image. Its landscape is a starting interpretation, not a user-selected
+  photograph. No external content requests, animation, or parallax.
+- Extend this focal-plane model when adding real controls: keyboard focus must sharpen
+  the working pane, the first click must still activate the intended control, and active
+  content must remain readable. The current full-pane focus button is an empty-shell
+  affordance; replace it rather than layering an invisible button over future controls.
+- Shared implementation: `Layouts.app/1` and the `.workspace-*` CSS rules/tokens.
+  The user approved the glass shell, scenery, and focus effect after viewing it.
+
+### Typography standard
+
+- The user selected **Space Grotesk** for an architectural, geometric character.
+  Use the shared Tailwind `--font-sans` token throughout the UI; keep system fallbacks.
+- The uppercase **LOVELACE** wordmark uses weight 300, 13px, and 0.45em tracking
+  below the 104px hand-drawn SVG monogram (no cursive font or external asset needed).
+  Regular UI text defaults to 400; the bundled upright variable font supports 300–700.
+  Do not apply wordmark tracking or light weights to future long-form email content.
+- Self-host the unmodified WOFF2 under `priv/static/fonts/space-grotesk/`, with the
+  upstream SIL OFL 1.1 license and a provenance/checksum README beside it. No runtime
+  Google Fonts/CDN requests; `font-display: swap` and a same-origin preload prevent
+  invisible text and avoid unnecessary font-loading latency.
+- The current face is upright only. Revisit italics and language coverage with real
+  mail typography rather than silently claiming comprehensive script support.
 
 ## 8. Recommended next work, in order
 
@@ -362,3 +413,38 @@ suites, factory/mocking/coverage-service libraries, job engine, authentication s
 and all product resources. See `DEVELOPMENT.md` for commands, schema/snapshot workflow,
 remaining caveats, and when to introduce those tools. Add a codegen-drift CI check
 with the first real registered resource. `.tool-versions` remains unchanged.
+
+## 11. Glass workspace, typography, and branding verification
+
+The UI-only update removes the marketing and unconfigured section cards. It adds no
+product functionality, dependencies, resources, remote backgrounds, or runtime changes.
+The ongoing design contract is recorded in section 7.
+
+- `mix check`: passed; **13 tests passed**, including local scenery delivery and
+  accessible focus-control markup. Credo/AshCredo, Sobelow, and asset builds passed.
+- `mix audit`: no vulnerabilities or retired packages found.
+- Ad hoc headless Chrome checks through local DevTools: initial sharp scenery/soft
+  wordmark, mouse focus, Escape reset, Tab focus, Enter/Space activation, reduced-motion
+  transitions, forced-colors presentation, and viewport fit at 1440×1000 and 390×844
+  passed. Resting/focused screenshots were inspected. No browser-test dependency added;
+  these checks are not part of the permanent ExUnit/CI suite.
+- Browser checks used the existing loopback dev server at `http://localhost:4000`.
+  `127.0.0.1` HTTP works, but LiveView's enabled origin check expects `localhost`;
+  security settings were not relaxed to accommodate the browser check.
+- The user subsequently approved the glass design (before the LOVELACE branding trial).
+  Cross-browser checks and a production release test remain open. The temporary headless browser was stopped; the existing
+  development server was left running. `.tool-versions` is unchanged.
+- Subsequent typography update: `mix check` passed with **14 tests**, including local
+  WOFF2 delivery and font preload markup; `mix audit` remained clean. Headless Chrome
+  confirmed the bundled font loads at weights 300/400/500/700 and actually renders the
+  wordmark using Space Grotesk Light (not a fallback). Focus/keyboard/accessibility and
+  viewport checks were repeated successfully; the focused screenshot was inspected.
+  The font asset and OFL license are vendored; no package dependency was added.
+- LOVELACE visual-brand trial: `mix check` passed with **15 tests**; `mix audit` remained
+  clean and digested assets were refreshed. Headless Chrome verified an invisible brand
+  at rest, click/keyboard reveal, Escape hide, centered monogram with uppercase name
+  beneath, updated document title, local Space Grotesk rendering, reduced-motion and
+  forced-colors behavior, and desktop/mobile viewport fit. Resting/focused screenshots
+  were inspected. The icon is an original SVG path, reused in the favicon; no package,
+  cursive font, internal module, configuration key, or database rename was introduced.
+  The user approved this visual branding trial; an internal project rename remains deferred.

@@ -11,24 +11,32 @@ defmodule WallaceWeb.Layouts do
 
   def app(assigns) do
     ~H"""
-    <a
-      href="#main-content"
-      class="sr-only focus:not-sr-only focus:absolute focus:p-4 focus:bg-base-200"
-    >
-      Skip to content
-    </a>
-    <header class="border-b border-base-300 px-6 py-7 lg:px-12">
-      <div class="mx-auto flex max-w-7xl items-center justify-between gap-6">
-        <.link navigate={~p"/"} class="text-sm font-medium uppercase tracking-[0.4em]">
-          Wallace
-        </.link>
-        <span class="text-xs uppercase tracking-[0.2em] text-stone-400">Private workspace</span>
-      </div>
-    </header>
+    <div id="workspace" class="glass-workspace">
+      <a href="#workspace-pane" class="workspace-skip-link">Skip to workspace</a>
+      <div id="workspace-background" class="workspace-background" aria-hidden="true"></div>
 
-    <main id="main-content" class="mx-auto max-w-7xl px-6 py-16 lg:px-12 lg:py-24">
-      {render_slot(@inner_block)}
-    </main>
+      <main id="main-content" class="workspace-glass" aria-labelledby="workspace-title">
+        <p id="workspace-instructions" class="sr-only">
+          Click or focus the workspace to bring the glass into focus. Press Escape to look
+          through to the landscape. Workspace features are not connected yet.
+        </p>
+        <button
+          id="workspace-pane"
+          type="button"
+          class="workspace-pane"
+          aria-label="Focus workspace"
+          aria-describedby="workspace-instructions"
+          aria-pressed="false"
+          phx-click={JS.set_attribute({"aria-pressed", "true"})}
+          phx-focus={JS.set_attribute({"aria-pressed", "true"})}
+          phx-window-keydown={JS.set_attribute({"aria-pressed", "false"})}
+          phx-key="Escape"
+        >
+          <span class="sr-only">Focus workspace</span>
+        </button>
+        {render_slot(@inner_block)}
+      </main>
+    </div>
 
     <.flash_group flash={@flash} />
     """
