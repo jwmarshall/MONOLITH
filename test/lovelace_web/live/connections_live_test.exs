@@ -123,6 +123,7 @@ defmodule LovelaceWeb.ConnectionsLiveTest do
 
   test "workspace cards expose only their own problem metadata and separate native menus", ctx do
     {:ok, view, _} = live(ctx.conn, ~p"/")
+    view |> element("#show-workspaces") |> render_click()
     alpha = "#workspaces-#{ctx.workspace.id}"
     beta = "#workspaces-#{ctx.other.id}"
 
@@ -161,6 +162,7 @@ defmodule LovelaceWeb.ConnectionsLiveTest do
   test "account PubSub updates refresh card problems without healthy or cross-workspace leakage",
        ctx do
     {:ok, view, _} = live(ctx.conn, ~p"/")
+    view |> element("#show-workspaces") |> render_click()
     status(ctx.reconnect, %{status: :ready, last_error: nil})
     broadcast(ctx.reconnect.id)
 
@@ -385,13 +387,14 @@ defmodule LovelaceWeb.ConnectionsLiveTest do
     assert FakeIO.calls() == []
   end
 
-  test "back returns to the directory or originating workspace without restoring inbox content",
+  test "center nav returns Home and contextual back returns the workspace without inbox content",
        ctx do
     {:ok, view, _} = live(ctx.conn, ~p"/")
     view |> element("#show-connections") |> render_click()
-    assert has_element?(view, "#back-from-connections", "All workspaces")
-    view |> element("#back-from-connections") |> render_click()
-    assert has_element?(view, "#workspace-list")
+    refute has_element?(view, "#back-from-connections")
+    view |> element("#home-link") |> render_click()
+    assert has_element?(view, "#home-overview")
+    refute has_element?(view, "#workspace-list")
     assert socket(view).assigns.mail.scope == :workspace
     assert socket(view).assigns.mail.accounts == []
 
@@ -549,8 +552,10 @@ defmodule LovelaceWeb.ConnectionsLiveTest do
     ViewData.clear()
   end
 
-  defp open_workspace(view, workspace),
-    do: view |> element("#open-#{workspace.id}") |> render_click()
+  defp open_workspace(view, workspace) do
+    view |> element("#show-workspaces") |> render_click()
+    view |> element("#open-#{workspace.id}") |> render_click()
+  end
 
   defp disconnect(view, connection) do
     view

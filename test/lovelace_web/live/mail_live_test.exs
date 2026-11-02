@@ -107,7 +107,7 @@ defmodule LovelaceWeb.MailLiveTest do
     html = panel(socket, context.workspace)
     assert html =~ context.first.email
     assert html =~ context.second.email
-    assert html =~ "Separate accounts"
+    refute html =~ "Separate accounts"
     assert html =~ ~s(action="/oauth/google/start")
     assert html =~ ~s(method="post")
     assert html =~ ~s(name="_csrf_token")
@@ -170,6 +170,41 @@ defmodule LovelaceWeb.MailLiveTest do
     assert socket.assigns.mail.account_id == nil
     assert socket.assigns.mail.data_ref == nil
     refute socket.assigns.mail.loading
+  end
+
+  test "loading is an announced indeterminate status, distinct from actionable warnings",
+       context do
+    socket = pending(context.socket, context.first.id)
+    document = socket |> panel(context.workspace) |> LazyHTML.from_fragment()
+
+    assert Enum.any?(
+             LazyHTML.query(
+               document,
+               "#mail-status[role=status][aria-live=polite][aria-atomic=true]"
+             )
+           )
+
+    assert LazyHTML.query(document, "#mail-loading") |> LazyHTML.text() =~ "Loading messages"
+
+    assert Enum.any?(
+             LazyHTML.query(document, "#mail-loading .mail-loading-track[aria-hidden=true]")
+           )
+
+    assert Enum.empty?(LazyHTML.query(document, ".mail-warning, [role=progressbar]"))
+
+    socket =
+      change(socket, %{thread_id: "t1", error: :rate_limited, stale: true, data_loaded: true})
+
+    document = socket |> panel(context.workspace) |> LazyHTML.from_fragment()
+    assert LazyHTML.query(document, "#mail-loading") |> LazyHTML.text() =~ "Loading conversation"
+    assert LazyHTML.query(document, ".mail-warning") |> LazyHTML.text() =~ "rate limit"
+    assert LazyHTML.query(document, ".mail-warning") |> LazyHTML.text() =~ "stale local mail"
+
+    document =
+      socket |> change(%{loading: false}) |> panel(context.workspace) |> LazyHTML.from_fragment()
+
+    assert Enum.empty?(LazyHTML.query(document, "#mail-loading"))
+    assert Enum.any?(LazyHTML.query(document, ".mail-warning"))
   end
 
   test "successful page replaces the bounded list and retains truthful cache metadata", context do
@@ -252,6 +287,94 @@ defmodule LovelaceWeb.MailLiveTest do
     refute html =~ "href=\"https://"
   end
 
+  test "reader has one title, native message disclosures and full metadata without hiding body text",
+       context do
+    messages =
+      for n <- 1..3 do
+        %{
+          "id" => "m#{n}",
+          "subject" => if(n == 2, do: "A different subject", else: "Conversation title"),
+          "from" => "Sender <sender@example.test>",
+          "to" => "first@example.test, colleague@example.test",
+          "date" => "Mon, 2 Nov 2026 09:15:00 +0000",
+          "text" =>
+            "Reply #{n}\n\n> Quoted history\nSignature <img src='https://remote.test/pixel'>"
+        }
+      end
+
+    socket = select(context.socket, context.first.id)
+    ref = ViewData.put(%{"messages" => messages})
+    socket = change(socket, %{thread_id: "t1", data_loaded: true, data_ref: ref})
+
+    html = panel(socket, context.workspace)
+    document = LazyHTML.from_fragment(html)
+    assert ViewData.get(ref) == %{"messages" => messages}
+    assert html =~ "Conversation title"
+
+    assert LazyHTML.query(document, "#mail-conversation-heading") |> LazyHTML.text() ==
+             "Conversation title"
+
+    assert length(LazyHTML.query(document, ".mail-message[open]") |> LazyHTML.to_tree()) == 1
+
+    assert LazyHTML.query(document, "#mail-message-m3[open][data-mail-latest=true]")
+           |> LazyHTML.to_tree() != []
+
+    assert LazyHTML.query(document, "#mail-message-m1[open], #mail-message-m2[open]")
+           |> LazyHTML.to_tree() == []
+
+    assert LazyHTML.query(document, ".mail-message-subject") |> LazyHTML.text() |> String.trim() ==
+             "A different subject"
+
+    assert LazyHTML.query(document, "#mail-message-details-m3 dd") |> LazyHTML.text() =~
+             "colleague@example.test"
+
+    assert LazyHTML.query(document, "#mail-message-m3 .mail-message-text") |> LazyHTML.text() =~
+             "> Quoted history\nSignature <img"
+
+    assert LazyHTML.query(document, "#mail-threads, img, script, a") |> LazyHTML.to_tree() == []
+    refute inspect(socket.assigns) =~ "Quoted history"
+    assert html =~ "ignore_attrs"
+  end
+
+  test "reader return retains query and page while new list intents rotate client context",
+       context do
+    socket = select(context.socket, context.first.id)
+    initial_key = socket.assigns.mail.list_key
+
+    {:noreply, socket} =
+      HomeMail.handle_event("mail:search", %{"mail_search" => %{"query" => "everywhere"}}, socket)
+
+    refute socket.assigns.mail.list_key == initial_key
+
+    socket = change(socket, %{next_page_token: "second-page"})
+    search_key = socket.assigns.mail.list_key
+    {:noreply, socket} = HomeMail.handle_event("mail:next", %{}, socket)
+    page_key = socket.assigns.mail.list_key
+    refute page_key == search_key
+
+    ref = ViewData.put(%{"threads" => [%{"id" => "t1"}]})
+    socket = change(socket, %{data_loaded: true, data_ref: ref})
+    {:noreply, socket} = HomeMail.handle_event("mail:thread", %{"id" => "t1"}, socket)
+    assert socket.assigns.mail.list_key == page_key
+    assert socket.assigns.mail.thread_id == "t1"
+    assert ViewData.get(ref) == nil
+
+    {:noreply, socket} = HomeMail.handle_event("mail:back", %{}, socket)
+    assert socket.assigns.mail.list_key == page_key
+    assert socket.assigns.mail.thread_id == nil
+    assert socket.assigns.mail.query == "everywhere"
+    assert socket.assigns.mail.page_token == "second-page"
+    refute socket.assigns.mail.data_loaded
+
+    {:noreply, socket} = HomeMail.handle_event("mail:first", %{}, socket)
+    refute socket.assigns.mail.list_key == page_key
+    assert socket.assigns.mail.page_token == nil
+    page_key = socket.assigns.mail.list_key
+    socket = select(socket, context.second.id)
+    refute socket.assigns.mail.list_key == page_key
+    assert socket.assigns.mail.query == nil
+  end
+
   test "reconnect binds the exact expected identity", context do
     socket = select(context.socket, context.first.id) |> change(%{error: :reconnect})
     html = panel(socket, context.workspace)
@@ -324,6 +447,16 @@ defmodule LovelaceWeb.MailLiveTest do
 
     view |> element("#mail-account-#{context.first.id} .mail-account-open") |> render_click()
     assert render_async(view) =~ "Private inbox subject"
+
+    assert has_element?(
+             view,
+             ".mail-inbox-heading #mail-search input[type=search][aria-label='Search Gmail']"
+           )
+
+    assert has_element?(view, "#mail-search button[type=submit]", "Search")
+    assert has_element?(view, ".mail-toolbar button", "All accounts")
+    refute has_element?(view, "#mail-panel button", "Home")
+    refute render(view) =~ "Search this entire Gmail account"
     refute inspect(:sys.get_state(view.pid).socket.assigns) =~ "Private inbox subject"
     view |> element("button", "Next page") |> render_click()
     assert render_async(view) =~ "Next page"
@@ -337,6 +470,12 @@ defmodule LovelaceWeb.MailLiveTest do
     refute inspect(assigns) =~ "Private snippet"
     refute inspect(assigns) =~ "Private conversation subject"
     assert assigns.mail.thread_id == "t1"
+    assert has_element?(view, "#mail-message-m1[open]")
+    refute has_element?(view, "#mail-threads")
+    view |> element("#mail-back") |> render_click()
+    assert render_async(view) =~ "Account-wide match"
+    assert :sys.get_state(view.pid).socket.assigns.mail.query == "everywhere"
+    assert has_element?(view, "#mail-thread-t1[data-mail-open-thread]")
 
     Phoenix.PubSub.broadcast(
       Lovelace.PubSub,

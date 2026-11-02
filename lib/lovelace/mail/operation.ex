@@ -41,6 +41,25 @@ defmodule Lovelace.Mail.Operation do
       run Lovelace.Mail.Operations
     end
 
+    action :account_page, :map do
+      argument :account_id, :uuid, allow_nil?: false
+      argument :query, :string, constraints: [max_length: 1024], sensitive?: true
+      argument :page_token, :string, constraints: [max_length: 2048], sensitive?: true
+      argument :force, :boolean, default: false
+      run Lovelace.Mail.Operations
+    end
+
+    action :account_thread, :map do
+      argument :account_id, :uuid, allow_nil?: false
+
+      argument :thread_id, :string,
+        allow_nil?: false,
+        constraints: [match: ~r/\A[a-zA-Z0-9_-]{1,128}\z/]
+
+      argument :force, :boolean, default: false
+      run Lovelace.Mail.Operations
+    end
+
     action :poll, :map do
       argument :account_id, :uuid, allow_nil?: false
       argument :generation, :uuid, allow_nil?: false
@@ -49,7 +68,7 @@ defmodule Lovelace.Mail.Operation do
   end
 
   policies do
-    policy action([:link, :unlink, :disconnect, :page, :thread]) do
+    policy action([:link, :unlink, :disconnect, :page, :thread, :account_page, :account_thread]) do
       access_type :strict
       authorize_if Lovelace.Workspaces.LocalOwner
     end

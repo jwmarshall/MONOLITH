@@ -26,6 +26,8 @@ defmodule Lovelace.Mail do
       define :disconnect, action: :disconnect, args: [:account_id]
       define :mail_page, action: :page, args: [:workspace_id, :account_id]
       define :thread, action: :thread, args: [:workspace_id, :account_id, :thread_id]
+      define :account_page, action: :account_page, args: [:account_id]
+      define :account_thread, action: :account_thread, args: [:account_id, :thread_id]
       define :poll, action: :poll, args: [:account_id, :generation]
     end
   end

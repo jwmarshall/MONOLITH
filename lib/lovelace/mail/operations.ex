@@ -52,17 +52,15 @@ defmodule Lovelace.Mail.Operations do
     case scoped_account(id, actor) do
       {:ok, %{status: :ready, generation: generation} = account}
       when generation == args.generation ->
+        unread_error = fetch_unread(account, actor)
+
         result =
-          fetch(
-            account,
-            page_key(nil, nil),
-            fn token -> provider().inbox(token, nil) end,
-            true,
-            actor
-          )
+          account
+          |> fetch(page_key(nil, nil), fn token -> provider().inbox(token, nil) end, true, actor)
+          |> poll_result(unread_error)
 
         broadcast(id)
-        {:ok, result}
+        {:ok, if(same_connection?(account, actor), do: result, else: failure(:unavailable))}
 
       _ ->
         {:ok, %{skipped: true}}
@@ -86,6 +84,24 @@ defmodule Lovelace.Mail.Operations do
     else
       {:ok, %{status: :reconnect}} -> {:ok, failure(:reconnect)}
       _ -> {:ok, failure(:unavailable)}
+    end
+  end
+
+  defp execute(action, args, %{role: :local_owner} = actor)
+       when action in [:account_page, :account_thread] do
+    case Mail.get_account(args.account_id, actor: actor) do
+      {:ok, %{status: :ready} = account} ->
+        kind = if action == :account_page, do: :page, else: :thread
+        {key, request} = request(kind, args)
+        result = fetch(account, key, request, args.force, actor)
+
+        if same_connection?(account, actor), do: {:ok, result}, else: {:ok, failure(:unavailable)}
+
+      {:ok, %{status: :reconnect}} ->
+        {:ok, failure(:reconnect)}
+
+      _ ->
+        {:ok, failure(:unavailable)}
     end
   end
 
@@ -144,6 +160,108 @@ defmodule Lovelace.Mail.Operations do
       {:error, reason} -> failed_fetch(account, cached, reason, actor)
       _ -> failed_fetch(account, cached, :unavailable, actor)
     end
+  end
+
+  # Count health belongs to this observation, not to whichever page/thread most
+  # recently succeeded. HTTP and token access stay outside the short write transaction.
+  defp fetch_unread(account, actor) do
+    with :ok <- admit_request(account, actor),
+         {:ok, token} <- Connections.access_token(account),
+         :ok <- admit_request(account, actor),
+         {:ok, count} <- request_unread(token),
+         {:ok, error} when error in [nil, :rate_limited] <- publish_unread(account, count, actor) do
+      error
+    else
+      {:error, :cooldown} -> unread_failure(account, :rate_limited, actor, false)
+      {:error, reason} -> unread_failure(account, reason, actor, true)
+      _ -> unread_failure(account, :provider, actor, true)
+    end
+  end
+
+  defp request_unread(token) do
+    case provider().inbox_unread(token) do
+      {:ok, count} when is_integer(count) and count >= 0 -> {:ok, count}
+      {:error, reason} -> {:error, safe_reason(reason)}
+      _ -> {:error, :provider}
+    end
+  rescue
+    _ -> {:error, :provider}
+  catch
+    _, _ -> {:error, :provider}
+  end
+
+  defp publish_unread(account, count, actor) do
+    result =
+      Ash.transact(Account, fn -> publish_current_unread(account, count, actor) end)
+
+    case result do
+      {:ok, outcome} -> outcome
+      _ -> {:error, :unavailable}
+    end
+  rescue
+    _ -> {:error, :unavailable}
+  catch
+    _, _ -> {:error, :unavailable}
+  end
+
+  defp publish_current_unread(account, count, actor) do
+    with {:ok, current} <- current_account(account, actor) do
+      error = if cooldown?(current), do: :rate_limited
+
+      case Mail.update_account(
+             current,
+             %{
+               expected_generation: account.generation,
+               inbox_unread_count: count,
+               inbox_unread_at: DateTime.utc_now(),
+               inbox_unread_error: error
+             },
+             actor: actor
+           ) do
+        {:ok, _} -> {:ok, error}
+        _ -> {:error, :unavailable}
+      end
+    end
+  end
+
+  defp unread_failure(account, reason, actor, persist?) do
+    reason = safe_reason(reason)
+
+    result =
+      Ash.transact(Account, fn -> persist_unread_failure(account, reason, actor, persist?) end)
+
+    case result do
+      {:ok, {:ok, _}} -> reason
+      _ -> :unavailable
+    end
+  end
+
+  defp persist_unread_failure(account, reason, actor, persist?) do
+    with {:ok, current} <- current_account(account, actor) do
+      error = if cooldown?(current), do: :rate_limited, else: reason
+
+      fields =
+        if persist?,
+          do: failure_fields(current, reason),
+          else: %{expected_generation: account.generation}
+
+      Mail.update_account(current, Map.put(fields, :inbox_unread_error, error), actor: actor)
+    end
+  end
+
+  defp poll_result(result, nil), do: result
+
+  defp poll_result(%{error: error} = result, unread_error) do
+    # Rate limiting and reconnect remain terminal; other count failures use the
+    # existing bounded worker retry path even when the inbox page succeeded.
+    error =
+      cond do
+        error in [:rate_limited, :reconnect] -> error
+        unread_error in [:rate_limited, :reconnect] -> unread_error
+        true -> error || unread_error
+      end
+
+    Map.merge(result, %{error: error, stale: true})
   end
 
   defp admit_request(account, actor) do
@@ -313,6 +431,9 @@ defmodule Lovelace.Mail.Operations do
             expected_generation: account.generation,
             status: :disconnected,
             generation: Ash.UUID.generate(),
+            inbox_unread_count: nil,
+            inbox_unread_at: nil,
+            inbox_unread_error: nil,
             # Persist cleanup intent before crossing the nontransactional vault boundary.
             last_error: :keychain
           },

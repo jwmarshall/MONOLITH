@@ -255,6 +255,45 @@ defmodule Lovelace.Integrations.GoogleTest do
            }
   end
 
+  test "unread inbox conversations come only from a validated INBOX label total" do
+    owner = self()
+
+    for count <- [0, 42] do
+      configure(fn req ->
+        send(owner, :label_request)
+
+        assert {req.method, req.host, req.path} ==
+                 {"GET", "gmail.googleapis.com", "/gmail/v1/users/me/labels/INBOX"}
+
+        assert {"authorization", "Bearer " <> @access} in req.headers
+        json(%{id: "INBOX", threadsUnread: count, messagesUnread: 999, resultSizeEstimate: 1000})
+      end)
+
+      assert {:ok, ^count} = Google.inbox_unread(@access)
+      assert_receive :label_request
+      refute_receive :label_request
+    end
+
+    for data <-
+          [
+            %{},
+            %{id: "INBOX", messagesUnread: 12, resultSizeEstimate: 12},
+            %{threadsUnread: 12},
+            %{id: "UNREAD", threadsUnread: 12},
+            %{id: "inbox", threadsUnread: 12}
+          ] ++ Enum.map([nil, -1, 1.0, "12", true, [], %{}], &%{id: "INBOX", threadsUnread: &1}) do
+      configure(fn _ -> json(data) end)
+      assert {:error, :invalid_response} = Google.inbox_unread(@access)
+    end
+
+    for {status, reason} <- [{401, :unauthorized}, {429, :rate_limited}, {503, :provider_error}] do
+      configure(fn _ -> {:ok, %{status: status, headers: [], body: ""}} end)
+      assert {:error, ^reason} = Google.inbox_unread(@access)
+    end
+
+    assert {:error, :invalid_request} = Google.inbox_unread("invalid token")
+  end
+
   test "missing threads means empty page, overlarge list and unsafe IDs fail" do
     configure(fn _ -> json(%{}) end)
     assert {:ok, %{threads: [], next_page_token: nil}} = Google.inbox(@access)

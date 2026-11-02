@@ -16,13 +16,7 @@ export default {
       this.timeline = gsap.timeline({
         paused: true,
         onComplete: () => {
-          // Hold the finished mark briefly, then unflip the letters and untrace
-          // the monogram. Do not open the workspace gate until the exit finishes.
-          this.exiting = true
-          this.timeline.timeScale(1.8).reverse()
-        },
-        onReverseComplete: () => {
-          if (this.active && this.exiting) this.complete()
+          if (this.active) this.complete()
         },
       })
         .fromTo(stroke,
@@ -35,6 +29,17 @@ export default {
             stagger: 0.085, ease: "power3.out", immediateRender: true},
           1.35)
         .to({}, {duration: 0.25})
+        .addLabel("exit")
+        .call(() => { this.exiting = true })
+        // Continue the flip upward, left-to-right, and erase from the opposite
+        // end of the stroke instead of playing the entrance backward.
+        .to(letters,
+          {opacity: 0, rotationX: 90, yPercent: -60, duration: 0.6 / 1.8,
+            stagger: 0.085 / 1.8, ease: "power3.in"},
+          "exit")
+        .to(stroke,
+          {strokeDashoffset: -length, duration: 1.35 / 1.8, ease: "power2.inOut"},
+          "exit+=0.55")
     }, this.el)
 
     this.onFocus = () => this.reveal()
@@ -67,8 +72,8 @@ export default {
   },
 
   finishWithoutMotion() {
-    // Suppress callbacks: seeking to the end must not start a reverse animation
-    // when reduced motion is requested, including during the exit.
+    // Suppress callbacks and skip both entrance and exit when reduced motion
+    // is requested, including during an active exit.
     this.timeline.progress(1, true).pause()
     this.complete()
   },

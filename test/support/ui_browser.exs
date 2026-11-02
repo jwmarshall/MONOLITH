@@ -24,11 +24,60 @@ defmodule Lovelace.UIFixture do
   def refresh("synthetic-refresh"), do: {:ok, %{access_token: "synthetic-access"}}
   def revoke(_token), do: :ok
 
-  def inbox("synthetic-access", _page),
-    do: {:ok, %{"threads" => [], "next_page_token" => nil}}
+  def inbox("synthetic-access", _page) do
+    threads =
+      for number <- 1..20 do
+        %{
+          "id" => "synthetic-thread-#{number}",
+          "subject" => "Synthetic conversation #{number}",
+          "from" => "sender@example.test",
+          "snippet" => "Read-only browser fixture",
+          "date" => "Today",
+          "unread" => false
+        }
+      end
+
+    {:ok, %{"threads" => threads, "next_page_token" => nil}}
+  end
 
   def search("synthetic-access", _query, _page), do: inbox("synthetic-access", nil)
-  def thread("synthetic-access", _id), do: {:ok, %{"messages" => []}}
+
+  def thread("synthetic-access", id) do
+    # Bounded synthetic provider latency lets Chrome inspect the real loading
+    # state, rather than injecting markup or racing an immediate fake response.
+    Process.sleep(400)
+    subject = "Synthetic conversation #{String.replace_prefix(id, "synthetic-thread-", "")}"
+
+    latest_text =
+      Enum.map_join(1..20, "\n\n", fn
+        19 ->
+          "https://mail-fixture.invalid/" <> String.duplicate("synthetic-unbroken-path", 30)
+
+        20 ->
+          ~s|<img src="https://mail-fixture.invalid/body.png" onerror="alert('synthetic')">|
+
+        number ->
+          "Synthetic paragraph #{number}. This read-only conversation exercises comfortable " <>
+            "long-form reading, line wrapping and the shared scrolling content pane. " <>
+            "Nothing in this browser fixture is real mail, and no remote content should load."
+      end)
+
+    messages =
+      for number <- 1..3 do
+        %{
+          "id" => "synthetic-message-#{number}",
+          "subject" => if(number == 2, do: "Synthetic alternate subject", else: subject),
+          "from" => "Synthetic Sender <sender@example.test>",
+          "to" =>
+            ~s(Browser <browser@example.test>, <img src="https://mail-fixture.invalid/recipient.png">),
+          "date" =>
+            "Sat, 15 Mar 2025 #{String.pad_leading(to_string(number + 8), 2, "0")}:30:00 +0000",
+          "text" => if(number == 3, do: latest_text, else: "Synthetic earlier message #{number}.")
+        }
+      end
+
+    {:ok, %{"messages" => messages}}
+  end
 end
 
 try do
@@ -89,7 +138,9 @@ try do
 
   workspace = Lovelace.Workspaces.create_workspace!("Browser studio", actor: owner)
 
-  for number <- 1..14,
+  shared_workspace = Lovelace.Workspaces.create_workspace!("Synthetic space 1", actor: owner)
+
+  for number <- 2..14,
       do: Lovelace.Workspaces.create_workspace!("Synthetic space #{number}", actor: owner)
 
   account =
@@ -103,7 +154,42 @@ try do
       actor: owner
     )
 
-  Lovelace.Mail.attach_account!(%{workspace_id: workspace.id, account_id: account.id},
+  Lovelace.Mail.update_account!(
+    account,
+    %{
+      expected_generation: account.generation,
+      inbox_unread_count: 7,
+      inbox_unread_at: now,
+      inbox_unread_error: nil
+    },
+    actor: owner
+  )
+
+  for space <- [workspace, shared_workspace] do
+    Lovelace.Mail.attach_account!(%{workspace_id: space.id, account_id: account.id},
+      actor: owner
+    )
+  end
+
+  unattached =
+    Lovelace.Mail.save_connection!(
+      %{
+        id: Ecto.UUID.generate(),
+        subject: "synthetic-unattached-browser-account",
+        email: "unattached@example.test",
+        generation: Ecto.UUID.generate()
+      },
+      actor: owner
+    )
+
+  Lovelace.Mail.update_account!(
+    unattached,
+    %{
+      expected_generation: unattached.generation,
+      inbox_unread_count: 0,
+      inbox_unread_at: now,
+      inbox_unread_error: nil
+    },
     actor: owner
   )
 
@@ -112,7 +198,15 @@ try do
   {_output, status} =
     System.cmd(
       "node",
-      ["test/browser/ui_contract.mjs", browser, root, "http://localhost:#{port}", workspace.id],
+      [
+        "test/browser/ui_contract.mjs",
+        browser,
+        root,
+        "http://localhost:#{port}",
+        workspace.id,
+        account.id,
+        unattached.id
+      ],
       into: IO.stream(:stdio, :line),
       env: [{"LOVELACE_STAGE_ENABLED", "false"}]
     )

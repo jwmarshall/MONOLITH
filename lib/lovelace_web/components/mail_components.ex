@@ -5,7 +5,7 @@ defmodule LovelaceWeb.MailComponents do
   alias Lovelace.Mail.ViewData
 
   attr :mail, :map, required: true
-  attr :workspace, :map, required: true
+  attr :workspace, :map, default: nil
 
   def panel(assigns) do
     # Local render assigns only; never copy provider content into the LV socket.
@@ -16,28 +16,47 @@ defmodule LovelaceWeb.MailComponents do
       |> assign(:account, Enum.find(assigns.mail.accounts, &(&1.id == assigns.mail.account_id)))
       |> assign(:threads, Enum.take(Map.get(data || %{}, "threads", []), 20))
       |> assign(:messages, Map.get(data || %{}, "messages", []))
+      |> assign(:conversation_subject, conversation_subject(data))
       |> assign(:payload_expired, assigns.mail.data_loaded && is_nil(data))
 
     ~H"""
-    <section id="mail-panel" class="mail-panel" aria-labelledby="mail-heading">
-      <div class="mail-heading">
-        <div>
+    <section
+      id="mail-panel"
+      class="mail-panel"
+      aria-labelledby="mail-heading"
+      phx-hook="MailReader"
+      data-mail-context={"#{@mail.list_key}:#{@account && @account.generation}"}
+      data-mail-thread={@mail.thread_id || ""}
+      data-mail-loaded={to_string(@mail.data_loaded && !@payload_expired)}
+    >
+      <div class={["mail-heading", @account && "mail-inbox-heading"]}>
+        <div class="mail-account-identity">
           <p class="mail-eyebrow">Read-only Gmail</p>
           <h3 id="mail-heading" tabindex="-1">
             {if @account, do: @account.email, else: "Integrations"}
           </h3>
-          <p class="mail-muted">Separate accounts. Nothing sent, changed, or marked as read.</p>
         </div>
-        <button
+        <.form
           :if={@account}
-          type="button"
-          class="workspace-action"
-          phx-click={JS.push("mail:accounts") |> JS.focus(to: "#mail-heading")}
+          for={@mail.search_form}
+          id="mail-search"
+          class="mail-search"
+          phx-submit="mail:search"
+          aria-label="Search Gmail"
         >
-          All accounts
-        </button>
+          <.input
+            field={@mail.search_form[:query]}
+            type="search"
+            aria-label="Search Gmail"
+            placeholder="Search"
+            class="mail-search-input"
+            maxlength="1024"
+            autocomplete="off"
+          />
+          <button type="submit" class="workspace-action" disabled={!!@mail.command}>Search</button>
+        </.form>
         <button
-          :if={!@account && !@mail.adding}
+          :if={!@account && !@mail.adding && @mail.scope != :home}
           id="add-integration"
           type="button"
           class="workspace-action workspace-action-primary"
@@ -54,7 +73,7 @@ defmodule LovelaceWeb.MailComponents do
         <button type="button" class="workspace-action" phx-click="mail:reload_accounts">Try again</button>
       </div>
 
-      <div :if={!@account && !@mail.directory_error} id="mail-accounts">
+      <div :if={!@account && !@mail.directory_error && @mail.scope != :home} id="mail-accounts">
         <div :if={@mail.memberships == []} class="integration-empty">
           <.icon name="hero-squares-plus" class="size-7" />
           <p>No accounts attached yet.</p>
@@ -76,29 +95,30 @@ defmodule LovelaceWeb.MailComponents do
 
       <div :if={@account} id="mail-account-view">
         <.connect
-          :if={@account.status == :reconnect || @mail.error == :reconnect}
+          :if={@workspace && (@account.status == :reconnect || @mail.error == :reconnect)}
           workspace={@workspace}
           account={@account}
         />
-        <.form for={@mail.search_form} id="mail-search" class="mail-search" phx-submit="mail:search">
-          <.input
-            field={@mail.search_form[:query]}
-            type="search"
-            label="Search this entire Gmail account"
-            class="mail-search-input"
-            maxlength="1024"
-            autocomplete="off"
-          />
-          <button type="submit" class="workspace-action" disabled={!!@mail.command}>Search</button>
-        </.form>
-
+        <button
+          :if={!@workspace && (@account.status == :reconnect || @mail.error == :reconnect)}
+          type="button"
+          class="workspace-action"
+          phx-click="show_connections"
+        >Reconnect in Connections</button>
         <div class="mail-toolbar">
           <div class="mail-actions">
             <button
-              :if={@mail.thread_id}
+              :if={@mail.scope != :home}
               type="button"
               class="workspace-action"
-              phx-click={JS.push("mail:back") |> JS.focus(to: "#mail-heading")}
+              phx-click={JS.push("mail:accounts") |> JS.focus(to: "#mail-heading")}
+            >All accounts</button>
+            <button
+              :if={@mail.thread_id}
+              id="mail-back"
+              type="button"
+              class="workspace-action"
+              phx-click="mail:back"
             >← Back to results</button>
             <button
               :if={!@mail.thread_id && (@mail.query || @mail.page_token)}
@@ -107,32 +127,53 @@ defmodule LovelaceWeb.MailComponents do
               phx-click="mail:first"
             >First page</button>
             <span :if={!@mail.thread_id} class="mail-muted">{if @mail.query,
-              do: "Account search results",
+              do: "Search results",
               else: "Inbox"}</span>
           </div>
-          <button
-            type="button"
-            class="workspace-action"
-            phx-click="mail:refresh"
-            disabled={@mail.loading || !!@mail.command}
-          >Refresh</button>
+          <div class="mail-tools">
+            <details :if={@mail.fetched_at} id="mail-observation" class="mail-observation">
+              <summary>
+                <span
+                  id="mail-freshness"
+                  phx-hook="MailFreshness"
+                  phx-update="ignore"
+                  data-fetched-at={DateTime.to_iso8601(@mail.fetched_at)}
+                  data-stale={to_string(@mail.stale || not is_nil(@mail.error))}
+                  data-cached={to_string(@mail.cached)}
+                >
+                  {if @mail.cached, do: "Local copy ·", else: "Fetched ·"}
+                  {Calendar.strftime(@mail.fetched_at, "%Y-%m-%d %H:%M:%S UTC")}
+                </span>
+              </summary>
+              <p>
+                Fetched ·
+                <time datetime={DateTime.to_iso8601(@mail.fetched_at)}>{Calendar.strftime(
+                  @mail.fetched_at,
+                  "%Y-%m-%d %H:%M:%S UTC"
+                )}</time>
+              </p>
+            </details>
+            <button
+              id="mail-refresh"
+              type="button"
+              class="workspace-action"
+              phx-click="mail:refresh"
+              disabled={@mail.loading || !!@mail.command}
+            >Refresh</button>
+          </div>
         </div>
 
-        <div id="mail-status" class="mail-status" role="status" aria-live="polite">
-          <p :if={@mail.loading}>
-            Loading {if @mail.thread_id, do: "conversation", else: "messages"}…
+        <div id="mail-status" class="mail-status" role="status" aria-live="polite" aria-atomic="true">
+          <p :if={@mail.loading} id="mail-loading" class="mail-loading">
+            <span class="mail-loading-track" aria-hidden="true"></span>
+            <span>Loading {if @mail.thread_id, do: "conversation", else: "messages"}…</span>
           </p>
-          <p :if={@mail.error}>{error_text(@mail.error)}</p>
-          <p :if={@payload_expired}>This local view has expired. Refresh to load it again.</p>
-          <p :if={@mail.stale && @mail.data_loaded}>
+          <p :if={@mail.error} class="mail-warning">{error_text(@mail.error)}</p>
+          <p :if={@payload_expired} class="mail-warning">
+            This local view has expired. Refresh to load it again.
+          </p>
+          <p :if={@mail.stale && @mail.data_loaded} class="mail-warning">
             Showing stale local mail. It may no longer match Gmail.
-          </p>
-          <p :if={@mail.fetched_at}>
-            {if @mail.cached, do: "Local copy ·", else: "Fetched ·"}
-            <time datetime={DateTime.to_iso8601(@mail.fetched_at)}>{Calendar.strftime(
-              @mail.fetched_at,
-              "%Y-%m-%d %H:%M:%S UTC"
-            )}</time>
           </p>
         </div>
 
@@ -145,40 +186,80 @@ defmodule LovelaceWeb.MailComponents do
             id={"mail-thread-#{thread["id"]}"}
             type="button"
             class={["mail-thread", thread["unread"] == true && "mail-thread-unread"]}
-            phx-click={JS.push("mail:thread") |> JS.focus(to: "#mail-heading")}
+            phx-click="mail:thread"
             phx-value-id={thread["id"]}
+            data-mail-open-thread
           >
-            <span class="mail-thread-meta"><span>{thread["from"]}</span><span>{thread["date"]}</span></span>
-            <span class="mail-thread-subject">{present(thread["subject"], "(No subject)")}</span>
-            <span class="mail-thread-snippet">{thread["snippet"]}</span>
+            <span class="mail-thread-marker" aria-hidden="true"></span>
+            <span class="mail-thread-content">
+              <span class="mail-thread-meta">
+                <span class="mail-thread-sender">{present(thread["from"], "(Unknown sender)")}</span>
+                <.mail_date id={"thread-date-#{thread["id"]}"} value={thread["date"]} />
+              </span>
+              <span class="mail-thread-subject">{present(thread["subject"], "(No subject)")}</span>
+              <span class="mail-thread-snippet">{thread["snippet"]}</span>
+            </span>
             <span :if={thread["unread"] == true} class="sr-only">Unread in Gmail</span>
           </button>
         </div>
 
-        <div :if={@mail.thread_id} id="mail-conversation" aria-busy={to_string(@mail.loading)}>
+        <section
+          :if={@mail.thread_id}
+          id="mail-conversation"
+          class="mail-reader"
+          aria-label="Conversation"
+          aria-busy={to_string(@mail.loading)}
+        >
+          <header :if={@messages != []} class="mail-conversation-header">
+            <h4 id="mail-conversation-heading" tabindex="-1">{@conversation_subject}</h4>
+            <p class="mail-muted">
+              {length(@messages)} {if length(@messages) == 1,
+                do: "message",
+                else: "messages"}
+            </p>
+          </header>
           <p :if={@mail.data_loaded && !@payload_expired && @messages == []} class="mail-empty">
             No plain-text messages are available.
           </p>
-          <article
-            :for={message <- @messages}
+          <details
+            :for={{message, index} <- Enum.with_index(@messages)}
             id={"mail-message-#{message["id"]}"}
             class="mail-message"
+            open={index == length(@messages) - 1}
+            data-mail-latest={to_string(index == length(@messages) - 1)}
+            phx-mounted={JS.ignore_attributes("open")}
           >
-            <h4>{present(message["subject"], "(No subject)")}</h4>
-            <dl class="mail-message-meta">
-              <dt>From</dt><dd>{message["from"]}</dd>
-              <dt>To</dt><dd>{message["to"]}</dd>
-              <dt>Date</dt><dd>{message["date"]}</dd>
-            </dl>
-            <p :if={message["text"] in [nil, ""]} class="mail-muted">
-              No plain-text body. HTML and attachments are not displayed.
-            </p>
-            <pre :if={message["text"] not in [nil, ""]} class="mail-message-text">{message["text"]}</pre>
-          </article>
-          <p class="mail-muted">
-            Plain text only. Remote images, links, and attachments are not loaded.
-          </p>
-        </div>
+            <summary class="mail-message-summary">
+              <span class="mail-message-chevron" aria-hidden="true">›</span>
+              <span class="mail-message-sender">{present(message["from"], "(Unknown sender)")}</span>
+              <.mail_date id={"message-date-#{message["id"]}"} value={message["date"]} />
+            </summary>
+            <div class="mail-message-content">
+              <p
+                :if={present(message["subject"], "(No subject)") != @conversation_subject}
+                class="mail-message-subject"
+              >
+                {present(message["subject"], "(No subject)")}
+              </p>
+              <details
+                id={"mail-message-details-#{message["id"]}"}
+                class="mail-message-details"
+                phx-mounted={JS.ignore_attributes("open")}
+              >
+                <summary>Show details<span class="sr-only"> for message {index + 1}</span></summary>
+                <dl class="mail-message-meta">
+                  <dt>From</dt><dd>{message["from"]}</dd>
+                  <dt>To</dt><dd>{message["to"]}</dd>
+                  <dt>Date</dt><dd>{message["date"]}</dd>
+                </dl>
+              </details>
+              <p :if={message["text"] in [nil, ""]} class="mail-muted">
+                No plain-text body. HTML and attachments are not displayed.
+              </p>
+              <pre :if={message["text"] not in [nil, ""]} class="mail-message-text">{message["text"]}</pre>
+            </div>
+          </details>
+        </section>
 
         <div :if={!@mail.thread_id && @mail.next_page_token} class="mail-pagination">
           <button
@@ -444,6 +525,24 @@ defmodule LovelaceWeb.MailComponents do
       data-confirm={"Disconnect #{@account.email} everywhere? This removes all its local cached mail, stored credentials, and connections from EVERY workspace, and attempts to revoke Google access. Your Gmail mailbox is not changed."}
     >Disconnect everywhere</button>
     """
+  end
+
+  attr :id, :string, required: true
+  attr :value, :string, default: nil
+
+  defp mail_date(assigns) do
+    ~H"""
+    <time id={@id} phx-hook="MailDate" phx-update="ignore" data-mail-date={@value} title={@value}>
+      {present(@value, "Date unavailable")}
+    </time>
+    """
+  end
+
+  defp conversation_subject(data) do
+    case Map.get(data || %{}, "messages", []) do
+      [message | _] -> present(message["subject"], "(No subject)")
+      _ -> "(No subject)"
+    end
   end
 
   defp needs_attention?(account), do: account.status != :ready || not is_nil(account.last_error)

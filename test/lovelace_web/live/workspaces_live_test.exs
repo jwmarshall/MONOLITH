@@ -12,6 +12,8 @@ defmodule LovelaceWeb.WorkspacesLiveTest do
 
   test "initializes Personal once and preserves its renamed name on reconnect", %{conn: conn} do
     {:ok, view, _html} = live(conn, ~p"/")
+    assert has_element?(view, "#home-overview")
+    view |> element("#show-workspaces") |> render_click()
     assert has_element?(view, "#open-#{@personal_id}", "Personal")
 
     view |> element("#rename-#{@personal_id}") |> render_click()
@@ -19,12 +21,16 @@ defmodule LovelaceWeb.WorkspacesLiveTest do
     assert has_element?(view, "#open-#{@personal_id}", "My quiet corner")
 
     {:ok, reopened, _html} = live(conn, ~p"/")
+    assert has_element?(reopened, "#home-overview")
+    refute has_element?(reopened, "#workspace-list")
+    reopened |> element("#show-workspaces") |> render_click()
     assert has_element?(reopened, "#open-#{@personal_id}", "My quiet corner")
     assert length(Workspaces.list_workspaces!(actor: @owner)) == 1
   end
 
   test "creates, opens, renames and returns to the directory", %{conn: conn} do
     {:ok, view, _html} = live(conn, ~p"/")
+    view |> element("#show-workspaces") |> render_click()
     view |> element("#new-workspace") |> render_click()
     assert has_element?(view, "#workspace-name[required][maxlength='64']")
     view |> form("#workspace-form", workspace: %{name: "  Studio  "}) |> render_submit()
@@ -57,6 +63,7 @@ defmodule LovelaceWeb.WorkspacesLiveTest do
 
   test "validates names on the server without losing the editor or writing records", %{conn: conn} do
     {:ok, view, _html} = live(conn, ~p"/")
+    view |> element("#show-workspaces") |> render_click()
     view |> element("#new-workspace") |> render_click()
 
     for name <- ["   ", String.duplicate("a", 65)] do
@@ -80,12 +87,14 @@ defmodule LovelaceWeb.WorkspacesLiveTest do
   test "treats workspace names as text, not markup", %{conn: conn} do
     workspace = Workspaces.create_workspace!("<script>alert(1)</script>", actor: @owner)
     {:ok, view, _html} = live(conn, ~p"/")
+    view |> element("#show-workspaces") |> render_click()
     assert has_element?(view, "#open-#{workspace.id}", "<script>alert(1)</script>")
     refute has_element?(view, "#workspace-content script")
   end
 
   test "missing and malformed workspace IDs do not crash or open another space", %{conn: conn} do
     {:ok, view, _html} = live(conn, ~p"/")
+    view |> element("#show-workspaces") |> render_click()
 
     for id <- [Ash.UUID.generate(), "not-a-uuid"] do
       render_click(view, "open_workspace", %{"id" => id})
@@ -101,6 +110,8 @@ defmodule LovelaceWeb.WorkspacesLiveTest do
          conn: conn
        } do
     {:ok, view, _html} = live(conn, ~p"/")
+    view |> element("#show-workspaces") |> render_click()
+    assert_push_event(view, "workspace:focus-heading", %{})
     view |> element("#open-#{@personal_id}") |> render_click()
     assert_push_event(view, "workspace:focus-heading", %{})
 
@@ -132,13 +143,19 @@ defmodule LovelaceWeb.WorkspacesLiveTest do
     assert_push_event(view, "workspace:focus-heading", %{})
     view |> element("#show-connections") |> render_click()
     assert_push_event(view, "workspace:focus-heading", %{})
-    view |> element("#back-from-connections") |> render_click()
+    refute has_element?(view, "#back-from-connections")
+    view |> element("#home-link") |> render_click()
+    assert_push_event(view, "workspace:focus-heading", %{})
+    assert has_element?(view, "#home-overview")
+    refute has_element?(view, "#workspace-list")
+    view |> element("#show-workspaces") |> render_click()
     assert_push_event(view, "workspace:focus-heading", %{})
     assert has_element?(view, "#workspace-list")
   end
 
   test "background updates preserve the current workspace and unsaved form", %{conn: conn} do
     {:ok, view, _html} = live(conn, ~p"/")
+    view |> element("#show-workspaces") |> render_click()
     view |> element("#open-#{@personal_id}") |> render_click()
     view |> element("#rename-current-workspace") |> render_click()
     view |> form("#workspace-form", workspace: %{name: "Not saved yet"}) |> render_change()

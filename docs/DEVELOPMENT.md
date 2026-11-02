@@ -121,14 +121,33 @@ or projects. Account connection and read-only mail are implemented separately in
 
 `WorkspaceComponents.card/1` and `MailComponents` render directory and integration surfaces;
 `HomeLive`/`HomeMail` own in-page navigation and account-topic lifecycle. See
-[UI_CONTRACT.md](UI_CONTRACT.md#workspace-and-integration-navigation) for control semantics,
+[UI_CONTRACT.md](UI_CONTRACT.md#home-workspace-and-integration-navigation) for control semantics,
 management context and navigation behavior.
 
 Workspace card health reads only Ash account/membership metadata, not message caches or
 provider APIs. Known problems are grouped by workspace/account, and subscriptions follow
 the current directory, workspace or global Connections context. A metadata update from
-another account never requests the selected inbox. Numeric unread inbox counts are deferred:
-conversation flags on a bounded page do not establish an account-wide unread total.
+another account never requests the selected inbox. Home reads persisted per-account unread inbox conversation counts, independently timestamped
+from cached pages. Polling obtains Gmail INBOX label `threadsUnread`; conversation flags on
+a bounded page never establish an account-wide unread total. Apply the new additive count
+migration before restarting the updated app; do not reset the database.
+
+`MailComponents` renders balanced inbox rows and the dedicated plain-text reader. The
+`MailReader` hook owns only ephemeral focus/scroll navigation memory, fenced by the opaque
+result-list context and connection generation; it never persists bodies or queries. Native
+message/metadata disclosures retain their `open` attributes across patches via LiveView JS.
+`MailDate` and `MailFreshness` in `assets/js/hooks/mail_time.js` own small ignored text nodes,
+format browser-local dates and age fetched-at observations without changing provider state.
+Their timers/resume listeners are cleaned up on destruction. `test/js/mail_reader_test.mjs`
+covers those lifecycle contracts; LiveView tests cover server search/page/context state.
+
+`HomeComponents` supplies the local daily heading, account readout and freshness components.
+`DailyOrientation` and `ObservationTime` hooks own only their ignored readout subtrees and
+clean up timers/resume listeners. Default navigation is Home; the center navigation contains
+Home, Workspaces and Connections. The corner monogram is decorative only, and Escape/idle
+preserve the current destination. Direct
+Home inbox reads use explicit owner-only account actions, not relaxed workspace membership
+checks.
 
 `Layouts.stage/1` is shared by `Layouts.app/1` and static owner unlock/setup screens.
 Shared shell/focal-plane tokens live in `assets/css/app.css`; workspace card rules live
@@ -225,10 +244,12 @@ Gmail/vault responses are fake, Oban is manual, real transports/vault are refuse
 builds and generation is disabled. It does not reuse a user's server/profile/private data.
 
 `test/browser/ui_contract.mjs` exercises the actual compiled assets and LiveView socket:
-normal entrance/reverse exit and gate; corner/Lock computed visibility and focusability;
+normal entrance/directional exit and gate; corner/Lock computed visibility and focusability;
 static unlock with/without JavaScript; static/live image success/failure; native menus;
 workspace/integration/Connections navigation; unsaved input, scroll and first-key/click wake;
-reduced-motion changes; forced colors; desktop/narrow layouts; and page errors/off-origin
+reduced-motion changes; forced colors; desktop/narrow layouts; dedicated reader body size,
+reading measure and long-token wrapping; native message/recipient disclosures and Refresh
+preservation; reader Escape/wake and async Back row-focus/scroll restoration; and page errors/off-origin
 requests/CSP events across navigation. The real browser idle timer uses a shortened
 **disposable DOM setting**; native Node tests retain the actual three-minute deadline.
 Chrome is shut down and disposable data removed on completion. The runner has startup,

@@ -17,20 +17,50 @@ Read actual code and `mix.lock` before assuming a feature/version exists.
 
 - Local Phoenix LiveView/Ash/AshSqlite application with registered Workspaces, Owner, Mail
   and StageDesigner domains. Listeners remain loopback-only; Tidewave is dev-only.
+- Home is the default after unlock/reload, with a browser-local date/greeting and quiet
+  per-connection Gmail readouts: unread inbox conversation totals, independent count
+  freshness/error state and workspace membership labels. The centered navigation opens
+  Home/Workspaces/Connections, with Home leftmost; the corner monogram is decorative only.
+  The centered logo exits with upward, left-to-right letter flips and opposite-end monogram
+  erasure rather than a reversed entrance. All three views share content
+  width/alignment with stable scrollbar gutters. Home copy is functional and minimal,
+  numeric totals say **unread**, and global Connections has no redundant Home button.
+  Escape/idle preserves current work. Inbox headers pair account identity with search
+  on desktop and stack on narrow screens; search input/button touch at matching height
+  and font size. Inbox Home buttons and redundant scope/reassurance copy are removed;
+  shared navigation, actionable states and workspace All accounts remain.
 - Persistent workspace cards, create/rename and conflict-safe **Personal** starter;
   separate account tiles, Add integration and global Connections. Google connections are
   reusable across workspaces, without merging inboxes. Local detach and confirmed global
   disconnect are distinct. Card health uses metadata, not provider calls or cached mail.
 - Terminal-only owner setup and password unlock; account-scoped read-only Gmail inbox,
   search, plain-text conversations, bounded on-demand cache, Keychain credentials and
-  durable Oban SQLite polling. Follow the Gmail guide for a new installation.
+  durable Oban SQLite polling. Polls also read Gmail's INBOX `threadsUnread`; count errors
+  retain prior observations and respect account cooldown/generation fences. Direct Home
+  inbox reads use explicit owner-only actions, including unattached connections, without
+  weakening workspace membership checks. Follow the Gmail guide for a new installation.
+- Gmail inbox rows use balanced sender/date/subject/preview hierarchy and non-color-only
+  unread markers. Conversations replace the inbox with a dedicated reader on the normal
+  shared glass (no opaque fill, inherited stage text treatment; Canvas in forced colors),
+  18px/17px Space Grotesk and a bounded 68ch measure. Earlier messages collapse, latest
+  expands with an initial reply handoff; native metadata disclosures retain full escaped
+  headers. Disclosure choices survive Refresh. Back restores search/page and the opened
+  row's focus/scroll after async loading, with account/generation/result-context fencing.
+  Dates format locally when parseable; fetch freshness ages independently with an exact
+  timestamp disclosure. Loading now uses an unfilled, reserved sea-glass status line with
+  a small indeterminate sweep (static under reduced motion/forced colors); warnings retain
+  separate unfilled edges. No HTML, remote content, quote trimming or mailbox writes added.
+- Apply additive migration `20261102195009_add_inbox_unread_totals.exs` before restarting
+  the updated app. No private/development database migration or user-server restart was
+  performed in this implementation pass.
 - App-wide opt-in Gemini startup scenery with persisted cooldown/no automatic retries,
   validated local PNG/JPEG serving and retained-image/SVG fallback. The stage/storage
   guides own the detailed safety contracts; completed remediation is not open work.
 
 ## Open work and limits
 
-- Reliable per-account unread totals need a provider/data design; badges remain deferred.
+- Unread counts use synthetic protocol/job/UI tests; real-provider count semantics and
+  recovery still need manual confirmation. Unknown counts remain unavailable until polling.
   Navigation is in-page: no URL/history/reload selection persistence or automatic cross-tab
   workspace-list synchronization. No workspace delete/archive actions.
 - An interrupted first credential write or failed compensation can leave an unindexed
@@ -51,13 +81,24 @@ Read actual code and `mix.lock` before assuming a feature/version exists.
 
 Latest local checks, with generation disabled and disposable synthetic data:
 
-- `mix check`: **280 ExUnit + 58 Node tests passed**, format, application warnings-as-errors,
+- `mix check`: **311 ExUnit + 70 Node tests passed**, format, application warnings-as-errors,
   strict Credo/AshCredo, Sobelow, Ash schema drift and assets.
 - `mix test.ui`: installed-Chrome regression passed against a separate temporary app/database/
-  scenery/profile. Covers real CSS/LiveView entrance, gate/focus, corner/Lock, images, menus,
-  navigation, first-input wake, unsaved input/scroll, reduced motion, forced colors and
-  desktop/narrow layouts. No off-origin page requests, uncaught page exceptions or CSP
-  violations observed. Detailed coverage/remaining manual checks are in the UI contract.
+  scenery/profile. Covers real CSS/LiveView entrance, left-to-right exit/opposite-end erasure,
+  gate/focus, corner/Lock, images, menus,
+  Home/unlock/reload and Home-first center navigation, decorative-only monogram, per-account unread readouts,
+  shared/unattached accounts, consistent Home/Workspaces/Connections content bounds,
+  redundant inbox Home removal and touching, matched-size search controls in split/stacked
+  headers at desktop/narrow widths under normal and forced colors,
+  mouse/keyboard Home, first-input wake, unsaved input/scroll,
+  preserved inbox across Escape/idle, reduced motion, forced colors and desktop/narrow layouts.
+  Reader checks cover native message/recipient disclosures, expansion choices through Refresh,
+  escaped hostile bodies/headers, long-token wrapping, computed body size/reading measure
+  and transparent reading background/inherited glass text treatment,
+  reader Escape/wake and async Back restoration to the original row/scroll; delayed loading
+  transparency, stable status space and normal/reduced/forced-color motion, including
+  mid-load preference changes. No off-origin
+  page requests, uncaught page exceptions or CSP violations observed. Detailed coverage/remaining manual checks are in the UI contract.
 - `mix audit`: no vulnerabilities or retired Hex packages; `git diff --check` clean.
 
 The explicit browser gate is separate from `mix check`/hosted CI and requires installed

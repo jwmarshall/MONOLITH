@@ -71,7 +71,7 @@ function brand(t, {reduced = false, focused = false} = {}) {
   gsap.ticker.sleep()
   const restart = t.mock.method(hook.timeline, "restart")
   const seek = progress => {
-    hook.timeline.progress(progress).pause()
+    hook.timeline.time(progress * hook.timeline.labels.exit).pause()
     gsap.ticker.sleep()
   }
   const motion = matches => {
@@ -79,12 +79,17 @@ function brand(t, {reduced = false, focused = false} = {}) {
     preference.emit("change")
     gsap.ticker.sleep()
   }
-  const finish = () => { seek(1); seek(0) }
-  return {hook, el, preference, completions, stroke, letters, restart, seek, motion, finish}
+  const exit = progress => {
+    const start = hook.timeline.labels.exit
+    hook.timeline.time(start + progress * (hook.timeline.duration() - start)).pause()
+    gsap.ticker.sleep()
+  }
+  const finish = () => { seek(1); exit(1) }
+  return {hook, el, preference, completions, stroke, letters, restart, seek, exit, motion, finish}
 }
 
-test("normal reveal holds, reverses its choreography, then completes exactly once", t => {
-  const {hook, el, completions, restart, seek, stroke, letters} = brand(t)
+test("normal reveal holds, exits in the opposite direction, then completes exactly once", t => {
+  const {hook, el, completions, restart, seek, exit, stroke, letters} = brand(t)
   assert.equal(hook.active, false)
   assert.equal(hook.completed, false)
   assert.equal(hook.timeline.paused(), true)
@@ -99,8 +104,8 @@ test("normal reveal holds, reverses its choreography, then completes exactly onc
   seek(1)
   assert.equal(hook.completed, false)
   assert.equal(hook.exiting, true)
-  assert.equal(hook.timeline.reversed(), true)
-  assert.equal(hook.timeline.timeScale(), -1.8)
+  assert.equal(hook.timeline.reversed(), false)
+  assert.equal(hook.timeline.timeScale(), 1)
   assert.deepEqual(completions, [])
   assert.equal(stroke.strokeDashoffset, 0)
   for (const letter of letters) {
@@ -108,13 +113,18 @@ test("normal reveal holds, reverses its choreography, then completes exactly onc
     assert.equal(letter.rotationX, 0)
     assert.equal(letter.yPercent, 0)
   }
-  seek(0.5)
+  exit(0.15)
   assert.equal(hook.completed, false)
-  assert.ok(stroke.strokeDashoffset > 0 && stroke.strokeDashoffset < 100)
-  assert.ok(letters.some(letter => letter.opacity < 1))
-  seek(0)
+  assert.ok(letters[0].opacity < letters[7].opacity, "exit proceeds left-to-right")
+  assert.ok(letters[0].rotationX > 0, "letters continue flipping upward")
+  assert.ok(letters[0].yPercent < 0)
+  exit(0.7)
+  assert.equal(hook.completed, false)
+  assert.ok(stroke.strokeDashoffset < 0 && stroke.strokeDashoffset > -100)
+  assert.ok(letters.every(letter => letter.opacity === 0))
+  exit(1)
   assert.equal(hook.completed, true)
-  assert.equal(stroke.strokeDashoffset, 100)
+  assert.equal(stroke.strokeDashoffset, -100)
   for (const letter of letters) assert.equal(letter.opacity, 0)
   assert.equal(completions.length, 1)
   assert.equal(completions[0].type, "lovelace:brand-complete")
@@ -134,7 +144,7 @@ test("duplicate focus/click signals do not restart an active animation", t => {
   el.emit("lovelace:brand-focus")
   el.emit("lovelace:brand-focus")
   assert.equal(restart.mock.callCount(), 1)
-  assert.equal(hook.timeline.progress(), 0.4)
+  assert.equal(hook.timeline.time(), 0.4 * hook.timeline.labels.exit)
 })
 
 test("reset mid-animation freezes in place and a fresh focus replays from the start", t => {
@@ -147,7 +157,7 @@ test("reset mid-animation freezes in place and a fresh focus replays from the st
   assert.equal(hook.active, false)
   assert.equal(hook.completed, false)
   assert.equal(hook.timeline.paused(), true)
-  assert.equal(hook.timeline.progress(), 0.5)
+  assert.equal(hook.timeline.time(), 0.5 * hook.timeline.labels.exit)
   assert.equal(stroke.strokeDashoffset, interruptedOffset)
   assert.deepEqual(completions, [])
 
@@ -169,7 +179,7 @@ test("completed state survives idle reset and prevents replay on resume", t => {
     assert.equal(hook.active, false)
     assert.equal(hook.completed, true)
     el.emit("lovelace:brand-focus")
-    assert.equal(hook.timeline.progress(), 0)
+    assert.equal(hook.timeline.progress(), 1)
     assert.equal(hook.timeline.paused(), true)
   }
   assert.equal(restart.mock.callCount(), 1)
@@ -217,7 +227,7 @@ test("preference changes while inactive do not complete until focus resumes", t 
   seek(0.4)
   el.emit("lovelace:brand-reset")
   motion(true)
-  assert.equal(hook.timeline.progress(), 0.4)
+  assert.equal(hook.timeline.time(), 0.4 * hook.timeline.labels.exit)
   assert.equal(hook.completed, false)
   assert.deepEqual(completions, [])
   el.emit("lovelace:brand-focus")
@@ -241,11 +251,11 @@ for (const reduced of [false, true]) {
   })
 }
 
-test("reset during the reverse exit keeps the gate closed and fresh focus restarts at normal speed", t => {
-  const {hook, el, seek, restart, completions, finish} = brand(t)
+test("reset during the exit keeps the gate closed and fresh focus restarts at normal speed", t => {
+  const {hook, el, seek, exit, restart, completions, finish, stroke, letters} = brand(t)
   el.emit("lovelace:brand-focus")
   seek(1)
-  seek(0.6)
+  exit(0.7)
   el.emit("lovelace:brand-reset")
   assert.equal(hook.active, false)
   assert.equal(hook.timeline.paused(), true)
@@ -257,16 +267,22 @@ test("reset during the reverse exit keeps the gate closed and fresh focus restar
   assert.equal(hook.timeline.timeScale(), 1)
   assert.equal(hook.timeline.reversed(), false)
   assert.equal(hook.timeline.progress(), 0)
+  assert.equal(stroke.strokeDashoffset, 100)
+  for (const letter of letters) {
+    assert.equal(letter.opacity, 0)
+    assert.equal(letter.rotationX, -90)
+    assert.equal(letter.yPercent, 60)
+  }
   assert.deepEqual(completions, [])
   finish()
   assert.equal(completions.length, 1)
 })
 
-test("enabling reduced motion during the reverse exit completes immediately without replay", t => {
-  const {hook, el, seek, motion, completions} = brand(t)
+test("enabling reduced motion during the exit completes immediately without replay", t => {
+  const {hook, el, seek, exit, motion, completions} = brand(t)
   el.emit("lovelace:brand-focus")
   seek(1)
-  seek(0.6)
+  exit(0.4)
   motion(true)
   assert.equal(hook.completed, true)
   assert.equal(hook.timeline.paused(), true)

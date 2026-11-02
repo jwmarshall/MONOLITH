@@ -81,6 +81,9 @@ defmodule Lovelace.Integrations.Google.Transport do
 
   defp allowed_target?("GET", "openidconnect.googleapis.com", "/v1/userinfo"), do: true
 
+  defp allowed_target?("GET", "gmail.googleapis.com", "/gmail/v1/users/me/labels/INBOX"),
+    do: true
+
   defp allowed_target?("GET", "gmail.googleapis.com", path) when is_binary(path) do
     # Only the read-only threads endpoints, including their bounded query string.
     [base | _] = String.split(path, "?", parts: 2)

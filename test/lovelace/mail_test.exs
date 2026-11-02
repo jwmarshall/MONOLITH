@@ -385,6 +385,117 @@ defmodule Lovelace.MailTest do
     refute_receive {:sql_payload, _}
   end
 
+  test "owner account reads work with no memberships without weakening workspace reads", %{
+    workspace: w,
+    a: a,
+    b: b
+  } do
+    Mail.unlink!(w.id, a.id, actor: @owner)
+    Mail.unlink!(w.id, b.id, actor: @owner)
+    assert %{error: :unavailable} = Mail.mail_page!(w.id, a.id, actor: @owner)
+    assert %{error: :unavailable} = Mail.thread!(w.id, a.id, "same-id", actor: @owner)
+    assert Lovelace.TestMail.calls() == []
+
+    assert %{error: nil, data: page} = Mail.account_page!(a.id, actor: @owner)
+    assert hd(page["threads"])["subject"] == "access:token-a"
+
+    assert %{error: nil, data: search} =
+             Mail.account_page!(a.id, %{query: "in:sent", page_token: "second"}, actor: @owner)
+
+    assert search["next_page_token"] == nil
+    assert {:page, "access:token-a", "in:sent", "second"} in Lovelace.TestMail.calls()
+    assert %{error: nil, data: first} = Mail.account_thread!(a.id, "same-id", actor: @owner)
+    assert %{error: nil, data: second} = Mail.account_thread!(b.id, "same-id", actor: @owner)
+    assert hd(first["messages"])["subject"] == "access:token-a"
+    assert hd(second["messages"])["subject"] == "access:token-b"
+
+    assert %{cached: true, data: ^first} =
+             Mail.account_thread!(a.id, "same-id", actor: @owner)
+  end
+
+  test "direct account reads require the owner, never a service or anonymous actor", %{a: a} do
+    for actor <- [nil, %{role: :mail_service, account_id: a.id}] do
+      assert {:error, _} = Mail.account_page(a.id, actor: actor)
+      assert {:error, _} = Mail.account_thread(a.id, "same-id", actor: actor)
+    end
+
+    assert Lovelace.TestMail.calls() == []
+  end
+
+  test "direct account reads reject reconnect and disconnected identities before provider work",
+       %{
+         a: a
+       } do
+    for {status, error} <- [reconnect: :reconnect, disconnected: :unavailable] do
+      Mail.update_account!(a, %{expected_generation: a.generation, status: status}, actor: @owner)
+      assert %{error: ^error, data: nil} = Mail.account_page!(a.id, actor: @owner)
+      assert %{error: ^error, data: nil} = Mail.account_thread!(a.id, "same-id", actor: @owner)
+    end
+
+    assert Lovelace.TestMail.calls() == []
+  end
+
+  test "direct account thread responses are fenced across a new connection generation", %{a: a} do
+    Lovelace.TestMail.response({:wait_thread, self()})
+
+    task =
+      Task.async(fn ->
+        receive do
+          :go -> Mail.account_thread(a.id, "same-id", actor: @owner)
+        end
+      end)
+
+    Sandbox.allow(Lovelace.Repo, self(), task.pid)
+    send(task.pid, :go)
+    assert_receive {:thread_waiting, provider}, 2000
+
+    connected =
+      Mail.save_connection!(
+        %{id: a.id, subject: a.subject, email: a.email, generation: Ash.UUID.generate()},
+        actor: @owner
+      )
+
+    send(provider, :continue)
+    assert {:ok, %{error: :unavailable, data: nil}} = Task.await(task)
+    assert Mail.get_account!(a.id, actor: @owner).generation == connected.generation
+
+    assert [] ==
+             CacheEntry
+             |> Ash.Query.for_read(:read, %{account_id: a.id}, actor: @owner)
+             |> Ash.read!()
+  end
+
+  test "direct account pages delayed at token refresh are fenced by disconnect", %{a: a} do
+    Lovelace.TestMail.response({:wait, self()})
+
+    task =
+      Task.async(fn ->
+        receive do
+          :go -> Mail.account_page(a.id, actor: @owner)
+        end
+      end)
+
+    Sandbox.allow(Lovelace.Repo, self(), task.pid)
+    send(task.pid, :go)
+    assert_receive {:provider_waiting, provider}, 2000
+
+    # Model the committed disconnect fence without waiting for the serial vault
+    # boundary currently occupied by this fake token refresh.
+    Mail.update_account!(
+      a,
+      %{
+        expected_generation: a.generation,
+        status: :disconnected,
+        generation: Ash.UUID.generate()
+      },
+      actor: @owner
+    )
+
+    send(provider, :continue)
+    assert {:ok, %{error: :unavailable, data: nil}} = Task.await(task)
+    refute Enum.any?(Lovelace.TestMail.calls(), &match?({:page, _, _, _}, &1))
+  end
+
   test "polling publishes only account identity and stores credential-free jobs", %{a: a} do
     Phoenix.PubSub.subscribe(Lovelace.PubSub, "mail:#{a.id}")
 

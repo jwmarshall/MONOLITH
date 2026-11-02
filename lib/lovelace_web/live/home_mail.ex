@@ -29,6 +29,16 @@ defmodule LovelaceWeb.HomeMail do
     |> load_accounts()
   end
 
+  def open_home_account(socket, id) do
+    socket
+    |> leave_workspace()
+    |> put(%{scope: :home})
+    |> load_accounts()
+    |> event_select(id)
+  end
+
+  defp event_select(socket, id), do: event("mail:select", %{"id" => id}, socket)
+
   def open_connections(socket) do
     socket
     |> leave_workspace()
@@ -106,6 +116,7 @@ defmodule LovelaceWeb.HomeMail do
       loading: false,
       query: nil,
       page_token: nil,
+      list_key: System.unique_integer([:positive, :monotonic]),
       next_page_token: nil,
       thread_id: nil,
       data_ref: nil,
@@ -151,6 +162,7 @@ defmodule LovelaceWeb.HomeMail do
       |> reset_content()
       |> put(%{
         query: query,
+        list_key: System.unique_integer([:positive, :monotonic]),
         page_token: nil,
         thread_id: nil,
         search_form: to_form(%{"query" => query || ""}, as: :mail_search)
@@ -166,7 +178,15 @@ defmodule LovelaceWeb.HomeMail do
 
     if active?(socket) && !mail.loading && is_binary(mail.next_page_token) do
       token = mail.next_page_token
-      socket |> reset_content() |> put(%{page_token: token, thread_id: nil}) |> request(false)
+
+      socket
+      |> reset_content()
+      |> put(%{
+        page_token: token,
+        thread_id: nil,
+        list_key: System.unique_integer([:positive, :monotonic])
+      })
+      |> request(false)
     else
       socket
     end
@@ -174,7 +194,14 @@ defmodule LovelaceWeb.HomeMail do
 
   defp event("mail:first", _, socket) do
     if active?(socket) do
-      socket |> reset_content() |> put(%{page_token: nil, thread_id: nil}) |> request(false)
+      socket
+      |> reset_content()
+      |> put(%{
+        page_token: nil,
+        thread_id: nil,
+        list_key: System.unique_integer([:positive, :monotonic])
+      })
+      |> request(false)
     else
       socket
     end
@@ -277,22 +304,29 @@ defmodule LovelaceWeb.HomeMail do
       account = mail.account_id
       thread = mail.thread_id
       options = %{query: mail.query, page_token: mail.page_token, force: force}
+      scope = mail.scope
       owner = self()
 
       socket
       |> put(%{generation: generation, task: name, loading: true, error: nil})
       |> start_async(name, fn ->
-        protect_result(fetch_mail(workspace, account, thread, options), owner)
+        protect_result(fetch_mail(scope, workspace, account, thread, options), owner)
       end)
     else
       put(socket, %{loading: false})
     end
   end
 
-  defp fetch_mail(workspace, account, nil, options),
+  defp fetch_mail(:home, _workspace, account, nil, options),
+    do: Mail.account_page(account, options, actor: @owner)
+
+  defp fetch_mail(:home, _workspace, account, thread, options),
+    do: Mail.account_thread(account, thread, Map.take(options, [:force]), actor: @owner)
+
+  defp fetch_mail(_scope, workspace, account, nil, options),
     do: Mail.mail_page(workspace, account, options, actor: @owner)
 
-  defp fetch_mail(workspace, account, thread, options),
+  defp fetch_mail(_scope, workspace, account, thread, options),
     do: Mail.thread(workspace, account, thread, Map.take(options, [:force]), actor: @owner)
 
   # Never return payloads to LiveView: callback/render telemetry receives its socket.
@@ -351,7 +385,11 @@ defmodule LovelaceWeb.HomeMail do
       accounts =
         Enum.reject(accounts, &(&1.status == :disconnected && &1.last_error != :keychain))
 
-      ids = Enum.map(memberships, & &1.account_id)
+      ids =
+        if mail.scope == :home,
+          do: accounts |> Enum.reject(&(&1.status == :disconnected)) |> Enum.map(& &1.id),
+          else: Enum.map(memberships, & &1.account_id)
+
       ids = Enum.filter(ids, fn id -> Enum.any?(accounts, &(&1.id == id)) end)
 
       socket =
@@ -364,7 +402,7 @@ defmodule LovelaceWeb.HomeMail do
       if mail.account_id && mail.account_id not in ids do
         socket
         |> clear_view(nil)
-        |> put(%{notice: "This account is no longer attached to this workspace."})
+        |> put(%{notice: "This account is no longer available in this view."})
       else
         socket
       end
@@ -423,7 +461,7 @@ defmodule LovelaceWeb.HomeMail do
     end
   end
 
-  defp workspace_memberships(%{scope: :connections}), do: {:ok, []}
+  defp workspace_memberships(%{scope: scope}) when scope in [:connections, :home], do: {:ok, []}
   defp workspace_memberships(mail), do: Mail.workspace_accounts(mail.workspace_id, actor: @owner)
 
   defp subscribe_accounts(socket, ids) do
@@ -437,7 +475,9 @@ defmodule LovelaceWeb.HomeMail do
     put(socket, %{subscriptions: ids})
   end
 
-  defp member?(mail, id), do: mail.workspace_id != nil && id in mail.memberships
+  defp member?(mail, id),
+    do: (mail.workspace_id != nil || mail.scope == :home) && id in mail.memberships
+
   defp active?(socket), do: member?(socket.assigns.mail, socket.assigns.mail.account_id)
   defp put(socket, values), do: assign(socket, :mail, Map.merge(socket.assigns.mail, values))
   defp topic(id), do: "mail:#{id}"

@@ -165,6 +165,22 @@ defmodule Lovelace.Integrations.Google do
   @spec inbox(binary(), binary() | nil) :: {:ok, page()} | failure()
   def inbox(access_token, page_token \\ nil), do: list(access_token, nil, page_token)
 
+  @doc "The INBOX label's unread conversation total, independent of cached pages."
+  @spec inbox_unread(binary()) :: {:ok, non_neg_integer()} | failure()
+  def inbox_unread(access_token) do
+    bounded(fn config ->
+      with {:ok, data} <-
+             get(config, "gmail.googleapis.com", "/gmail/v1/users/me/labels/INBOX", access_token),
+           %{"id" => "INBOX", "threadsUnread" => count} when is_integer(count) and count >= 0 <-
+             data do
+        {:ok, count}
+      else
+        {:error, reason} -> {:error, reason}
+        _ -> {:error, :invalid_response}
+      end
+    end)
+  end
+
   @spec search(binary(), binary(), binary() | nil) :: {:ok, page()} | failure()
   def search(access_token, query, page_token \\ nil) do
     if bounded_string?(query, 4096),

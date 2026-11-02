@@ -26,15 +26,40 @@ defmodule Lovelace.Mail.Account do
       accept [:id, :subject, :email, :generation]
       upsert? true
       upsert_identity :google_subject
-      upsert_fields [:email, :generation, :status, :last_error, :next_poll_at]
+
+      upsert_fields [
+        :email,
+        :generation,
+        :status,
+        :last_error,
+        :next_poll_at,
+        :inbox_unread_count,
+        :inbox_unread_at,
+        :inbox_unread_error
+      ]
+
       change set_attribute(:status, :ready)
       change set_attribute(:last_error, nil)
+      change set_attribute(:inbox_unread_count, nil)
+      change set_attribute(:inbox_unread_at, nil)
+      change set_attribute(:inbox_unread_error, nil)
       change set_attribute(:next_poll_at, &DateTime.utc_now/0)
     end
 
     update :status do
       argument :expected_generation, :uuid, allow_nil?: false
-      accept [:status, :last_error, :last_success_at, :next_poll_at, :generation]
+
+      accept [
+        :status,
+        :last_error,
+        :last_success_at,
+        :next_poll_at,
+        :generation,
+        :inbox_unread_count,
+        :inbox_unread_at,
+        :inbox_unread_error
+      ]
+
       change filter(expr(generation == ^arg(:expected_generation)))
     end
   end
@@ -67,6 +92,13 @@ defmodule Lovelace.Mail.Account do
     end
 
     attribute :last_error, :atom do
+      constraints one_of: [:unavailable, :rate_limited, :reconnect, :keychain, :provider]
+    end
+
+    attribute :inbox_unread_count, :integer, constraints: [min: 0]
+    attribute :inbox_unread_at, :utc_datetime_usec
+
+    attribute :inbox_unread_error, :atom do
       constraints one_of: [:unavailable, :rate_limited, :reconnect, :keychain, :provider]
     end
 

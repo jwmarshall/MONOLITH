@@ -14,7 +14,7 @@ defmodule LovelaceWeb.HomeLiveTest do
     assert policy =~ "font-src 'self'"
     assert policy =~ "object-src 'none'"
     refute policy =~ "unsafe-eval"
-    assert html =~ "Workspaces · LOVELACE"
+    assert html =~ "Home · LOVELACE"
     refute html =~ "Welcome to Phoenix"
     assert html =~ ~s(data-theme="lovelace")
     assert conn.resp_cookies["_lovelace_key"]
@@ -44,7 +44,7 @@ defmodule LovelaceWeb.HomeLiveTest do
     assert response(conn, 404)
   end
 
-  test "mounts the glass entrance with gated saved workspaces and no fake integrations", %{
+  test "mounts the glass entrance with gated Home and no fake integrations", %{
     conn: conn
   } do
     {:ok, view, _html} = live(conn, ~p"/")
@@ -74,9 +74,30 @@ defmodule LovelaceWeb.HomeLiveTest do
     refute has_element?(view, ".workspace-signature")
     refute has_element?(view, ".workspace-topline", "LOVELACE")
     assert has_element?(view, "#workspace-content[inert]")
-    assert has_element?(view, "#workspace-list[phx-update=stream]")
-    assert has_element?(view, "#directory-heading", "Workspaces")
-    assert has_element?(view, ".workspace-card-name", "Personal")
+
+    assert has_element?(
+             view,
+             "#center-nav #home-link[type=button][aria-label=Home][aria-current=page]",
+             "Home"
+           )
+
+    refute has_element?(view, "#workspace > #home-link, .stage-home-button")
+    refute has_element?(view, "#workspace-monogram[phx-click], #workspace-monogram[tabindex]")
+    refute has_element?(view, "#workspace-brand #home-link, #workspace-monogram #home-link")
+    assert has_element?(view, "#center-nav[aria-label='Main navigation'] #show-workspaces")
+    assert has_element?(view, "#center-nav #show-connections")
+    assert has_element?(view, "#center-nav > #home-link:first-child")
+    assert has_element?(view, "#center-nav > #home-link + #show-workspaces + #show-connections")
+
+    assert has_element?(
+             view,
+             "#daily-heading[phx-hook=DailyOrientation][phx-update=ignore] " <>
+               "#directory-heading[data-workspace-heading][tabindex='-1']"
+           )
+
+    assert has_element?(view, "#daily-heading time[data-daily-date]")
+    assert has_element?(view, "#home-overview #home-empty")
+    refute has_element?(view, "#workspace-list, #workspace-landing, #home-inbox")
     refute has_element?(view, ".workspace-wordmark", "lovelace")
     assert has_element?(view, "#workspace-background[aria-hidden=true]")
     assert has_element?(view, "#main-content[aria-labelledby=workspace-title]")
@@ -84,6 +105,17 @@ defmodule LovelaceWeb.HomeLiveTest do
     refute has_element?(view, "#accounts-empty, #projects-empty, #sync-status")
     refute has_element?(view, "a", "Private workspace")
     refute has_element?(view, "button", "Send")
+
+    view |> element("#show-workspaces") |> render_click()
+    assert has_element?(view, "#workspace-list[phx-update=stream]")
+    assert has_element?(view, "#directory-heading", "Workspaces")
+    assert has_element?(view, ".workspace-card-name", "Personal")
+    refute has_element?(view, "#home-link[aria-current=page], #home-overview")
+
+    view |> element("#home-link") |> render_click()
+    assert has_element?(view, "#home-overview #home-empty")
+    assert has_element?(view, "#home-link[aria-current=page]")
+    assert_push_event(view, "workspace:focus-heading", %{})
   end
 
   test "provides one traceable stroke and eight ordered flip-up letters", %{conn: conn} do

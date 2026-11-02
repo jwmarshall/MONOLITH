@@ -1,0 +1,42 @@
+/* Daily orientation is an open readout on the shared stage, not another card. */
+.workspace-topline:has(.center-nav) { display: grid; grid-template-columns: 1fr auto 1fr; gap: 16px; }
+.center-nav { grid-column: 2; display: flex; gap: clamp(12px, 3vw, 28px); align-items: center; }
+.workspace-topline #owner-lock-form { grid-column: 3; justify-self: end; }
+.workspace-nav-link { min-width: 44px; min-height: 44px; padding: 10px 0; border-bottom: 1px solid transparent; font-size: 13px; color: var(--color-secondary); cursor: pointer; }
+.workspace-nav-link:hover, .workspace-nav-link[aria-current="page"] { color: var(--color-base-content); border-bottom-color: var(--color-primary); }
+.workspace-nav-link:disabled { opacity: 0.5; cursor: default; }
+.daily-heading { margin-block: clamp(16px, 5vh, 48px) 52px; }
+.home-eyebrow { font-size: 11px; line-height: 1.6; text-transform: uppercase; letter-spacing: 0.13em; color: var(--color-secondary); }
+.daily-heading h2 { font-size: clamp(34px, 4vw, 48px); font-weight: 300; letter-spacing: -0.045em; }
+.daily-date { display: block; min-height: 24px; margin-top: 14px; font-size: 14px; color: var(--color-secondary); }
+.home-section-heading { padding-bottom: 18px; }
+.home-accounts { list-style: none; margin: 0; padding: 0; }
+.home-account { border-top: 1px solid rgb(233 239 236 / 24%); padding: 8px 0 20px; }
+.home-account:last-child { border-bottom: 1px solid rgb(233 239 236 / 24%); }
+.home-account-open { display: grid; grid-template-columns: minmax(0, 1fr) auto 20px; gap: 24px; align-items: center; width: 100%; min-height: 88px; padding: 14px 8px; text-align: left; border-radius: 2px; cursor: pointer; }
+.home-account-open:hover { background: rgb(139 203 193 / 6%); }
+.home-account-identity { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.home-account-email { font-size: 18px; line-height: 1.5; overflow-wrap: anywhere; }
+.home-account-workspaces { font-size: 12px; line-height: 1.7; color: var(--color-secondary); overflow-wrap: anywhere; }
+.home-unread { display: flex; flex-direction: column; gap: 4px; align-items: flex-end; max-width: 170px; text-align: right; }
+.home-unread-number { font-size: 30px; line-height: 1.2; font-variant-numeric: tabular-nums; font-weight: 300; color: var(--color-primary); }
+.home-unread-label { font-size: 11px; line-height: 1.5; color: var(--color-secondary); }
+.home-account-arrow { color: var(--color-primary); }
+.home-account-health { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px 16px; padding-inline: 8px; font-size: 12px; line-height: 1.7; color: var(--color-secondary); }
+.home-recovery { min-height: 44px; color: var(--color-primary); cursor: pointer; }
+.home-empty { display: flex; flex-direction: column; align-items: flex-start; gap: 14px; padding-block: 28px; font-size: 14px; line-height: 1.8; color: var(--color-secondary); border-top: 1px solid rgb(233 239 236 / 24%); }
+.home-empty > p:first-child { color: var(--color-base-content); }
+@media (max-width: 640px) {
+  .workspace-topline:has(.center-nav) { grid-template-columns: 1fr auto; row-gap: 20px; }
+  .workspace-topline #owner-lock-form { grid-column: 2; grid-row: 1; }
+  .center-nav { grid-column: 1 / -1; grid-row: 2; justify-self: center; }
+  .daily-heading { margin-top: 0; margin-bottom: 36px; }
+  .home-account-open { grid-template-columns: minmax(0, 1fr) minmax(80px, 110px); gap: 12px; padding-inline: 4px; }
+  .home-account-arrow { display: none; }
+  .home-account-email { font-size: 16px; }
+}
+@media (forced-colors: active) {
+  .home-account, .home-empty, .workspace-nav-link[aria-current="page"] { border-color: CanvasText; }
+  .home-overview *, .daily-heading *, .workspace-nav-link { color: CanvasText; text-shadow: none; }
+  .home-account-open:hover { background: Canvas; }
+}

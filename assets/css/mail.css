@@ -1,10 +1,11 @@
-/* Read-only mail: sharp working content over LOVELACE's existing glass. */
+/* Read-only mail: balanced inbox rows and a quiet, bounded reading plane. */
 .mail-panel { margin-top: 24px; border-top: 1px solid rgb(238 237 229 / 25%); padding-top: 28px; font-size: 14px; line-height: 1.65; }
 .mail-heading, .mail-toolbar, .mail-account-row, .mail-thread-meta { display: flex; justify-content: space-between; gap: 24px; }
 .mail-heading { align-items: flex-start; margin-bottom: 28px; }
+.mail-inbox-heading { display: grid; grid-template-columns: minmax(0, 1fr) minmax(260px, 1fr); align-items: center; }
 .mail-heading h3 { font-size: clamp(22px, 3vw, 28px); font-weight: 300; letter-spacing: -0.025em; overflow-wrap: anywhere; }
 .mail-eyebrow { color: var(--color-primary); font-size: 10px; text-transform: uppercase; letter-spacing: 0.16em; margin-bottom: 6px; }
-.mail-muted, .mail-status, .mail-thread-meta, .mail-thread-snippet { color: #dedbd0; font-size: 12px; font-weight: 400; }
+.mail-muted, .mail-status, .mail-thread-meta, .mail-thread-snippet { color: var(--color-secondary); font-size: 13px; font-weight: 400; }
 .mail-section-title { margin: 28px 0 12px; font-weight: 400; font-size: 15px; }
 .mail-account-row { align-items: center; padding: 20px 0; border-bottom: 1px solid rgb(238 237 229 / 18%); }
 .mail-account-identity { min-width: 0; overflow-wrap: anywhere; }
@@ -15,34 +16,91 @@
 .mail-disconnect { color: #e5b7a9; }
 .mail-connect { padding-top: 24px; max-width: 540px; }
 .mail-notice { margin: 16px 0; padding: 12px 0; border-block: 1px solid color-mix(in srgb, var(--color-primary) 35%, transparent); color: var(--color-primary-hover); }
-.mail-search { display: flex; align-items: flex-end; gap: 24px; margin: 20px 0; }
-.mail-search > div { flex: 1; margin-bottom: 0; }
-.mail-search .label { color: #dedbd0; font-size: 12px; }
-.mail-search-input { width: 100%; padding: 11px 14px; border: 1px solid rgb(238 237 229 / 35%); background: rgb(12 17 16 / 25%); color: #f3efe4; border-radius: 0; font-size: 16px; }
-.mail-status { margin: 8px 0 20px; }
-.mail-thread { display: block; width: 100%; text-align: left; padding: 20px 0; border-top: 1px solid rgb(238 237 229 / 18%); cursor: pointer; }
-.mail-thread:hover { background: rgb(238 237 229 / 4%); }
-.mail-thread-meta { margin-bottom: 6px; }
-.mail-thread-meta > :first-child { min-width: 0; overflow-wrap: anywhere; }
-.mail-thread-meta > :last-child { flex-shrink: 0; }
+.mail-search { display: flex; align-items: stretch; gap: 0; min-width: 0; margin: 0; }
+.mail-search > div { flex: 1; min-width: 0; margin: 0; padding: 0; }
+.mail-search label { display: block; }
+.mail-search-input { width: 100%; height: 48px; padding: 11px 14px; border: 1px solid rgb(233 239 236 / 35%); border-right: 0; background: rgb(12 17 16 / 25%); color: var(--color-base-content); border-radius: 0; font-size: 16px; line-height: 1.5; }
+.mail-search .workspace-action { height: 48px; border-color: rgb(233 239 236 / 35%); border-radius: 0; font-size: 16px; line-height: 1.5; padding: 11px 18px; }
+.mail-search :focus-visible { position: relative; z-index: 1; }
+.mail-toolbar { align-items: flex-start; flex-wrap: wrap; margin-bottom: 20px; gap: 12px 24px; }
+.mail-tools { display: flex; align-items: flex-start; flex-wrap: wrap; justify-content: flex-end; gap: 8px 16px; margin-left: auto; }
+.mail-observation { position: relative; font-size: 12px; color: var(--color-secondary); }
+.mail-observation summary { display: flex; align-items: center; min-height: 44px; padding: 8px 0; cursor: pointer; list-style: none; }
+.mail-observation summary::-webkit-details-marker { display: none; }
+.mail-observation summary::after { content: "⌄"; margin-left: 8px; }
+.mail-observation > p { position: absolute; z-index: 2; right: 0; width: max-content; max-width: min(280px, 75vw); padding: 12px 16px; border: 1px solid var(--color-base-300); background: var(--color-base-100); text-shadow: none; }
+/* Reserve one quiet status line so a read/refresh never inserts a dark flash or
+   shifts the working content. Warnings keep their own semantic edge, not a fill. */
+.mail-status { min-height: 28px; margin: 0 0 16px; background: transparent; }
+.mail-loading { display: flex; align-items: center; gap: 12px; min-height: 28px; color: var(--color-primary); font-size: 13px; line-height: 1.6; }
+.mail-loading-track { position: relative; display: inline-block; flex-shrink: 0; width: 44px; height: 2px; overflow: hidden; background: color-mix(in srgb, currentColor 22%, transparent); }
+.mail-loading-track::after { content: ""; position: absolute; inset-block: 0; left: 0; width: 40%; background: currentColor; animation: mail-loading-sweep 1.8s cubic-bezier(0.4, 0, 0.2, 1) infinite; }
+.mail-warning { padding: 6px 0 6px 12px; border-left: 2px solid var(--color-warning); color: var(--color-base-content); }
+.mail-warning + .mail-warning, .mail-loading + .mail-warning { margin-top: 8px; }
+@keyframes mail-loading-sweep {
+  from { transform: translateX(-110%); }
+  to { transform: translateX(360%); }
+}
+.mail-thread { display: flex; align-items: flex-start; gap: 12px; width: 100%; text-align: left; padding: 18px 12px; border-top: 1px solid rgb(238 237 229 / 18%); cursor: pointer; }
+.mail-thread:hover { background: rgb(139 203 193 / 7%); }
+.mail-thread-marker { width: 6px; height: 6px; flex-shrink: 0; margin-top: 9px; border-radius: 50%; }
+.mail-thread-unread .mail-thread-marker { background: var(--color-primary); }
+.mail-thread-content { display: block; min-width: 0; flex: 1; }
+.mail-thread-meta { align-items: baseline; gap: 16px; margin-bottom: 3px; }
+.mail-thread-sender { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; color: var(--color-base-content); }
+.mail-thread-meta > :last-child { flex-shrink: 0; max-width: 45%; overflow-wrap: anywhere; text-align: right; }
 .mail-thread-subject, .mail-thread-snippet { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.mail-thread-subject { font-size: 16px; font-weight: 300; }
-.mail-thread-unread .mail-thread-subject { font-weight: 500; color: var(--color-primary-hover); }
+.mail-thread-subject { font-size: 17px; line-height: 1.5; font-weight: 400; }
+.mail-thread-snippet { margin-top: 3px; }
+.mail-thread-unread .mail-thread-subject, .mail-thread-unread .mail-thread-sender { font-weight: 600; }
+.mail-thread-unread .mail-thread-subject { color: var(--color-primary-hover); }
 .mail-pagination { display: flex; justify-content: flex-end; }
 .mail-empty { padding: 32px 0; color: #dedbd0; }
-.mail-message { padding: 24px 0; border-top: 1px solid rgb(238 237 229 / 18%); }
-.mail-message h4 { font-size: 19px; font-weight: 300; overflow-wrap: anywhere; }
-.mail-message-meta { display: grid; grid-template-columns: auto 1fr; gap: 4px 16px; margin: 14px 0 24px; font-size: 12px; overflow-wrap: anywhere; }
-.mail-message-meta dt { color: #d2ccbe; }
-.mail-message-text { white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; line-height: 1.85; tab-size: 4; }
+.mail-reader { width: 100%; max-width: calc(68ch + 96px); margin: 0 auto; padding: clamp(24px, 3vw, 48px); background: transparent; color: var(--color-base-content); font-size: 18px; }
+.mail-conversation-header { margin-bottom: 32px; }
+.mail-conversation-header h4 { font-size: clamp(24px, 2.5vw, 30px); line-height: 1.3; font-weight: 500; letter-spacing: -0.025em; overflow-wrap: anywhere; }
+.mail-conversation-header > p { margin-top: 10px; }
+.mail-message { border-top: 1px solid var(--color-base-300); scroll-margin-top: 24px; }
+.mail-message-summary { display: grid; grid-template-columns: 12px minmax(0, 1fr) auto; align-items: baseline; gap: 12px; min-height: 64px; padding: 18px 0; cursor: pointer; list-style: none; }
+.mail-message-summary::-webkit-details-marker { display: none; }
+.mail-message-chevron { font-size: 20px; line-height: 1; transform-origin: center; }
+.mail-message[open] > .mail-message-summary .mail-message-chevron { transform: rotate(90deg); }
+.mail-message-sender { min-width: 0; overflow-wrap: anywhere; font-size: 15px; font-weight: 500; }
+.mail-message-summary > time { max-width: 220px; color: var(--color-secondary); font-size: 12px; text-align: right; overflow-wrap: anywhere; }
+.mail-message-content { padding-bottom: 36px; }
+.mail-message-subject { font-size: 16px; font-weight: 500; margin-bottom: 12px; overflow-wrap: anywhere; }
+.mail-message-details { margin: 0 0 24px; font-size: 13px; }
+.mail-message-details > summary { width: fit-content; min-height: 44px; display: flex; align-items: center; gap: 8px; color: var(--color-secondary); cursor: pointer; list-style: none; }
+.mail-message-details > summary::-webkit-details-marker { display: none; }
+.mail-message-details > summary::after { content: "⌄"; }
+.mail-message-details[open] > summary::after { content: "⌃"; }
+.mail-message-meta { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 6px 16px; padding: 12px 0; overflow-wrap: anywhere; }
+.mail-message-meta dt { color: var(--color-secondary); }
+.mail-message-text { max-width: 68ch; white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; font-weight: 400; letter-spacing: normal; line-height: 1.75; tab-size: 4; }
 .mail-panel button:disabled { opacity: 0.45; cursor: wait; }
+@media (max-width: 800px) {
+  .mail-inbox-heading { grid-template-columns: minmax(0, 1fr); gap: 16px; }
+}
 @media (max-width: 640px) {
   .mail-account-row { flex-direction: column; align-items: flex-start; gap: 12px; }
-  .mail-heading, .mail-search { gap: 16px; }
-  .mail-thread-meta { flex-direction: column; gap: 2px; }
+  .mail-heading { gap: 16px; }
   .mail-actions { gap: 8px 18px; }
+  .mail-thread { padding-inline: 0; gap: 8px; }
+  .mail-thread-meta { gap: 10px; }
+  .mail-tools { gap: 8px; }
+  .mail-reader { padding: 24px 16px; font-size: 17px; }
+  .mail-message-summary { grid-template-columns: 10px minmax(0, 1fr); gap: 6px 10px; }
+  .mail-message-summary > time { grid-column: 2; text-align: left; max-width: 100%; }
+  .mail-conversation-header { margin-bottom: 24px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .mail-loading-track::after { animation: none; transform: none; }
 }
 @media (forced-colors: active) {
+  .mail-loading-track { background: Canvas; border-bottom: 1px solid CanvasText; }
+  .mail-loading-track::after { animation: none; transform: none; background: CanvasText; }
   .mail-panel, .mail-panel * { color: CanvasText; text-shadow: none; border-color: CanvasText; }
-  .mail-search-input { background: Canvas; }
+  .mail-search-input, .mail-reader, .mail-observation > p { background: Canvas; }
+  .mail-thread-unread .mail-thread-marker { background: CanvasText; }
+  .mail-thread:hover { outline: 1px solid Highlight; outline-offset: -1px; }
 }

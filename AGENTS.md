@@ -10,6 +10,8 @@ Stack: Phoenix LiveView, Ash/AshSqlite over Ecto/SQLite, and Tailwind.
 
 - A personal homepage for orienting the day and focused work, not a widget dashboard
   or full project-management suite. Deliver a Gmail-first workspace before expanding integrations.
+- Home is the daily landing after unlock/reload: quiet per-account Gmail readouts, not
+  a unified inbox. Workspaces lives behind navigation; Escape/idle wake preserves current work.
 - Workspaces represent areas of life; **Personal** is the starter. One reusable Google
   connection can appear in several workspaces, and a workspace can contain several accounts.
   Keep account/integration tiles separate; workspace removal is not global disconnect.

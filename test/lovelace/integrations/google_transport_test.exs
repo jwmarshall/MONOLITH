@@ -26,6 +26,13 @@ defmodule Lovelace.Integrations.Google.TransportTest do
           %{path: "/unexpected"},
           %{method: "DELETE"},
           %{host: "gmail.googleapis.com", path: "/gmail/v1/users/me/threads/../../messages"},
+          %{host: "gmail.googleapis.com", path: "/gmail/v1/users/me/labels/UNREAD"},
+          %{host: "gmail.googleapis.com", path: "/gmail/v1/users/me/labels/INBOX?x=1"},
+          %{
+            host: "gmail.googleapis.com",
+            method: "POST",
+            path: "/gmail/v1/users/me/labels/INBOX"
+          },
           %{host: "oauth2.googleapis.com", method: "POST", path: "/token?secret=x"},
           %{timeout_ms: 0},
           %{body: String.duplicate("x", 64 * 1024 + 1)},
@@ -41,6 +48,13 @@ defmodule Lovelace.Integrations.Google.TransportTest do
                  host: "gmail.googleapis.com",
                  path: "/gmail/v1/users/me/threads/abc?format=metadata"
                })
+             )
+  end
+
+  test "only the fixed INBOX label read is additionally allowed" do
+    assert :ok =
+             Transport.validate(
+               request(%{host: "gmail.googleapis.com", path: "/gmail/v1/users/me/labels/INBOX"})
              )
   end
 

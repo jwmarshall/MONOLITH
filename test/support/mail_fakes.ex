@@ -1,7 +1,9 @@
 defmodule Lovelace.TestMail do
   @moduledoc false
   def start do
-    Agent.start_link(fn -> %{vault: %{}, calls: [], response: :ok} end, name: __MODULE__)
+    Agent.start_link(fn -> %{vault: %{}, calls: [], response: :ok, unread_response: {:ok, 7}} end,
+      name: __MODULE__
+    )
   end
 
   def record(call),
@@ -10,6 +12,8 @@ defmodule Lovelace.TestMail do
   def calls, do: Agent.get(__MODULE__, & &1.calls)
   def response(value), do: Agent.update(__MODULE__, &Map.put(&1, :response, value))
   def result, do: Agent.get(__MODULE__, & &1.response)
+  def unread_response(value), do: Agent.update(__MODULE__, &Map.put(&1, :unread_response, value))
+  def unread_result, do: Agent.get(__MODULE__, & &1.unread_response)
 end
 
 defmodule Lovelace.TestMailVault do
@@ -68,6 +72,28 @@ defmodule Lovelace.TestGoogle do
 
       error ->
         error
+    end
+  end
+
+  def inbox_unread(token) do
+    Lovelace.TestMail.record({:inbox_unread, token})
+
+    case Lovelace.TestMail.unread_result() do
+      {:raise, message} ->
+        raise message
+
+      {:throw, value} ->
+        throw(value)
+
+      {:wait, pid, result} ->
+        send(pid, {:unread_waiting, self()})
+
+        receive do
+          :continue -> result
+        end
+
+      result ->
+        result
     end
   end
 

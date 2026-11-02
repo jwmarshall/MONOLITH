@@ -1,12 +1,12 @@
 defmodule LovelaceWeb.HomeLive do
-  @moduledoc "The glass entrance and local owner's saved workspaces."
+  @moduledoc "The local owner's daily orientation, workspaces and separate Gmail accounts."
   use LovelaceWeb, :live_view
 
   alias Lovelace.Mail
   alias Lovelace.Mail.ConnectionDiagnostics
   alias Lovelace.Workspaces
   alias Lovelace.Workspaces.Workspace
-  alias LovelaceWeb.{HomeMail, MailComponents, WorkspaceComponents}
+  alias LovelaceWeb.{HomeComponents, HomeMail, MailComponents, WorkspaceComponents}
 
   # Capability minted only behind the HTTP and LiveView owner-session boundaries.
   @owner %{role: :local_owner}
@@ -24,7 +24,10 @@ defmodule LovelaceWeb.HomeLive do
     socket =
       socket
       |> assign(
-        page_title: "Workspaces",
+        page_title: "Home",
+        home: true,
+        home_accounts: [],
+        home_error: false,
         background: background,
         selected: nil,
         connections: false,
@@ -65,14 +68,55 @@ defmodule LovelaceWeb.HomeLive do
   def handle_async(name, result, socket), do: HomeMail.handle_async(name, result, socket)
 
   @impl true
+  def handle_event("mail:accounts", _params, %{assigns: %{mail: %{scope: :home}}} = socket),
+    do: handle_event("show_home", %{}, socket)
+
   def handle_event("mail:" <> _ = event, params, socket),
     do: HomeMail.handle_event(event, params, socket)
+
+  def handle_event("show_home", _params, socket) do
+    {:noreply,
+     socket
+     |> HomeMail.leave_workspace()
+     |> assign(
+       home: true,
+       selected: nil,
+       connections: false,
+       editor: nil,
+       form: nil,
+       page_title: "Home"
+     )
+     |> load_workspaces()
+     |> focus_heading()}
+  end
+
+  def handle_event("open_home_account", %{"id" => id}, socket) do
+    socket = load_workspaces(socket)
+
+    if Enum.any?(socket.assigns.home_accounts, &(&1.id == id)) do
+      {:noreply,
+       socket
+       |> directory_subscriptions([])
+       |> assign(
+         home: false,
+         selected: nil,
+         connections: false,
+         editor: nil,
+         form: nil,
+         page_title: "Inbox"
+       )
+       |> HomeMail.open_home_account(id)
+       |> focus_heading()}
+    else
+      {:noreply, put_flash(socket, :error, "This account is unavailable. Check Connections.")}
+    end
+  end
 
   def handle_event("show_connections", _params, socket) do
     {:noreply,
      socket
      |> directory_subscriptions([])
-     |> assign(connections: true, editor: nil, form: nil, page_title: "Connections")
+     |> assign(home: false, connections: true, editor: nil, form: nil, page_title: "Connections")
      |> HomeMail.open_connections()
      |> focus_heading()}
   end
@@ -87,7 +131,7 @@ defmodule LovelaceWeb.HomeLive do
        |> HomeMail.open_workspace(workspace)
        |> focus_heading()}
     else
-      handle_event("show_workspaces", %{}, socket)
+      handle_event("show_home", %{}, socket)
     end
   end
 
@@ -148,6 +192,7 @@ defmodule LovelaceWeb.HomeLive do
          socket
          |> directory_subscriptions([])
          |> assign(
+           home: false,
            selected: workspace,
            connections: false,
            editor: nil,
@@ -167,6 +212,7 @@ defmodule LovelaceWeb.HomeLive do
      socket
      |> HomeMail.leave_workspace()
      |> assign(
+       home: false,
        selected: nil,
        connections: false,
        editor: nil,
@@ -212,11 +258,11 @@ defmodule LovelaceWeb.HomeLive do
       |> load_workspace_health(workspaces)
       |> stream(:workspaces, workspaces, reset: true)
     else
-      _ -> assign(socket, workspaces_error: true, loading: false)
+      _ -> assign(socket, workspaces_error: true, home_error: true, loading: false)
     end
   end
 
-  # Read only connection metadata, never cached message payloads or provider counts.
+  # Read persisted metadata only. Rendering never fetches mail or provider counts.
   defp load_workspace_health(socket, workspaces) do
     with {:ok, accounts} <- Mail.list_accounts(actor: @owner),
          {:ok, memberships} <- Mail.list_workspace_accounts(actor: @owner) do
@@ -239,11 +285,48 @@ defmodule LovelaceWeb.HomeLive do
           {workspace.id, %{total: length(attached), problems: problems}}
         end)
 
-      ids = Enum.map(memberships, & &1.account_id) |> Enum.uniq()
-      ids = if socket.assigns.selected || socket.assigns.connections, do: [], else: ids
-      socket |> assign(:workspace_health, health) |> directory_subscriptions(ids)
+      names = Map.new(workspaces, &{&1.id, &1.name})
+
+      summaries =
+        accounts
+        |> Enum.reject(&(&1.status == :disconnected))
+        |> Enum.map(fn account ->
+          labels =
+            memberships
+            |> Enum.filter(&(&1.account_id == account.id))
+            |> Enum.map(&Map.get(names, &1.workspace_id))
+            |> Enum.reject(&is_nil/1)
+            |> Enum.sort()
+
+          account
+          |> Map.take([
+            :id,
+            :email,
+            :status,
+            :last_error,
+            :inbox_unread_count,
+            :inbox_unread_at,
+            :inbox_unread_error
+          ])
+          |> Map.put(:workspaces, labels)
+        end)
+
+      ids = Enum.map(accounts, & &1.id)
+
+      browsing =
+        socket.assigns.selected || socket.assigns.connections ||
+          socket.assigns.mail.scope == :home
+
+      ids = if browsing, do: [], else: ids
+
+      socket
+      |> assign(workspace_health: health, home_accounts: summaries, home_error: false)
+      |> directory_subscriptions(ids)
     else
-      _ -> socket |> assign(:workspace_health, %{}) |> directory_subscriptions([])
+      _ ->
+        socket
+        |> assign(workspace_health: %{}, home_accounts: [], home_error: true)
+        |> directory_subscriptions([])
     end
   end
 
@@ -280,7 +363,7 @@ defmodule LovelaceWeb.HomeLive do
         {:ok, workspace} ->
           socket
           |> directory_subscriptions([])
-          |> assign(selected: workspace, page_title: workspace.name)
+          |> assign(home: false, selected: workspace, page_title: workspace.name)
           |> HomeMail.open_workspace(workspace)
 
         _ ->
@@ -322,16 +405,33 @@ defmodule LovelaceWeb.HomeLive do
       <div id="workspace-content" class="workspace-content" inert>
         <p id="workspace-save-status" class="sr-only" role="status">{@save_status}</p>
         <div class="workspace-topline">
-          <button
-            :if={!@connections}
-            id="show-connections"
-            type="button"
-            class="workspace-action"
-            phx-click="show_connections"
-            disabled={!!@editor || @loading || @workspaces_error}
-          >
-            <.icon name="hero-squares-plus" class="size-4" /> Connections
-          </button>
+          <nav id="center-nav" class="center-nav" aria-label="Main navigation">
+            <button
+              id="home-link"
+              type="button"
+              class="workspace-nav-link"
+              aria-label="Home"
+              aria-current={if @home, do: "page"}
+              phx-click="show_home"
+              disabled={!!@editor}
+            >Home</button>
+            <button
+              id="show-workspaces"
+              type="button"
+              class="workspace-nav-link"
+              phx-click="show_workspaces"
+              aria-current={if !@home && !@connections && @mail.scope != :home, do: "page"}
+              disabled={!!@editor}
+            >Workspaces</button>
+            <button
+              id="show-connections"
+              type="button"
+              class="workspace-nav-link"
+              phx-click="show_connections"
+              aria-current={if @connections, do: "page"}
+              disabled={!!@editor}
+            >Connections</button>
+          </nav>
           <.form for={%{}} action="/lock" method="post" id="owner-lock-form">
             <button type="submit" class="workspace-action">Lock</button>
           </.form>
@@ -349,28 +449,31 @@ defmodule LovelaceWeb.HomeLive do
           </button>
 
           <button
-            :if={@connections}
+            :if={@connections && @selected}
             id="back-from-connections"
             type="button"
             class="workspace-back workspace-action"
             phx-click="close_connections"
           >
             <.icon name="hero-arrow-left" class="size-4" />
-            {if @selected, do: @selected.name, else: "All workspaces"}
+            {@selected.name}
           </button>
 
-          <div class="workspace-directory-heading">
+          <HomeComponents.daily_heading :if={@home} />
+
+          <div :if={!@home} class="workspace-directory-heading">
             <div>
               <h2 id="directory-heading" tabindex="-1" data-workspace-heading>
                 {cond do
                   @connections -> "Connections"
                   @selected -> @selected.name
+                  @mail.scope == :home -> "Inbox"
                   true -> "Workspaces"
                 end}
               </h2>
             </div>
             <button
-              :if={!@selected && !@connections && !@editor}
+              :if={!@selected && !@connections && @mail.scope != :home && !@editor}
               id="new-workspace"
               type="button"
               class="workspace-action"
@@ -427,7 +530,7 @@ defmodule LovelaceWeb.HomeLive do
           </.form>
 
           <div
-            :if={!@selected && !@connections}
+            :if={!@home && !@selected && !@connections && @mail.scope != :home}
             class="workspace-list"
             id="workspace-list"
             phx-update="stream"
@@ -440,10 +543,30 @@ defmodule LovelaceWeb.HomeLive do
             />
           </div>
 
-          <p :if={@loading} id="workspaces-loading" class="workspace-notice" role="status">
+          <HomeComponents.overview
+            :if={@home}
+            accounts={@home_accounts}
+            loading={@loading}
+            error={@home_error}
+          />
+
+          <div
+            :if={!@home && !@connections && @mail.scope == :home}
+            id="home-inbox"
+            class="workspace-landing"
+          >
+            <MailComponents.panel mail={@mail} />
+          </div>
+
+          <p :if={@loading && !@home} id="workspaces-loading" class="workspace-notice" role="status">
             Opening your spaces…
           </p>
-          <div :if={@workspaces_error} id="workspaces-error" class="workspace-notice" role="alert">
+          <div
+            :if={@workspaces_error && !@home}
+            id="workspaces-error"
+            class="workspace-notice"
+            role="alert"
+          >
             <p>Your workspaces couldn’t be loaded. Your saved spaces have not been changed.</p>
             <button type="button" class="workspace-action" phx-click="retry_workspaces">Try again</button>
           </div>

@@ -11,6 +11,10 @@ import topbar from "../vendor/topbar"
 import BrandReveal from "./hooks/brand_reveal"
 import WorkspaceIdle from "./hooks/workspace_idle"
 import WorkspaceEntrance from "./hooks/workspace_entrance"
+import DailyOrientation from "./hooks/daily_orientation"
+import ObservationTime from "./hooks/observation_time"
+import MailReader from "./hooks/mail_reader"
+import {MailDate, MailFreshness} from "./hooks/mail_time"
 import StageBackground, {observeStageImage} from "./hooks/stage_background"
 
 // Controller-rendered unlock/setup has no LiveView hooks. These observers belong
@@ -23,7 +27,7 @@ const csrfToken = document.querySelector("meta[name='csrf-token']").getAttribute
 const liveSocket = new LiveSocket("/live", Socket, {
   longPollFallbackMs: 2500,
   params: {_csrf_token: csrfToken},
-  hooks: {...colocatedHooks, BrandReveal, WorkspaceIdle, WorkspaceEntrance, StageBackground},
+  hooks: {...colocatedHooks, BrandReveal, WorkspaceIdle, WorkspaceEntrance, StageBackground, DailyOrientation, ObservationTime, MailReader, MailDate, MailFreshness},
 })
 
 // Show progress bar on live navigation and form submits

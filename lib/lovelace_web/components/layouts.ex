@@ -97,7 +97,7 @@ defmodule LovelaceWeb.Layouts do
         <p id="workspace-instructions" class="sr-only">
           Click or focus the workspace to bring the glass into focus. Press Escape to look
           through to the landscape. After inactivity, the landscape returns; click or type to
-          resume your current view. Choose a workspace or create a new one. Connected
+          resume your current view. Home summarizes your day; Workspaces organizes your areas of life. Connected
           Gmail accounts remain separate; reading mail never marks it as read.
         </p>
         <button

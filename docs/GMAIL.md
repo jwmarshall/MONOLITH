@@ -114,7 +114,8 @@ make its usual eligible, potentially billable image attempt. To avoid that, expl
 disable it in your private configuration first. Gmail itself never starts a browser
 or requests consent automatically.
 
-1. Open `http://localhost:4000`, unlock, enter a workspace, choose **Add integration**, then
+1. Open `http://localhost:4000`, unlock to **Home**, choose **Workspaces**, enter a workspace,
+   choose **Add integration**, then
    **Connect Google account**. Alternatively, open global **Connections** and explicitly
    choose the workspace to receive the new connection.
 2. Choose the intended Google account and grant read-only mail access.
@@ -122,11 +123,23 @@ or requests consent automatically.
    attribute, not its stable identity. Reconnect cannot silently select another account.
 4. Open one account's inbox; search uses Gmail syntax across that account, including
    sent/archived mail. Spam/Trash follow Gmail's ordinary search behavior unless requested.
+   Inbox rows show sender/date, subject and a short preview. Opening a conversation enters
+   a dedicated plain-text reader: earlier messages collapse, the latest opens, and full
+   sender/recipient/date details are expandable. Refresh preserves disclosure choices.
+   **Back to results** restores the current search/page and opened row's scroll/focus within
+   this live view; it does not add URL/history or reload persistence. Parseable dates display
+   in browser-local time; original headers remain in message details. Compact fetch freshness
+   ages locally, with an expandable exact observation timestamp and explicit stale/error states.
 5. In another workspace, use **Add integration → Add to workspace** to reuse the connection
    without reauthorizing. Each attached Gmail tile opens only that account's inbox.
 
 Workspace card warnings reflect known connection problems, not a new live provider check.
-Unread totals are not shown yet: the bounded cached inbox page is not a reliable total.
+Home shows each non-disconnected account once, with workspace labels and the unread inbox
+conversation total from Gmail's INBOX label `threadsUnread` (not unread messages or a partial
+page count). Unknown remains unavailable, not zero. The count has its own observation time
+and failure state; stale counts remain visible and labeled. Unrelated page reads cannot
+make an old count appear fresh. Rows open that account directly, even if unattached to a
+workspace, without adding membership. Home never merges inboxes or shows message previews.
 Global **Connections** lists reusable accounts and their last known health, with reconnect
 and confirmed disconnect-everywhere controls. Reconnecting globally explicitly selects a
 workspace and also adds the account there; workspace-local reconnect retains its workspace.
@@ -173,7 +186,8 @@ interpreted as an absent credential during rollback.
   instead of rendering a partial, misleading conversation. Current MIME text expects UTF-8.
 - Oban **2.24.2**, Apache-2.0, uses its bundled SQLite Lite engine. A minute cron sweep
   queues overdue per-account polls, targeting a three-minute interval, queue concurrency 1.
-  It refreshes the first inbox page; open account-scoped views refresh through PubSub.
+  It refreshes the first inbox page and independently reads the INBOX label's unread
+  conversation count; open account-scoped views refresh through PubSub.
   Other cached searches/pages/threads refetch on demand. This is polling, not a complete
   history-based mailbox reconciliation. Sleep, rate limits, queue backlog and network
   failures can increase delay. The app does not execute while stopped/asleep.
@@ -185,6 +199,10 @@ interpreted as an absent credential during rollback.
   Lifeline rescues abandoned work after five minutes, and the sweep discovers overdue
   accounts after restart/resume. Each job has at most three attempts. Provider 429 responses
   impose a five-minute wait; automatic retries are for read operations only.
+- Count observations are generation-fenced and cleared on reconnect/disconnect. Their
+  separate errors preserve known values and observation times; a failed count read does
+  not masquerade as a successful count update. Home's freshness label ages locally and
+  marks counts stale after three minutes, including across hidden tabs/system sleep.
 - Cache and errors show timestamps and stale status. **Refresh** explicitly requests
   another read. Locking the browser revokes its session, but background polling continues
   while the application and unlocked OS credential store are available.
