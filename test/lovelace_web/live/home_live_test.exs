@@ -12,7 +12,7 @@ defmodule LovelaceWeb.HomeLiveTest do
     assert policy =~ "font-src 'self'"
     assert policy =~ "object-src 'none'"
     refute policy =~ "unsafe-eval"
-    assert html =~ "Workspace · LOVELACE"
+    assert html =~ "Workspaces · LOVELACE"
     refute html =~ "Welcome to Phoenix"
     assert html =~ ~s(data-theme="lovelace")
     assert conn.resp_cookies["_lovelace_key"]
@@ -42,7 +42,9 @@ defmodule LovelaceWeb.HomeLiveTest do
     assert response(conn, 404)
   end
 
-  test "mounts a minimal glass workspace without marketing or fake features", %{conn: conn} do
+  test "mounts the glass entrance with gated saved workspaces and no fake integrations", %{
+    conn: conn
+  } do
     {:ok, view, _html} = live(conn, ~p"/")
 
     assert has_element?(view, "#workspace.glass-workspace[phx-hook=WorkspaceIdle]")
@@ -61,7 +63,10 @@ defmodule LovelaceWeb.HomeLiveTest do
            )
 
     assert has_element?(view, "#lovelace-monogram[aria-hidden=true][focusable=false] path")
-    refute has_element?(view, ".workspace-heading, header")
+    assert has_element?(view, "#workspace-content[inert]")
+    assert has_element?(view, "#workspace-list[phx-update=stream]")
+    assert has_element?(view, "#directory-heading", "Workspaces")
+    assert has_element?(view, ".workspace-row-name", "Personal")
     refute has_element?(view, ".workspace-wordmark", "lovelace")
     assert has_element?(view, "#workspace-background[aria-hidden=true]")
     assert has_element?(view, "#main-content[aria-labelledby=workspace-title]")
@@ -86,7 +91,7 @@ defmodule LovelaceWeb.HomeLiveTest do
   test "offers keyboard-accessible client-side focus and an Escape reset", %{conn: conn} do
     {:ok, view, _html} = live(conn, ~p"/")
 
-    assert has_element?(view, "a[href='#workspace-pane']", "Skip to workspace")
+    assert has_element?(view, "a[href='#main-content']", "Skip to workspace")
 
     assert has_element?(
              view,
@@ -94,7 +99,7 @@ defmodule LovelaceWeb.HomeLiveTest do
            )
 
     assert has_element?(view, "#workspace-pane[phx-click][phx-focus]")
-    assert has_element?(view, "#workspace-pane[phx-window-keydown][phx-key=Escape]")
+    assert has_element?(view, "#main-content[phx-window-keydown][phx-key=Escape]")
   end
 
   test "exposes configurable idle duration and shared sticky focus/reset commands", %{conn: conn} do

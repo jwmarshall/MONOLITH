@@ -9,9 +9,10 @@ export default {
     const length = stroke.getTotalLength()
 
     this.active = false
+    this.completed = false
     this.motionPreference = window.matchMedia("(prefers-reduced-motion: reduce)")
     this.context = gsap.context(() => {
-      this.timeline = gsap.timeline({paused: true})
+      this.timeline = gsap.timeline({paused: true, onComplete: () => this.complete()})
         .fromTo(stroke,
           {strokeDasharray: length, strokeDashoffset: length},
           {strokeDashoffset: 0, duration: 1.35, ease: "power2.inOut", immediateRender: true},
@@ -44,11 +45,17 @@ export default {
 
   reveal() {
     // Pointer focus and click can fire together. Never restart an active reveal.
-    if (this.active) return
+    if (this.active || this.completed) return
     this.active = true
 
     if (this.motionPreference.matches) this.timeline.progress(1).pause()
     else this.timeline.restart()
+  },
+
+  complete() {
+    if (this.completed) return
+    this.completed = true
+    this.el.dispatchEvent(new CustomEvent("lovelace:brand-complete", {bubbles: true}))
   },
 
   destroyed() {

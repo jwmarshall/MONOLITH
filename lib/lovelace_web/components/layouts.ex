@@ -25,7 +25,7 @@ defmodule LovelaceWeb.Layouts do
       data-workspace-focus={focus_workspace()}
       data-workspace-reset={reset_workspace()}
     >
-      <a href="#workspace-pane" class="workspace-skip-link">Skip to workspace</a>
+      <a href="#main-content" class="workspace-skip-link">Skip to workspace</a>
       <div id="workspace-background" class="workspace-background" aria-hidden="true">
         <img
           :if={@background_url}
@@ -40,11 +40,20 @@ defmodule LovelaceWeb.Layouts do
         {background_status(@background)}
       </p>
 
-      <main id="main-content" class="workspace-glass" aria-labelledby="workspace-title">
+      <main
+        id="main-content"
+        class="workspace-glass"
+        tabindex="-1"
+        aria-labelledby="workspace-title"
+        phx-hook="WorkspaceEntrance"
+        phx-window-keydown={reset_workspace()}
+        phx-key="Escape"
+      >
         <p id="workspace-instructions" class="sr-only">
           Click or focus the workspace to bring the glass into focus. Press Escape to look
           through to the landscape. After inactivity, the landscape returns; click or type to
-          resume. Workspace features are not connected yet.
+          resume your current view. Choose a workspace or create a new one. Mail and other
+          integrations are not connected yet.
         </p>
         <button
           id="workspace-pane"
@@ -55,8 +64,6 @@ defmodule LovelaceWeb.Layouts do
           aria-pressed="false"
           phx-click={focus_workspace()}
           phx-focus={focus_workspace()}
-          phx-window-keydown={reset_workspace()}
-          phx-key="Escape"
         >
           <span class="sr-only">Focus workspace</span>
         </button>

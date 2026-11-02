@@ -120,7 +120,7 @@ defmodule Lovelace.MixProject do
   # See the documentation for `Mix` for more info on aliases.
   defp test_js(_args) do
     {_, status} =
-      System.cmd("node", ["--test", "test/js/workspace_idle_test.mjs"],
+      System.cmd("node", ["--test" | Path.wildcard("test/js/*_test.mjs")],
         into: IO.stream(:stdio, :line)
       )
 

@@ -87,10 +87,16 @@ Implemented:
 - `/` is a full-viewport glass LiveView with an original local landscape. There is no
   top title. Click/keyboard focus sharpens the pane, blurs the scenery, and reveals a
   centered double cursive `l` monogram tracing onto the glass, followed by **LOVELACE**
-  letters flipping up one at a time. Escape cancels/hides the brand and restores the scenery. No marketing, fake data, or product controls.
-  Screen-reader instructions explicitly identify the unconnected work features. A
+  letters flipping up one at a time. Escape interrupts an unfinished entrance or restores
+  the scenery without discarding an open workspace/form. No fake mail or integrations.
+  The first completed reveal now hands off to a saved workspace directory. A
   configurable three-minute client-only inactivity timer returns focus to the scenery;
-  intentional input wakes it, but mouse movement does not.
+  intentional input resumes the current view without replaying the entrance, but mouse
+  movement does not wake it. See section 22 for the workspace UI and persistence.
+- `Lovelace.Workspaces` Ash/SQLite domain: persistent create/rename/list/get actions,
+  a conflict-safe **Personal** starter, quiet directory and empty workspace landing.
+  These are local owner spaces, not connected accounts or authentication. Projects are
+  explicitly deferred by the latest user interview; no organization terminology in UI.
 - Shared dark/amber design tokens, self-hosted Space Grotesk variable typography,
   custom favicon, keyboard focus and skip-link support. GSAP 3.15.0 is vendored locally
   with licensing/provenance/checksums; no npm install or runtime CDN is required.
@@ -123,7 +129,9 @@ No job-runner dependency is installed. No Google credentials are needed to run t
 | `mix.exs`, `mix.lock` | Dependencies and Mix aliases |
 | `lib/lovelace/application.ex` | Supervision tree (Repo, PubSub, endpoint, generated utilities) |
 | `lib/lovelace/repo.ex` | AshSqlite/Ecto repository with transactional writes |
-| `lib/lovelace_web/live/home_live.ex` | Minimal glass workspace and wordmark |
+| `lib/lovelace_web/live/home_live.ex` | Glass entrance, saved workspace directory/forms and empty landing |
+| `lib/lovelace/workspaces.ex`, `lib/lovelace/workspaces/` | Local-owner Ash domain, resource and capability check |
+| `assets/js/hooks/workspace_entrance.js` | Sticky client-only entrance gate and focus handoff |
 | `lib/lovelace_web/router.ex` | Browser pipeline, root LiveView, dev dashboard |
 | `lib/lovelace_web/components/` | Layouts and generated core UI components |
 | `assets/css/app.css` | LOVELACE theme tokens and Tailwind setup (`lovelace` theme key) |
@@ -325,6 +333,17 @@ not a fully approved visual system. No external font/CDN is required.
   affordance; replace it rather than layering an invisible button over future controls.
 - Shared implementation: `Layouts.app/1` and the `.workspace-*` CSS rules/tokens.
   The user approved the glass shell, scenery, and focus effect after viewing it.
+
+### Saved workspace extension (latest user direction)
+
+Organizations are called **workspaces**, and projects are deferred. After the first
+completed brand reveal, an airy directory replaces the brand on the same full-viewport
+pane: warm typography, thin dividers, no floating card grid. Create and rename are
+persistent; opening a workspace leads to a named, intentionally empty landing, not a
+simulated inbox/dashboard. The starter is **Personal**. Escape/idle preserve navigation
+and unsaved form contents; waking resumes immediately without replaying the entrance.
+Only an interrupted, incomplete reveal restarts. A full reload starts the entrance again.
+The activation button disappears permanently after entrance, never covering controls.
 
 ### Typography standard
 
@@ -884,3 +903,64 @@ smoke confirmed exclusion and subsequent acquisition across actual independent B
 Killing an in-progress native unlink is justified by the OTP dirty-NIF/resource contract,
 not a fault injected into native code. Full completion evidence is in the remediation
 handoff; earlier verification records remain historical.
+
+## 22. Saved workspace directory and entrance handoff
+
+The user replaced “organizations” with **workspaces** and explicitly deferred projects.
+The interactive interview selected persistent create/rename, a quiet typographic directory,
+a named empty landing, **Personal** as the starter, and resume-in-place on idle wake.
+After the local preview the user requested more transparent glass, a more compact layout,
+quieter/smaller type, and less copy/decoration. The refinement lowers the working tint,
+reduces heading/row/form spacing, removes boxed arrows and redundant labels/filler text,
+and retains essential controls and honest integration status.
+This supersedes the empty-shell-only behavior and project-first next-step assumptions
+above. No mailbox/project/account/authentication scope was added.
+
+Implemented:
+
+- `Lovelace.Workspaces` domain and SQLite resource, migration/snapshot, stable ordering,
+  trimmed/nonblank names bounded to 64 characters, strict explicit local-owner capability
+  policy on every action. The capability is not authentication. The connected mount uses
+  an idempotent fixed-ID Ash action to create Personal without ever resetting renamed
+  data/timestamps. No create on disconnected HTTP render, delete, or archive actions.
+- Airy glass directory with create/rename forms, stream-rendered rows, workspace opening
+  and return navigation. The empty landing honestly labels disconnected integrations;
+  it contains no fake content, projects, account selectors, or operational mail controls.
+- First completed GSAP reveal emits a local event. `WorkspaceEntrance` removes the inert
+  gate and retires the activation button, with sticky client attributes surviving patches.
+  Keyboard focus transfers to the heading without stealing input focus. Incomplete reveals
+  replay after interruption; completed entrances never replay on Escape/idle wake. Open
+  workspace, scroll, keyboard focus and unsaved form state remain client/server-owned as
+  appropriate. Full reload begins a fresh entrance. No server calls animate the entrance.
+- Accessible labels, validation/invalid-field associations and rejected-save announcement,
+  quiet screen-reader save feedback, keyboard/reduced-motion/forced-colors/mobile handling.
+  A source review caught the initial validation-announcement omission; the fix and tests
+  were re-reviewed with no remaining blocker.
+
+Verification:
+
+- `mix check`: **149 ExUnit + 52 Node tests passed**, formatting, warnings-as-errors,
+  Credo/AshCredo, Sobelow, Ash schema drift and assets. `mix audit`: no vulnerabilities or
+  retired Hex packages. UsageRules refreshed; no dependencies, lockfile or runtime targets
+  changed. `git diff --check` passed.
+- Production warnings-as-errors compilation and minified asset deployment passed. An empty
+  disposable production-mode database migrated successfully. Ad hoc headless Chrome against
+  that loopback server verified normal-motion reveal/gating, interruption/replay, repeated
+  input suppression, focus handoff, whitespace rejection and associated alert, creation,
+  opening, rename, back navigation, persistence across reload, unsaved form/focus preservation
+  through idle, mouse-movement exclusion, immediate wake without replay, Escape/keyboard,
+  reduced motion, forced colors and desktop/mobile fit. Screenshots inspected; **zero**
+  JavaScript exceptions, CSP violations or external requests. This is not a permanent CI
+  browser test, screen-reader certification, cross-browser test or packaged release test.
+- With the user's explicit review approval, applied the additive workspace migration to
+  the existing local development database with generation disabled. Local homepage HTTP
+  returned 200. The existing server was not restarted; no credentials, real scenery or
+  mailbox contents were read, and no provider/background generation was invoked. Personal
+  is initialized when the user connects to the updated page. Temporary browser/server
+  processes were stopped after verification.
+
+The user approved the refined visual direction. Real assistive-technology testing,
+cross-browser review and hosted CI remain open. There is no permanent selection persisted
+across full page reloads and no automatic cross-tab workspace list synchronization;
+refreshing the directory reloads
+saved records. These are local workspace records, not mailbox isolation boundaries.

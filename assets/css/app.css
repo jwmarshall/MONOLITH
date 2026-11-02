@@ -79,8 +79,7 @@
   color: #141412;
 }
 
-/* The workspace's two focal planes. Only the scenery and decorative chrome blur;
-   future working content, focus rings, and alerts must remain readable. */
+/* Two focal planes: working content stays sharp; only scenery and the glass edge blur. */
 :root {
   --workspace-focus-duration: 650ms;
   --workspace-focus-easing: cubic-bezier(0.22, 1, 0.36, 1);
@@ -122,6 +121,7 @@
 .workspace-glass {
   position: relative;
   min-height: 100%;
+  height: 100%;
   background: rgb(18 22 21 / 2%);
   transition: background var(--workspace-focus-duration) var(--workspace-focus-easing);
 }
@@ -165,7 +165,8 @@
   pointer-events: none;
   transition:
     opacity var(--workspace-focus-duration) var(--workspace-focus-easing),
-    filter var(--workspace-focus-duration) var(--workspace-focus-easing);
+    filter var(--workspace-focus-duration) var(--workspace-focus-easing),
+    visibility 0s var(--workspace-focus-duration);
 }
 
 .workspace-monogram {
@@ -230,6 +231,82 @@
   transform: translateY(0);
 }
 
+/* The entrance button is retired, never layered over real product controls. */
+.workspace-glass[data-entered="true"] {
+  .workspace-pane { display: none; }
+  .workspace-brand { opacity: 0; visibility: hidden; }
+  .workspace-content { visibility: visible; opacity: 0.22; }
+}
+
+.glass-workspace:has(#workspace-pane[aria-pressed="true"]) .workspace-glass[data-entered="true"] {
+  background: rgb(12 17 16 / 58%);
+  .workspace-content { opacity: 1; }
+}
+
+.workspace-content {
+  position: relative;
+  height: 100%;
+  overflow-y: auto;
+  visibility: hidden;
+  opacity: 0;
+  color: #f3efe4;
+  padding: 36px clamp(28px, 7vw, 112px) 24px;
+  text-shadow: 0 1px 2px rgb(0 0 0 / 75%);
+  display: flex;
+  flex-direction: column;
+  transition: opacity var(--workspace-focus-duration) var(--workspace-focus-easing);
+}
+
+.workspace-topline, .workspace-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  flex-shrink: 0;
+}
+
+.workspace-signature { font-size: 10px; letter-spacing: 0.38em; font-weight: 400; }
+.workspace-directory { width: 100%; max-width: 1000px; margin: clamp(40px, 8vh, 80px) auto 56px; flex: 1; }
+.workspace-directory-heading { display: flex; align-items: center; justify-content: space-between; gap: 24px; margin-bottom: 28px; }
+.workspace-directory h2 { font-size: clamp(28px, 3vw, 34px); line-height: 1.2; letter-spacing: -0.035em; font-weight: 300; overflow-wrap: anywhere; }
+.workspace-directory h2:focus { outline: none; }
+.workspace-action { display: inline-flex; align-items: center; justify-content: center; gap: 10px; padding: 12px 0; font-size: 13px; color: #e1dfd3; cursor: pointer; transition: color 160ms; }
+.workspace-action:hover, .workspace-open:hover { color: #e7bc7f; }
+.workspace-action:disabled { opacity: 0.4; cursor: wait; }
+.workspace-directory-heading > .workspace-action { border-bottom: 1px solid rgb(238 237 229 / 30%); flex-shrink: 0; }
+.workspace-back { margin-bottom: 24px; color: #eeebe1; }
+.workspace-list { border-top: 1px solid rgb(238 237 229 / 25%); }
+.workspace-row { display: flex; align-items: stretch; border-bottom: 1px solid rgb(238 237 229 / 18%); }
+.workspace-open { display: flex; align-items: center; flex: 1; min-width: 0; text-align: left; gap: 24px; padding: 22px 0; cursor: pointer; transition: color 160ms, background 160ms; }
+.workspace-open:hover { background: rgb(238 237 229 / 3%); }
+.workspace-row-name { font-size: 19px; letter-spacing: -0.02em; overflow-wrap: anywhere; }
+.workspace-row-enter { margin-left: auto; padding-left: 20px; font-size: 12px; color: #eeebe1; }
+.workspace-row-rename { padding: 12px 0 12px 24px; margin-left: 24px; color: #eeebe1; }
+.workspace-editor { max-width: 480px; margin-bottom: 32px; padding: 24px 0; border-top: 1px solid rgb(238 237 229 / 25%); border-bottom: 1px solid rgb(238 237 229 / 18%); }
+.workspace-editor-title { font-size: 15px; margin-bottom: 20px; }
+.workspace-name-input { width: 100%; display: block; margin-top: 8px; padding: 12px 14px; border: 1px solid rgb(238 237 229 / 35%); background: rgb(12 17 16 / 25%); border-radius: 0; font-size: 16px; color: #f3efe4; }
+.workspace-form-hint { margin-top: 10px; font-size: 12px; color: #eeebe1; }
+.workspace-editor .label { color: #eeebe1; }
+.workspace-form-feedback { font-size: 13px; color: #f0b7a9; line-height: 1.6; }
+.workspace-editor-actions { display: flex; gap: 24px; margin-top: 20px; }
+.workspace-action-primary { color: #e7bc7f; border-bottom: 1px solid #d6aa69; }
+.workspace-notice { padding: 28px 0; color: #e1dfd3; font-size: 14px; }
+.workspace-landing { border-top: 1px solid rgb(238 237 229 / 25%); padding-top: 28px; }
+.workspace-landing h3 { font-size: 17px; font-weight: 400; }
+.workspace-landing p { margin-top: 10px; color: #eeebe1; font-size: 13px; line-height: 1.8; }
+.workspace-footer { justify-content: flex-end; font-size: 11px; color: #eeebe1; }
+.workspace-footer kbd { font-family: inherit; border: 1px solid rgb(238 237 229 / 30%); padding: 2px 5px; margin-right: 5px; }
+
+@media (max-width: 640px) {
+  .workspace-content { padding: 32px 28px 24px; }
+  .workspace-directory { margin-top: 40px; margin-bottom: 40px; }
+  .workspace-directory-heading { align-items: flex-start; flex-direction: column; gap: 16px; margin-bottom: 24px; }
+  .workspace-open { gap: 16px; padding: 20px 0; }
+  .workspace-row-enter { display: none; }
+  .workspace-row-rename { margin-left: 12px; padding-left: 12px; font-size: 12px; }
+
+}
+
 @media (prefers-reduced-motion: reduce) {
   :root {
     --workspace-focus-duration: 0ms;
@@ -245,4 +322,13 @@
     color: CanvasText;
     filter: none;
   }
+
+  .workspace-content, .workspace-action, .workspace-footer, .workspace-row-enter,
+  .workspace-name-input, .workspace-form-hint, .workspace-landing p {
+    color: CanvasText;
+    text-shadow: none;
+  }
+  .workspace-row, .workspace-list, .workspace-editor, .workspace-landing,
+  .workspace-name-input { border-color: CanvasText; }
+  .workspace-glass[data-entered="true"] .workspace-content { opacity: 1; }
 }

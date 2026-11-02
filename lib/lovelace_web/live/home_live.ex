@@ -1,8 +1,12 @@
 defmodule LovelaceWeb.HomeLive do
-  @moduledoc """
-  The glass workspace foundation. Product features are not connected yet.
-  """
+  @moduledoc "The glass entrance and local owner's saved workspaces."
   use LovelaceWeb, :live_view
+
+  alias Lovelace.Workspaces
+  alias Lovelace.Workspaces.Workspace
+
+  # A local-only capability, not owner authentication or a Gmail identity.
+  @owner %{role: :local_owner}
 
   @impl true
   def mount(_params, _session, socket) do
@@ -14,13 +18,136 @@ defmodule LovelaceWeb.HomeLive do
         {:error, _reason} -> %{url: nil, status: :unavailable}
       end
 
-    {:ok, assign(socket, page_title: "Workspace", background: background)}
+    socket =
+      socket
+      |> assign(
+        page_title: "Workspaces",
+        background: background,
+        selected: nil,
+        editor: nil,
+        form: nil,
+        form_failed: false,
+        workspaces_error: false,
+        loading: not connected?(socket),
+        save_status: ""
+      )
+      |> stream(:workspaces, [])
+
+    {:ok, if(connected?(socket), do: load_workspaces(socket), else: socket)}
   end
 
   @impl true
   def handle_info({:stage_background, %{url: _url, status: _status} = background}, socket) do
     {:noreply, assign(socket, :background, background)}
   end
+
+  @impl true
+  def handle_event("retry_workspaces", _params, socket) do
+    {:noreply, load_workspaces(socket)}
+  end
+
+  def handle_event("new_workspace", _params, socket) do
+    form =
+      Workspace
+      |> AshPhoenix.Form.for_create(:create, as: "workspace", actor: @owner)
+      |> to_form()
+
+    {:noreply, assign(socket, editor: :new, form: form, form_failed: false, save_status: "")}
+  end
+
+  def handle_event("rename_workspace", %{"id" => id}, socket) do
+    case Workspaces.get_workspace(id, actor: @owner) do
+      {:ok, %Workspace{} = workspace} ->
+        form =
+          workspace
+          |> AshPhoenix.Form.for_update(:rename, as: "workspace", actor: @owner)
+          |> to_form()
+
+        {:noreply,
+         assign(socket, editor: :rename, form: form, form_failed: false, save_status: "")}
+
+      _ ->
+        {:noreply, put_flash(socket, :error, "This workspace is unavailable. Try again.")}
+    end
+  end
+
+  def handle_event("cancel_workspace", _params, socket) do
+    {:noreply, socket |> assign(editor: nil, form: nil) |> focus_heading()}
+  end
+
+  def handle_event("validate_workspace", %{"workspace" => params}, socket) do
+    if socket.assigns.form do
+      form = AshPhoenix.Form.validate(socket.assigns.form, params)
+      {:noreply, assign(socket, form: to_form(form), form_failed: false)}
+    else
+      {:noreply, socket}
+    end
+  end
+
+  def handle_event("save_workspace", %{"workspace" => params}, socket) do
+    if socket.assigns.form do
+      save_workspace(socket, params)
+    else
+      {:noreply, socket}
+    end
+  end
+
+  def handle_event("open_workspace", %{"id" => id}, socket) do
+    case Workspaces.get_workspace(id, actor: @owner) do
+      {:ok, %Workspace{} = workspace} ->
+        {:noreply,
+         socket
+         |> assign(selected: workspace, editor: nil, form: nil, page_title: workspace.name)
+         |> focus_heading()}
+
+      _ ->
+        {:noreply, put_flash(socket, :error, "This workspace is unavailable. Try again.")}
+    end
+  end
+
+  def handle_event("show_workspaces", _params, socket) do
+    {:noreply,
+     socket
+     |> assign(selected: nil, editor: nil, form: nil, page_title: "Workspaces")
+     |> load_workspaces()
+     |> focus_heading()}
+  end
+
+  defp save_workspace(socket, params) do
+    case AshPhoenix.Form.submit(socket.assigns.form, params: params) do
+      {:ok, workspace} ->
+        selected = socket.assigns.selected
+        selected = if selected && selected.id == workspace.id, do: workspace, else: selected
+
+        {:noreply,
+         socket
+         |> assign(
+           selected: selected,
+           editor: nil,
+           form: nil,
+           page_title: if(selected, do: selected.name, else: "Workspaces"),
+           save_status: "Workspace saved."
+         )
+         |> load_workspaces()
+         |> focus_heading()}
+
+      {:error, form} ->
+        {:noreply, assign(socket, form: to_form(form), form_failed: true)}
+    end
+  end
+
+  defp load_workspaces(socket) do
+    with {:ok, _personal} <- Workspaces.initialize_personal(actor: @owner),
+         {:ok, workspaces} <- Workspaces.list_workspaces(actor: @owner) do
+      socket
+      |> assign(workspaces_error: false, loading: false)
+      |> stream(:workspaces, workspaces, reset: true)
+    else
+      _ -> assign(socket, workspaces_error: true, loading: false)
+    end
+  end
+
+  defp focus_heading(socket), do: push_event(socket, "workspace:focus-heading", %{})
 
   @impl true
   def render(assigns) do
@@ -59,6 +186,136 @@ defmodule LovelaceWeb.HomeLive do
             class="workspace-letter"
           >{letter}</span>
         </p>
+      </div>
+
+      <div id="workspace-content" class="workspace-content" inert>
+        <p id="workspace-save-status" class="sr-only" role="status">{@save_status}</p>
+        <div class="workspace-topline">
+          <span class="workspace-signature">LOVELACE</span>
+        </div>
+
+        <section class="workspace-directory" aria-labelledby="directory-heading">
+          <button
+            :if={@selected}
+            id="back-to-workspaces"
+            type="button"
+            class="workspace-back workspace-action"
+            phx-click="show_workspaces"
+          >
+            <span aria-hidden="true">←</span> All workspaces
+          </button>
+
+          <div class="workspace-directory-heading">
+            <div>
+              <h2 id="directory-heading" tabindex="-1" data-workspace-heading>
+                {if @selected, do: @selected.name, else: "Workspaces"}
+              </h2>
+            </div>
+            <button
+              :if={!@selected && !@editor}
+              id="new-workspace"
+              type="button"
+              class="workspace-action"
+              phx-click="new_workspace"
+              disabled={@loading || @workspaces_error}
+            >
+              New workspace
+            </button>
+            <button
+              :if={@selected && !@editor}
+              id="rename-current-workspace"
+              type="button"
+              class="workspace-action"
+              phx-click="rename_workspace"
+              phx-value-id={@selected.id}
+            >
+              Rename workspace
+            </button>
+          </div>
+
+          <.form
+            :if={@editor}
+            for={@form}
+            id="workspace-form"
+            class="workspace-editor"
+            phx-change="validate_workspace"
+            phx-submit="save_workspace"
+          >
+            <h3 class="workspace-editor-title">
+              {if @editor == :new, do: "New workspace", else: "Rename workspace"}
+            </h3>
+            <.input
+              field={@form[:name]}
+              id="workspace-name"
+              label="Name"
+              class="workspace-name-input"
+              maxlength="64"
+              required
+              autocomplete="off"
+              aria-invalid={if @form[:name].errors != [], do: "true", else: "false"}
+              aria-describedby="workspace-name-hint workspace-form-feedback"
+              phx-mounted={JS.focus()}
+            />
+            <p id="workspace-name-hint" class="workspace-form-hint">Use a name of 1–64 characters.</p>
+            <p id="workspace-form-feedback" class="workspace-form-feedback" role="alert">
+              {if @form_failed,
+                do: "The workspace couldn’t be saved. Check the name and try again."}
+            </p>
+            <div class="workspace-editor-actions">
+              <button
+                type="submit"
+                class="workspace-action workspace-action-primary"
+                phx-disable-with="Saving…"
+              >
+                {if @editor == :new, do: "Create workspace", else: "Save name"}
+              </button>
+              <button type="button" class="workspace-action" phx-click="cancel_workspace">Cancel</button>
+            </div>
+          </.form>
+
+          <div :if={!@selected} class="workspace-list" id="workspace-list" phx-update="stream">
+            <div :for={{dom_id, workspace} <- @streams.workspaces} id={dom_id} class="workspace-row">
+              <button
+                id={"open-#{workspace.id}"}
+                type="button"
+                class="workspace-open"
+                phx-click="open_workspace"
+                phx-value-id={workspace.id}
+                aria-label={"Open #{workspace.name}"}
+              >
+                <span class="workspace-row-name">{workspace.name}</span>
+                <span class="workspace-row-enter" aria-hidden="true">Open</span>
+              </button>
+              <button
+                id={"rename-#{workspace.id}"}
+                type="button"
+                class="workspace-row-rename workspace-action"
+                phx-click="rename_workspace"
+                phx-value-id={workspace.id}
+                aria-label={"Rename #{workspace.name}"}
+              >
+                Rename
+              </button>
+            </div>
+          </div>
+
+          <p :if={@loading} id="workspaces-loading" class="workspace-notice" role="status">
+            Opening your spaces…
+          </p>
+          <div :if={@workspaces_error} id="workspaces-error" class="workspace-notice" role="alert">
+            <p>Your workspaces couldn’t be loaded. Your saved spaces have not been changed.</p>
+            <button type="button" class="workspace-action" phx-click="retry_workspaces">Try again</button>
+          </div>
+
+          <div :if={@selected && !@editor} id="workspace-landing" class="workspace-landing">
+            <h3>Nothing here yet.</h3>
+            <p>Mail and other integrations are not connected.</p>
+          </div>
+        </section>
+
+        <footer class="workspace-footer">
+          <span><kbd>esc</kbd> Landscape</span>
+        </footer>
       </div>
     </Layouts.app>
     """

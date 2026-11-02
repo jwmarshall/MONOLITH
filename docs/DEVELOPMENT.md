@@ -101,7 +101,38 @@ controls the client-only screensaver (default three minutes). No gallery/editor 
 Do not inject real Google credentials into tests or CI. Test runtime forces real startup
 generation off; focused provider tests inject fake keys/`Req.Test`. For maintenance commands,
 force `LOVELACE_STAGE_ENABLED=false` to avoid an unintended application-startup request.
-The shell still runs without dotenvx or an API key when generation is disabled.
+The workspace UI still runs without dotenvx or an API key when generation is disabled.
+
+## Saved workspaces
+
+`Lovelace.Workspaces` owns a SQLite `Workspace` resource with explicit read/create/rename
+and starter-initialization actions. All require the server-supplied `%{role: :local_owner}`
+capability, checked strictly (including missing IDs). This is **not authentication** and
+must not be reused as a multi-user access design. Workspaces contain no account credentials,
+mail, or project associations. Future mail queries still require real account scoping.
+
+Apply the additive schema before using the updated homepage:
+
+```sh
+LOVELACE_STAGE_ENABLED=false mix ecto.migrate
+```
+
+The first connected LiveView mount initializes **Personal** through a conflict-safe Ash
+upsert with a fixed ID and no update fields. Reloads, reconnects, and directory refreshes
+never reset its renamed name or timestamps. Disconnected HTTP rendering does not write
+workspace records. Creation and rename use `AshPhoenix.Form`; names are trimmed, nonblank,
+and bounded to 64 characters server-side. There are deliberately no delete/archive actions,
+projects, account connection, or mailbox functionality in this slice.
+
+`WorkspaceEntrance` gates server-owned content with `inert` until `BrandReveal` completes,
+then uses sticky LiveView JS attributes to preserve the entrance state through patches.
+The ignored decorative brand owns only its GSAP subtree. Escape during an unfinished reveal
+restarts it on next activation; after completion, Escape/idle only change focal planes and
+preserve the current view and unsaved form. The initial activation button is retired rather
+than layered over product controls. A full page reload starts a new entrance. New Node hook
+tests cover completion/replay/reduced motion and gate/focus/teardown; `mix test.js` discovers
+all `test/js/*_test.mjs`. Ordinary browser motion, keyboard and idle interaction must still be
+verified in a real browser, not inferred from fake-DOM tests.
 
 ## Image validation dependency
 
