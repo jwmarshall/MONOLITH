@@ -1,8 +1,8 @@
-defmodule Wallace.TestSupport.AshDomain do
+defmodule Lovelace.TestSupport.AshDomain do
   @moduledoc false
   use Ash.Domain, validate_config_inclusion?: false
 
   resources do
-    resource Wallace.TestSupport.AshProbe
+    resource Lovelace.TestSupport.AshProbe
   end
 end

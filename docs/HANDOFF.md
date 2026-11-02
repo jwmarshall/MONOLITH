@@ -1,25 +1,29 @@
-# Wallace — next-agent handoff
+# LOVELACE — next-agent handoff
 
 ## 1. Purpose and authority
 
 This document records the product interview, repository bootstrap, and subsequent Ash/tooling foundation.
-The current UI trials the name **LOVELACE** (always uppercase) with a double cursive `l`
-monogram. This is a visual rebrand only: `:wallace`, `Wallace`, `WallaceWeb`, repository,
-configuration keys, and database paths remain unchanged pending a naming decision.
+The project name is **LOVELACE**, always uppercase, with a double cursive `l` monogram.
+The internal rename is also complete: OTP app `:lovelace`, modules `Lovelace` and
+`LovelaceWeb`, matching source/test paths, configuration/build/theme keys, and
+`lovelace_*.db` database filenames. See section 12 for migration and verification notes.
+Git hosting metadata and the external checkout folder are managed separately.
 See `DEVELOPMENT.md` for tooling commands and testing conventions.
 Treat **confirmed requirements** as product constraints. Architecture proposals and
 open questions below are not additional user commitments. Read the actual code and
 `mix.lock` before assuming a feature or dependency exists.
 
-Wallace is named for the Wallace Corporation from *Blade Runner*. The long-term
-purpose is a personal productivity and innovation homepage/dashboard, with custom
-integrations as needed. The first useful version is narrower: **a project-oriented
-Gmail workspace**, not a general widget dashboard or a full project-management suite.
+LOVELACE's visual direction draws on the sterile, brutalist architecture in
+*Blade Runner*. The long-term purpose is a personal productivity and innovation
+homepage/dashboard, with custom integrations as needed. The first useful version is
+narrower: **a project-oriented Gmail workspace**, not a general widget dashboard or a
+full project-management suite.
 
 ## 2. Confirmed requirements
 
 | Area | Decision from the user |
 | --- | --- |
+| Project name | LOVELACE, always uppercase; double cursive `l` monogram |
 | Primary purpose | Orient the day and do focused work |
 | First workflow | Project workbench, initially email-centered |
 | Audience/access | One person, private access |
@@ -27,9 +31,9 @@ Gmail workspace**, not a general widget dashboard or a full project-management s
 | Runtime location | On the user's computer |
 | Infrastructure preference | Minimize moving parts |
 | Integration direction | Two-way workspace; Gmail first |
-| Mail capabilities | Read/search, organize mail, draft replies, send from Wallace |
+| Mail capabilities | Read/search, organize mail, draft replies, send from LOVELACE |
 | Accounts | Multiple Gmail accounts; **do not mix inboxes** |
-| Projects | Wallace owns project data; each project belongs to one Gmail account |
+| Projects | LOVELACE owns project data; each project belongs to one Gmail account |
 | Thread membership | Explicit/manual linking, not automatic labels or search rules |
 | Local email retention | On-demand cache, not a complete offline mirror |
 | External freshness | Changes usually appear within a few minutes while running |
@@ -52,10 +56,11 @@ not forbidden forever, but should not expand the first slice without discussion.
 
 ## 3. What actually exists
 
-Generated using the installed Phoenix **1.8.9 generator** with:
+Bootstrapped using the installed Phoenix **1.8.9 generator**. The equivalent command
+with the current application identifiers is:
 
 ```sh
-mix phx.new . --app wallace --module Wallace --database sqlite3 --no-mailer --no-install --no-agents-md
+mix phx.new . --app lovelace --module Lovelace --database sqlite3 --no-mailer --no-install --no-agents-md
 ```
 
 The nonempty-directory confirmation was accepted to preserve `.tool-versions` and
@@ -65,7 +70,7 @@ exact versions. There is no Swoosh mailer: Gmail sending will use the Gmail API.
 
 Implemented:
 
-- A conventional, non-umbrella Phoenix application (`:wallace`, `Wallace`, `WallaceWeb`).
+- A conventional, non-umbrella Phoenix application (`:lovelace`, `Lovelace`, `LovelaceWeb`).
 - `AshSqlite.Repo` over Ecto, transactional writes enabled, a single connection in all
   environments, SQLite configuration, empty application migration directory and seeds.
 - Ash/AshPhoenix and authentication libraries; no production domains/resources yet.
@@ -74,21 +79,24 @@ Implemented:
 - Explicit browser Content-Security-Policy; no security-scan findings suppressed.
 - `/` is a full-viewport glass LiveView with an original local landscape. There is no
   top title. Click/keyboard focus sharpens the pane, blurs the scenery, and reveals a
-  centered double cursive `l` monogram with **LOVELACE** beneath it. Escape hides the
-  brand and restores the scenery. No marketing, fake data, or product controls.
+  centered double cursive `l` monogram tracing onto the glass, followed by **LOVELACE**
+  letters flipping up one at a time. Escape cancels/hides the brand and restores the scenery. No marketing, fake data, or product controls.
   Screen-reader instructions explicitly identify the unconnected foundation.
 - Shared dark/amber design tokens, self-hosted Space Grotesk variable typography,
-  custom favicon, keyboard focus and skip-link support.
+  custom favicon, keyboard focus and skip-link support. GSAP 3.15.0 is vendored locally
+  with licensing/provenance/checksums; no npm install or runtime CDN is required.
 - Tailwind/esbuild pipeline; generated daisyUI core component primitives retained.
 - Generated error handling, telemetry, and development-only LiveDashboard.
 - HTTP/LiveView shell and error tests plus test-only Ash persistence/validation/rollback,
-  Req.Test, CSP, and development-tool exclusion checks. See section 11 for the current count.
+  Req.Test, CSP, development-tool exclusion, and vendored asset integrity checks.
+  See section 13 for the current verification record.
 - Loopback-only dev **and production** listeners; development LiveView origin checks enabled.
 - Git ignore rules for local credentials, databases/sidecars, dependencies, and builds.
 
 **Not implemented:** account/project/mail schemas, OAuth, credential storage, provider
 HTTP client, mailbox UI, message rendering, attachments, Gmail actions, synchronization,
-PubSub domain notifications, durable jobs, login, production packaging, or backups.
+PubSub domain notifications, durable jobs, login, desktop/startup packaging, or a product
+backup/restore workflow. A basic Mix production release was validated during the rename.
 The CI workflow is written but has not been executed on a hosted GitHub runner.
 No job-runner dependency is installed. No Google credentials are needed to run the shell.
 
@@ -98,18 +106,20 @@ No job-runner dependency is installed. No Google credentials are needed to run t
 | --- | --- |
 | `.tool-versions` | User-owned runtime selection; preserved unchanged |
 | `mix.exs`, `mix.lock` | Dependencies and Mix aliases |
-| `lib/wallace/application.ex` | Supervision tree (Repo, PubSub, endpoint, generated utilities) |
-| `lib/wallace/repo.ex` | AshSqlite/Ecto repository with transactional writes |
-| `lib/wallace_web/live/home_live.ex` | Minimal glass workspace and wordmark |
-| `lib/wallace_web/router.ex` | Browser pipeline, root LiveView, dev dashboard |
-| `lib/wallace_web/components/` | Layouts and generated core UI components |
-| `assets/css/app.css` | Wallace theme tokens and Tailwind setup |
+| `lib/lovelace/application.ex` | Supervision tree (Repo, PubSub, endpoint, generated utilities) |
+| `lib/lovelace/repo.ex` | AshSqlite/Ecto repository with transactional writes |
+| `lib/lovelace_web/live/home_live.ex` | Minimal glass workspace and wordmark |
+| `lib/lovelace_web/router.ex` | Browser pipeline, root LiveView, dev dashboard |
+| `lib/lovelace_web/components/` | Layouts and generated core UI components |
+| `assets/css/app.css` | LOVELACE theme tokens and Tailwind setup (`lovelace` theme key) |
 | `assets/js/app.js` | LiveSocket, hooks, amber navigation progress indicator |
+| `assets/js/hooks/brand_reveal.js` | Local GSAP trace/letter reveal lifecycle |
+| `assets/vendor/gsap/` | Pinned GSAP source, upstream metadata, license, provenance |
 | `config/` | Dev/test/prod settings and runtime configuration |
 | `priv/repo/` | Future migrations and seeds (no domain tables yet) |
 | `test/support/` | Connection and SQL sandbox helpers |
-| `test/wallace_web/live/home_live_test.exs` | HTTP/live shell, CSP, and test-environment MCP exclusion |
-| `test/wallace/` | Ash/SQLite and Req.Test foundation checks |
+| `test/lovelace_web/live/home_live_test.exs` | HTTP/live shell, CSP, and test-environment MCP exclusion |
+| `test/lovelace/` | Ash/SQLite and Req.Test foundation checks |
 | `.credo.exs` | Credo plugin and explicit Ash security checks |
 | `.github/workflows/ci.yml` | Quality/security/test/asset checks and online audits |
 | `docs/DEVELOPMENT.md` | Dependency roles, commands, migrations, test conventions, tooling safety |
@@ -155,14 +165,14 @@ AshSqlite still uses Ecto underneath; migrations and resource snapshots must be 
 and committed together. No production domains/resources exist yet (`ash_domains: []`).
 Suggested future domain/integration namespaces (proposals, not existing modules):
 
-- `Wallace.Accounts`: future owner authentication plus distinct connected Google account
-  identities and credential lifecycle. Do not make a linked mailbox a separate Wallace user.
-- `Wallace.Projects`: account-owned projects and explicit project/thread associations.
-- `Wallace.Mail`: account-scoped reads/actions and on-demand cache policies.
-- `Wallace.Integrations.Google`: OAuth and Gmail protocol/HTTP adapter, with a fake
+- `Lovelace.Accounts`: future owner authentication plus distinct connected Google account
+  identities and credential lifecycle. Do not make a linked mailbox a separate LOVELACE user.
+- `Lovelace.Projects`: account-owned projects and explicit project/thread associations.
+- `Lovelace.Mail`: account-scoped reads/actions and on-demand cache policies.
+- `Lovelace.Integrations.Google`: OAuth and Gmail protocol/HTTP adapter, with a fake
   implementation or injected transport for tests.
-- `Wallace.Sync`: durable sync state, polling, reconciliation, status, and workers.
-- `WallaceWeb`: render state and handle user intent; do not perform long provider
+- `Lovelace.Sync`: durable sync state, polling, reconciliation, status, and workers.
+- `LovelaceWeb`: render state and handle user intent; do not perform long provider
   requests or embed sync logic inside LiveView callbacks.
 
 These boundaries need not all become separate domains before the first feature.
@@ -178,7 +188,7 @@ Avoid empty abstraction layers or speculative integrations.
 - The selected account and sender identity must be unmistakable during composition.
 - Switching accounts must not leak previous-account results through delayed responses,
   LiveView state, drafts, caches, subscriptions, or jobs.
-- Gmail is authoritative for mail state. Wallace is authoritative for projects and
+- Gmail is authoritative for mail state. LOVELACE is authoritative for projects and
   manual project membership. Linking a thread should not silently modify Gmail labels.
 - Search through Gmail initially; do not construct a full local mail index by accident.
   Fetch messages/attachments on demand. Cache limits, eviction, and retention need design.
@@ -220,7 +230,7 @@ The shell is not yet ready to store or render private email.
   Google consent/testing mode can affect refresh-token lifetime. Sensitive/restricted
   Gmail scopes can impose distribution/verification requirements; verify current policy
   for this personal application rather than assuming a public-app process is required.
-- Gmail authorization is distinct from access control to Wallace. Loopback binding
+- Gmail authorization is distinct from access control to LOVELACE. Loopback binding
   is not a complete security design. Retain CSRF/origin protections and review localhost
   request/session handling before connecting real accounts.
 - Keep credentials and message bodies out of logs, exceptions, job payloads, telemetry,
@@ -257,11 +267,13 @@ not a fully approved visual system. No external font/CDN is required.
 ### Glass workspace standard (user-directed foundation)
 
 - Fill the viewport edge to edge, not a centered dashboard card. No top-centered title
-  or front-page marketing text. The user replaced the original `wallace` wordmark with
-  a trial **LOVELACE** identity: an original double cursive `l` above the uppercase name,
+  or front-page marketing text. The finalized **LOVELACE** identity is an original double
+  cursive `l` above the uppercase name,
   centered in the viewport and visible only when the glass is in focus.
-- The brand fades in/out with the focal-plane transition, without shifting layout or
-  intercepting clicks. An always-available screen-reader heading names the workspace;
+- On focus the monogram traces over about 1.35 seconds, then eight letters flip up
+  left-to-right with a short stagger. The brand also fades with the focal-plane change,
+  without shifting layout or intercepting clicks. Duplicate focus/click events do not
+  restart an active reveal; Escape pauses it and fresh focus replays it from the start. An always-available screen-reader heading names the workspace;
   the visual brand is decorative. The matching monogram is also the favicon.
 - The interface is a nearly transparent window onto a distant, in-focus background.
   At rest, formal UI chrome is softly defocused (currently 1.4px); the scenery is sharp.
@@ -269,9 +281,14 @@ not a fully approved visual system. No external font/CDN is required.
   scenery softens (currently 14px), and a restrained tint supports future working content.
   Repeated clicks keep the pane focused. Escape restores the distant view; there is
   no inactivity timer, hover switching, or surprise defocus while working.
-- Focus switching uses LiveView client-side JS commands and CSS, without server events,
-  persistence, or new JS dependencies. Keyboard focus indicators and alerts never blur.
-  Transitions respect reduced motion; forced-colors mode removes scenery and text blur.
+- Focus switching uses LiveView client-side JS commands and CSS; brand choreography
+  uses a GSAP hook on the decorative `phx-update="ignore"` subtree. No server events or
+  persistence are involved. Hook teardown removes listeners and reverts its GSAP context.
+  Keyboard focus indicators and alerts never blur. Reduced motion shows the finished
+  brand immediately, including if enabled mid-reveal; forced colors removes scenery/blur.
+- Self-host UI assets and vendor third-party scripts/fonts with pinned versions, licenses,
+  provenance, and checksums. No runtime CDN, font service, or remote-image dependency.
+  GSAP's source is bundled by esbuild; it does not require a JavaScript package manager.
 - `priv/static/images/distant-shore.svg` is original, replaceable local scenery, not a
   remotely fetched image. Its landscape is a starting interpretation, not a user-selected
   photograph. No external content requests, animation, or parallax.
@@ -286,7 +303,7 @@ not a fully approved visual system. No external font/CDN is required.
 
 - The user selected **Space Grotesk** for an architectural, geometric character.
   Use the shared Tailwind `--font-sans` token throughout the UI; keep system fallbacks.
-- The uppercase **LOVELACE** wordmark uses weight 300, 13px, and 0.45em tracking
+- The uppercase **LOVELACE** wordmark uses weight 300, 13px, and 0.45em letter gaps
   below the 104px hand-drawn SVG monogram (no cursive font or external asset needed).
   Regular UI text defaults to 400; the bundled upright variable font supports 300–700.
   Do not apply wordmark tracking or light weights to future long-form email content.
@@ -352,7 +369,7 @@ Completed against the runtimes above:
 - `mix assets.build`: passed (Tailwind CSS and JavaScript bundles).
 - Development HTTP smoke test on port 4017: `/`, `/favicon.svg`,
   `/assets/css/app.css`, and `/assets/js/app.js` all returned successfully; the
-  root response contained the Wallace title and unconfigured states. The temporary
+  root response contained the original project title and unconfigured states. The temporary
   server was stopped afterward.
 - Ignore rules checked for dev/test databases, `.env`, local secrets, and built assets.
 - `.tool-versions` re-read and confirmed unchanged.
@@ -364,7 +381,7 @@ ignored; the project files are uncommitted.
 ## 10. Ash and lean-tooling foundation update
 
 The subsequent user request selected Ash for models/resources, domains, and
-Wallace authentication, plus Credo, AshCredo, Tidewave, and Igniter. In the follow-up
+LOVELACE authentication, plus Credo, AshCredo, Tidewave, and Igniter. In the follow-up
 scope questions the user chose **framework-only auth** and the **lean tooling baseline**.
 No owner login, User/Token resources, auth routes, or Gmail integration were generated.
 
@@ -375,7 +392,7 @@ Installed and configured:
   flags, redacted errors, signed pagination keysets, policy diagnostics in dev/test,
   and dev protocol recompilation support. Ash pagination/signing keys are not OAuth
   credential encryption keys; dev/test signing values are public development defaults.
-- `Wallace.Repo` now uses AshSqlite, enables transactional writes, and declares a
+- `Lovelace.Repo` uses AshSqlite, enables transactional writes, and declares a
   conservative SQLite baseline of 3.38.0. One write connection in every environment;
   query timeout 15 seconds, busy timeout 16 seconds. Ash async tasks disabled in tests.
 - Credo/AshCredo with explicit security-oriented checks; compile before introspection.
@@ -431,20 +448,94 @@ The ongoing design contract is recorded in section 7.
 - Browser checks used the existing loopback dev server at `http://localhost:4000`.
   `127.0.0.1` HTTP works, but LiveView's enabled origin check expects `localhost`;
   security settings were not relaxed to accommodate the browser check.
-- The user subsequently approved the glass design (before the LOVELACE branding trial).
-  Cross-browser checks and a production release test remain open. The temporary headless browser was stopped; the existing
-  development server was left running. `.tool-versions` is unchanged.
+- The user subsequently approved the glass design, then the LOVELACE branding.
+  At that stage, cross-browser checks and a production release test remained open.
+  Section 12 records the later release test. The temporary headless browser was stopped;
+  the existing development server was left running.
+  `.tool-versions` is unchanged.
 - Subsequent typography update: `mix check` passed with **14 tests**, including local
   WOFF2 delivery and font preload markup; `mix audit` remained clean. Headless Chrome
   confirmed the bundled font loads at weights 300/400/500/700 and actually renders the
   wordmark using Space Grotesk Light (not a fallback). Focus/keyboard/accessibility and
   viewport checks were repeated successfully; the focused screenshot was inspected.
   The font asset and OFL license are vendored; no package dependency was added.
-- LOVELACE visual-brand trial: `mix check` passed with **15 tests**; `mix audit` remained
+- LOVELACE branding implementation: `mix check` passed with **15 tests**; `mix audit` remained
   clean and digested assets were refreshed. Headless Chrome verified an invisible brand
   at rest, click/keyboard reveal, Escape hide, centered monogram with uppercase name
   beneath, updated document title, local Space Grotesk rendering, reduced-motion and
   forced-colors behavior, and desktop/mobile viewport fit. Resting/focused screenshots
   were inspected. The icon is an original SVG path, reused in the favicon; no package,
   cursive font, internal module, configuration key, or database rename was introduced.
-  The user approved this visual branding trial; an internal project rename remains deferred.
+  The user approved the branding and subsequently finalized LOVELACE as the project name.
+  README, development guidance, agent instructions, and font provenance now use the
+  finalized name. At that stage the change was limited to branding/documentation;
+  section 12 records the subsequent internal application rename. After the documentation
+  update, `mix check` passed again with **15 tests**, and `mix audit` remained clean.
+
+## 12. Complete application rename
+
+The user explicitly extended the finalized project name to all internal identifiers.
+
+- OTP/Mix app `:lovelace`; application namespace `Lovelace`; web namespace `LovelaceWeb`.
+  Source/test directories, configuration keys, supervision/PubSub names, Gettext backend,
+  telemetry metrics, session cookie (`_lovelace_key`), theme/build profiles, colocated
+  imports, live-reload paths, release examples, seeds, and documentation now agree.
+- Removed obsolete application and colocated build output across dev/test/prod and
+  regenerated static assets/digests. Dependencies and `.tool-versions` were not changed.
+- Preserved local dev/test SQLite databases under `lovelace_dev.db`/`lovelace_test.db`
+  using SQLite's backup API, verified integrity, and retained private originals and
+  their sidecars under ignored `tmp/name-change-backups.DTpCBR/`. No mailbox, product
+  schema, or production database migration was performed. See `DEVELOPMENT.md`.
+- `mix check`: passed; **17 tests passed**, including application identity, matching
+  Repo/metrics telemetry prefixes, renamed session cookie, and existing safety/UI tests.
+  `mix audit`: no vulnerabilities or retired packages found.
+- Production compile with warnings-as-errors, asset deployment, and `mix release`
+  succeeded. `_build/prod/rel/lovelace/bin/lovelace` started with a temporary database,
+  generated secrets, distribution disabled, and a `127.0.0.1` listener. HTTP and LiveView
+  worked; a valid MCP initialization POST returned **404** and no Tidewave toolbar was
+  injected. This was a packaged release test, not just `mix phx.server`.
+- Headless Chrome on the packaged release verified the `lovelace` theme, local Space
+  Grotesk rendering, hidden/resting brand, click/keyboard reveal, Escape reset, centered
+  monogram/name, reduced-motion/forced-colors behavior, and desktop/mobile viewport fit.
+- Development HTTP, renamed session/theme, watcher-built CSS/JS, and dev-only MCP
+  initialization also passed on a temporary loopback server. Temporary release/dev
+  servers and the browser were stopped; temporary production data/secrets were removed.
+- A focused independent read-only review of application/configuration/asset wiring found
+  no issues. A case-insensitive scan found no former-name references or filenames in
+  nonignored project files. Cross-browser review and hosted CI remain unverified.
+- Git hosting metadata, history, and the external checkout directory were not renamed.
+  Neither checkout folder naming nor a hosting migration is required to run `:lovelace`.
+
+## 13. Vendored GSAP brand reveal
+
+The user selected GSAP and made self-hosting/vendoring an explicit project requirement.
+
+- Vendored unmodified GSAP **3.15.0** core/CSSPlugin distribution and upstream package
+  metadata under `assets/vendor/gsap/`, with a custom-license text snapshot and provenance
+  README. The registry tarball's SHA-512 was verified before extraction; ExUnit pins
+  source/metadata SHA-256 values and retained notices. No npm install, package-manager
+  dependency, runtime CDN, external script request, or Mix dependency was added.
+- GSAP is under its custom Standard "No Charge" License, not MIT. The vendored README
+  links the authoritative terms and explains updates. `mix audit` only covers Hex;
+  vendored JavaScript advisories must be reviewed separately on updates.
+- `BrandReveal` runs only in the ignored decorative brand subtree. LiveView JS dispatches
+  local focus/reset events; CSS still owns glass blur/opacity. The SVG uses native path
+  measurement and dash animation (no DrawSVG), followed by eight HEEx-authored letter
+  spans rotating up in a stagger (no SplitText). All visible branding remains uppercase.
+- Repeated click/focus events do not restart an active sequence. Escape pauses the
+  timeline while CSS fades out; fresh focus replays from the beginning. Reduced motion
+  immediately shows the final brand, including when enabled mid-animation. Destruction
+  removes native listeners and reverts the GSAP context/styles. No server work is added.
+- `mix check`: passed with **20 tests**; `mix audit`: no Hex vulnerabilities or retired
+  packages. Production warnings-as-errors compilation, minified assets, and packaged
+  release assembly passed. No CSP relaxation or additional runtime listener was needed.
+- Ad hoc headless Chrome checks on a temporary loopback-only packaged release verified
+  normal-motion tracing, ordered 3D letter flips, repeated-click suppression, interruption
+  and replay, reduced-motion changes, keyboard controls, forced colors, mobile fit,
+  ignored-node preservation across a LiveView server update, and actual hook teardown.
+  External requests were blocked/recorded: **zero attempted**. No production CSP
+  violations or JavaScript exceptions occurred. Trace/flip/completed screenshots were
+  inspected. These browser checks are not part of permanent CI.
+- Temporary production/browser processes and data were removed; the pre-existing
+  development server was left running. User visual approval, cross-browser testing,
+  and hosted CI remain open. `.tool-versions` and `mix.lock` are unchanged.

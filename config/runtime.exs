@@ -12,20 +12,20 @@ import Config
 # If you use `mix release`, you need to explicitly enable the server
 # by passing the PHX_SERVER=true when you start it:
 #
-#     PHX_SERVER=true bin/wallace start
+#     PHX_SERVER=true bin/lovelace start
 #
 # Alternatively, you can use `mix phx.gen.release` to generate a `bin/server`
 # script that automatically sets the env var above.
 if System.get_env("PHX_SERVER") do
-  config :wallace, WallaceWeb.Endpoint, server: true
+  config :lovelace, LovelaceWeb.Endpoint, server: true
 end
 
-config :wallace, WallaceWeb.Endpoint,
+config :lovelace, LovelaceWeb.Endpoint,
   http: [port: String.to_integer(System.get_env("PORT", "4000"))]
 
 if config_env() == :dev do
   # Reload browser tabs when matching files change.
-  config :wallace, WallaceWeb.Endpoint,
+  config :lovelace, LovelaceWeb.Endpoint,
     live_reload: [
       web_console_logger: true,
       patterns: [
@@ -34,8 +34,8 @@ if config_env() == :dev do
         # Gettext translations
         ~r"priv/gettext/.*\.po$"E,
         # Router, Controllers, LiveViews and LiveComponents
-        ~r"lib/wallace_web/router\.ex$"E,
-        ~r"lib/wallace_web/(controllers|live|components)/.*\.(ex|heex)$"E
+        ~r"lib/lovelace_web/router\.ex$"E,
+        ~r"lib/lovelace_web/(controllers|live|components)/.*\.(ex|heex)$"E
       ]
     ]
 end
@@ -45,10 +45,10 @@ if config_env() == :prod do
     System.get_env("DATABASE_PATH") ||
       raise """
       environment variable DATABASE_PATH is missing.
-      For example: /etc/wallace/wallace.db
+      For example: /etc/lovelace/lovelace.db
       """
 
-  config :wallace, Wallace.Repo, database: database_path
+  config :lovelace, Lovelace.Repo, database: database_path
 
   # The secret key base is used to sign/encrypt cookies and other secrets.
   # A default value is used in config/dev.exs and config/test.exs but you
@@ -64,11 +64,11 @@ if config_env() == :prod do
 
   host = System.get_env("PHX_HOST") || "localhost"
 
-  config :wallace, :dns_cluster_query, System.get_env("DNS_CLUSTER_QUERY")
+  config :lovelace, :dns_cluster_query, System.get_env("DNS_CLUSTER_QUERY")
 
-  config :wallace, WallaceWeb.Endpoint,
+  config :lovelace, LovelaceWeb.Endpoint,
     url: [host: host, port: String.to_integer(System.get_env("PORT", "4000")), scheme: "http"],
-    # Wallace is local-only. Network exposure requires a separate security design.
+    # LOVELACE is local-only. Network exposure requires a separate security design.
     http: [ip: {127, 0, 0, 1}],
     secret_key_base: secret_key_base
 
@@ -87,7 +87,7 @@ if config_env() == :prod do
   # To get SSL working, you will need to add the `https` key
   # to your endpoint configuration:
   #
-  #     config :wallace, WallaceWeb.Endpoint,
+  #     config :lovelace, LovelaceWeb.Endpoint,
   #       https: [
   #         ...,
   #         port: 443,
@@ -109,7 +109,7 @@ if config_env() == :prod do
   # We also recommend setting `force_ssl` in your config/prod.exs,
   # ensuring no data is ever sent via http, always redirecting to https:
   #
-  #     config :wallace, WallaceWeb.Endpoint,
+  #     config :lovelace, LovelaceWeb.Endpoint,
   #       force_ssl: [hsts: true]
   #
   # Check `Plug.SSL` for all available options in `force_ssl`.

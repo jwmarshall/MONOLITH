@@ -1,11 +1,11 @@
-defmodule Wallace.TestSupport.AshProbe do
+defmodule Lovelace.TestSupport.AshProbe do
   @moduledoc false
   use Ash.Resource,
-    domain: Wallace.TestSupport.AshDomain,
+    domain: Lovelace.TestSupport.AshDomain,
     data_layer: AshSqlite.DataLayer
 
   sqlite do
-    repo Wallace.Repo
+    repo Lovelace.Repo
     table "ash_tooling_probes"
   end
 

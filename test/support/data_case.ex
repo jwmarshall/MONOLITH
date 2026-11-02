@@ -1,4 +1,4 @@
-defmodule Wallace.DataCase do
+defmodule Lovelace.DataCase do
   @moduledoc """
   This module defines the setup for tests requiring
   access to the application's data layer.
@@ -10,7 +10,7 @@ defmodule Wallace.DataCase do
   we enable the SQL sandbox, so changes done to the database
   are reverted at the end of every test. If you are using
   PostgreSQL, you can even run database tests asynchronously
-  by setting `use Wallace.DataCase, async: true`, although
+  by setting `use Lovelace.DataCase, async: true`, although
   this option is not recommended for other databases.
   """
 
@@ -20,17 +20,17 @@ defmodule Wallace.DataCase do
 
   using do
     quote do
-      alias Wallace.Repo
+      alias Lovelace.Repo
 
       import Ecto
       import Ecto.Changeset
       import Ecto.Query
-      import Wallace.DataCase
+      import Lovelace.DataCase
     end
   end
 
   setup tags do
-    Wallace.DataCase.setup_sandbox(tags)
+    Lovelace.DataCase.setup_sandbox(tags)
     :ok
   end
 
@@ -38,7 +38,7 @@ defmodule Wallace.DataCase do
   Sets up the sandbox based on the test tags.
   """
   def setup_sandbox(tags) do
-    pid = Sandbox.start_owner!(Wallace.Repo, shared: not tags[:async])
+    pid = Sandbox.start_owner!(Lovelace.Repo, shared: not tags[:async])
     on_exit(fn -> Sandbox.stop_owner(pid) end)
   end
 

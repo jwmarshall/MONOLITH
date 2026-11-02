@@ -1,6 +1,6 @@
 # Space Grotesk
 
-Wallace's self-hosted sans-serif typeface, designed by Florian Karsten.
+LOVELACE's self-hosted sans-serif typeface, designed by Florian Karsten.
 
 - Upstream: https://github.com/floriankarsten/space-grotesk
 - Pinned revision: `03507d024a01282884232081fc6011c09ff4e849`

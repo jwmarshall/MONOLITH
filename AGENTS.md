@@ -1,7 +1,11 @@
-# Working on Wallace
+# Working on LOVELACE
 
 Read `docs/HANDOFF.md` before planning features; `docs/DEVELOPMENT.md` covers tooling.
 Consult relevant dependency guidance in `DEPENDENCY_RULES.md` before using its APIs.
+
+The project name is **LOVELACE**, always uppercase in prose and UI. Use `:lovelace`
+for the OTP application, `Lovelace`/`LovelaceWeb` for modules, and `lovelace` in paths,
+configuration keys, and database filenames.
 
 ## Boundaries
 
@@ -15,17 +19,19 @@ Consult relevant dependency guidance in `DEPENDENCY_RULES.md` before using its A
   send real messages or modify a mailbox during automated tests.
 - Sending is an explicit user action. Unknown send outcomes must not be blindly retried.
 - Preserve the user's `.tool-versions`; ask before changing runtime targets.
+- Self-host UI assets. Vendor/pin third-party scripts and fonts locally with licenses,
+  provenance, and checksums; no runtime CDN, font-service, or remote-image dependencies.
 
 ## Implementation
 
-- Phoenix LiveView + Ash/AshSqlite over Ecto/SQLite; Tailwind with Wallace's dark/amber tokens.
+- Phoenix LiveView + Ash/AshSqlite over Ecto/SQLite; Tailwind with LOVELACE's dark/amber tokens.
   Model business behavior with Ash resources, domains, actions, and policies, not parallel
   hand-written Ecto contexts. Register domains and commit migrations plus snapshots.
 - AshAuthentication support is installed, but strategies/resources/screens are deferred.
-  Wallace owner authentication and connected Gmail identities are separate concerns.
+  LOVELACE owner authentication and connected Gmail identities are separate concerns.
 - Tidewave is dev-only code/SQL execution. Never enable remote access or expose it via tunnels.
   No separate SPA, PostgreSQL, Redis, or unnecessary infrastructure.
-- Keep business logic under `lib/wallace/` and UI under `lib/wallace_web/`.
+- Keep business logic under `lib/lovelace/` and UI under `lib/lovelace_web/`.
   Keep provider HTTP/OAuth and long-running work out of LiveView callbacks.
 - Gmail and jobs are unimplemented. Verify current package compatibility before
   choosing a SQLite job engine; do not assume Oban is already configured.

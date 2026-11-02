@@ -52,27 +52,27 @@ config :spark,
     "Ash.Domain": [section_order: [:resources, :policies, :authorization, :domain, :execution]]
   ]
 
-config :wallace,
+config :lovelace,
   # Register each domain here when its first resource is introduced.
   ash_domains: [],
-  ecto_repos: [Wallace.Repo],
+  ecto_repos: [Lovelace.Repo],
   generators: [timestamp_type: :utc_datetime]
 
 # Serialize SQLite writes. Never hold a transaction across a provider HTTP request.
-config :wallace, Wallace.Repo,
+config :lovelace, Lovelace.Repo,
   pool_size: 1,
   timeout: 15_000,
   busy_timeout: 16_000
 
 # Configure the endpoint
-config :wallace, WallaceWeb.Endpoint,
+config :lovelace, LovelaceWeb.Endpoint,
   url: [host: "localhost"],
   adapter: Bandit.PhoenixAdapter,
   render_errors: [
-    formats: [html: WallaceWeb.ErrorHTML, json: WallaceWeb.ErrorJSON],
+    formats: [html: LovelaceWeb.ErrorHTML, json: LovelaceWeb.ErrorJSON],
     layout: false
   ],
-  pubsub_server: Wallace.PubSub,
+  pubsub_server: Lovelace.PubSub,
   live_view: [signing_salt: "U9kM1spw"]
 
 # Configure LiveView
@@ -83,7 +83,7 @@ config :phoenix_live_view,
 # Configure esbuild (the version is required)
 config :esbuild,
   version: "0.25.4",
-  wallace: [
+  lovelace: [
     args:
       ~w(js/app.js --bundle --target=es2022 --outdir=../priv/static/assets/js --external:/fonts/* --external:/images/* --alias:@=.),
     cd: Path.expand("../assets", __DIR__),
@@ -93,7 +93,7 @@ config :esbuild,
 # Configure tailwind (the version is required)
 config :tailwind,
   version: "4.3.0",
-  wallace: [
+  lovelace: [
     args: ~w(
       --input=assets/css/app.css
       --output=priv/static/assets/css/app.css

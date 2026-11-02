@@ -1,9 +1,9 @@
 @import "tailwindcss" source(none);
-@import "phoenix-colocated/wallace/colocated.css";
+@import "phoenix-colocated/lovelace/colocated.css";
 @source "../css";
 @source "../js";
-@source "../../lib/wallace_web";
-@source "../../_build/dev/phoenix-colocated/wallace/*/";
+@source "../../lib/lovelace_web";
+@source "../../_build/dev/phoenix-colocated/lovelace/*/";
 
 @plugin "../vendor/heroicons";
 
@@ -26,7 +26,7 @@
 }
 
 @plugin "daisyui/packages/bundle/daisyui-theme" {
-  name: "wallace";
+  name: "lovelace";
   default: true;
   prefersdark: true;
   color-scheme: "dark";
@@ -63,7 +63,7 @@
 @custom-variant phx-click-loading (.phx-click-loading&, .phx-click-loading &);
 @custom-variant phx-submit-loading (.phx-submit-loading&, .phx-submit-loading &);
 @custom-variant phx-change-loading (.phx-change-loading&, .phx-change-loading &);
-@custom-variant dark (&:where([data-theme=wallace], [data-theme=wallace] *));
+@custom-variant dark (&:where([data-theme=lovelace], [data-theme=lovelace] *));
 
 [data-phx-session], [data-phx-teleported-src] {
   display: contents;
@@ -163,12 +163,20 @@
 }
 
 .workspace-wordmark {
+  display: flex;
+  justify-content: center;
+  gap: 0.45em;
   margin: 0;
   font-size: 13px;
   font-weight: 300;
   line-height: 1.5;
-  letter-spacing: 0.45em;
-  padding-left: 0.45em;
+  perspective: 400px;
+}
+
+.workspace-letter {
+  display: inline-block;
+  transform-origin: 50% 100%;
+  backface-visibility: hidden;
 }
 
 .glass-workspace:has(#workspace-pane[aria-pressed="true"]) {

@@ -1,8 +1,7 @@
-# Wallace
+# LOVELACE
 
-A private, desktop-first workspace for deliberate work. Inspired by the Wallace
-Corporation's sterile, brutalist architecture in *Blade Runner*, with warm cinematic
-minimalism rather than decorative sci-fi UI.
+A private, desktop-first workspace for deliberate work, with warm cinematic minimalism
+and a nearly transparent glass interface.
 
 The first product slice is an account-separated, project-oriented Gmail workspace.
 **This repository is currently a runnable foundation, not a working email client.**
@@ -14,13 +13,33 @@ The first product slice is an account-separated, project-oriented Gmail workspac
 - [Repository working instructions](AGENTS.md)
 - [Dependency-supplied agent guidance](DEPENDENCY_RULES.md) (requires fetched dependencies)
 
+## Identity and naming
+
+The project name is **LOVELACE**, always uppercase. Its icon is an original double
+cursive `l` monogram. The glass fills the viewport: at rest, the landscape is sharp
+and the branding is hidden. Click or keyboard-focus the pane to soften the landscape
+and reveal the centered monogram with **LOVELACE** beneath it; Escape restores the view.
+The cursive `ll` traces onto the focused glass, followed by the LOVELACE letters flipping
+up one at a time. Escape cancels the sequence; focusing again replays it. Reduced-motion
+mode shows the finished brand immediately.
+
+GSAP, Space Grotesk, and the landscape are self-hosted. GSAP's pinned source is vendored
+under `assets/vendor/gsap/` with license, provenance, and integrity checks—no npm install,
+runtime CDN, font service, or remote image requests. Keep third-party UI assets local.
+
+The implementation uses Mix/OTP app `:lovelace`, modules `Lovelace`/`LovelaceWeb`,
+source directories `lib/lovelace/` and `lib/lovelace_web/`, the `lovelace` theme/build
+profile, and `lovelace_*.db` database filenames. The generated release executable
+is `bin/lovelace`. The Git hosting repository and checkout directory are managed
+separately; no particular checkout folder name is required to run the application.
+
 ## Stack
 
 - Elixir / Phoenix 1.8, LiveView 1.2, Bandit
 - **Ash** resources, domains, actions, and policies
 - **AshSqlite** over Ecto + SQLite (no separate database service)
 - AshPhoenix; AshAuthentication + AshAuthenticationPhoenix installed for future auth
-- Tailwind CSS 4; generated daisyUI primitives with a custom Wallace theme
+- Tailwind CSS 4; generated daisyUI primitives with LOVELACE's dark/amber tokens
 - Req, ExUnit, LiveViewTest, and Ash's testing helpers
 
 Authentication strategy/resources/screens, Gmail, and durable jobs are **not
@@ -71,8 +90,10 @@ are required for tests. Dependency downloads and the online audit require networ
 
 ## Local data and configuration
 
-- Development: `wallace_dev.db`; tests: `wallace_test.db` (both gitignored).
-- `Wallace.Repo` uses `AshSqlite.Repo`; transactional writes are enabled, with one
+- Development: `lovelace_dev.db`; tests: `lovelace_test.db` (both gitignored).
+  Existing local data was preserved during the rename; see the
+  [namespace and local-data notes](docs/DEVELOPMENT.md#namespace-and-local-data).
+- `Lovelace.Repo` uses `AshSqlite.Repo`; transactional writes are enabled, with one
   connection, a 15-second query timeout, and a 16-second SQLite busy timeout.
 - Database-backed tests must remain synchronous. Ash async execution is disabled in tests.
 - `mix ecto.reset` **destroys the current environment's database** and rebuilds it.
@@ -83,14 +104,16 @@ are required for tests. Dependency downloads and the online audit require networ
 - Generated dev/test signing secrets are public development defaults, not deployment
   credentials or keys suitable for encrypting OAuth tokens.
 
-For a future production-mode local release, `config/runtime.exs` requires
+For a production-mode local release, `config/runtime.exs` requires
 `DATABASE_PATH` and `SECRET_KEY_BASE`; Ash pagination signing derives a separate key
 from the latter. Releases also require built assets and an explicit server start
-(`PHX_SERVER=true`). Packaging and secure credential storage remain future work.
+(`PHX_SERVER=true`). Desktop packaging and secure credential storage remain future work.
 
 ## Current foundation
 
-`/` mounts `WallaceWeb.HomeLive`, with a dark/amber shell and honest empty states.
+`/` mounts `LovelaceWeb.HomeLive`, with the full-viewport glass surface, focus-dependent
+LOVELACE identity, and matching favicon. It has no marketing, fake mailbox data, or
+product controls; screen-reader instructions identify the unconnected foundation.
 No production domains or resources are registered yet (`ash_domains: []`). Test-only
 Ash resources verify persistence and rollback inside the SQL sandbox; they do not
 introduce product tables or migrations. Read the handoff before starting features.

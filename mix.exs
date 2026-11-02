@@ -1,9 +1,9 @@
-defmodule Wallace.MixProject do
+defmodule Lovelace.MixProject do
   use Mix.Project
 
   def project do
     [
-      app: :wallace,
+      app: :lovelace,
       version: "0.1.0",
       elixir: "~> 1.20",
       elixirc_paths: elixirc_paths(Mix.env()),
@@ -22,7 +22,7 @@ defmodule Wallace.MixProject do
   # Type `mix help compile.app` for more information.
   def application do
     [
-      mod: {Wallace.Application, []},
+      mod: {Lovelace.Application, []},
       extra_applications: [:logger, :runtime_tools]
     ]
   end
@@ -117,10 +117,10 @@ defmodule Wallace.MixProject do
       "ecto.reset": ["ecto.drop", "ecto.setup"],
       test: ["ecto.create --quiet", "ecto.migrate --quiet", "test"],
       "assets.setup": ["tailwind.install --if-missing", "esbuild.install --if-missing"],
-      "assets.build": ["compile", "tailwind wallace", "esbuild wallace"],
+      "assets.build": ["compile", "tailwind lovelace", "esbuild lovelace"],
       "assets.deploy": [
-        "tailwind wallace --minify",
-        "esbuild wallace --minify",
+        "tailwind lovelace --minify",
+        "esbuild lovelace --minify",
         "phx.digest"
       ],
       lint: ["compile --warnings-as-errors", "credo --strict"],
