@@ -1,7 +1,7 @@
 defmodule Lovelace.StageDesigner.Gemini do
   @moduledoc "One bounded Gemini image request; credentials and provider errors never leave this boundary."
 
-  alias Lovelace.StageDesigner.{Image, Settings}
+  alias Lovelace.StageDesigner.{GeminiTransport, Image, Settings}
 
   @host "https://generativelanguage.googleapis.com/v1beta/models/"
   @max_response_bytes 16 * 1024 * 1024
@@ -27,11 +27,19 @@ defmodule Lovelace.StageDesigner.Gemini do
 
   @type failure :: atom() | {:http_error, integer(), atom() | nil} | {:transport_error, atom()}
   @spec generate(struct(), keyword()) :: {:ok, binary()} | {:error, failure()}
-  def generate(settings, opts \\ []) do
+  def generate(settings, opts \\ []), do: do_generate(settings, opts, nil)
+
+  if Mix.env() == :test do
+    @doc false
+    def generate_on_loopback(settings, opts, port) when is_integer(port) and port in 1..65_535,
+      do: do_generate(settings, opts, port)
+  end
+
+  defp do_generate(settings, opts, test_port) do
     with :ok <- validate_options(opts),
          :ok <- validate_settings(settings),
          {:ok, key} <- api_key(opts) do
-      bounded_request(settings, key, opts)
+      bounded_request(settings, key, opts, test_port)
     end
   rescue
     _ -> {:error, :provider_error}
@@ -74,9 +82,9 @@ defmodule Lovelace.StageDesigner.Gemini do
        else: {:error, :missing_api_key}
   end
 
-  defp bounded_request(settings, key, opts) do
+  defp bounded_request(settings, key, opts, test_port) do
     # Catch inside the task as well: Task crash reports must never inspect its key-bearing args.
-    task = Task.async(fn -> request(settings, key, opts) end)
+    task = Task.async(fn -> request(settings, key, opts, test_port) end)
 
     case Task.yield(task, settings.timeout_seconds * 1000) do
       {:ok, result} ->
@@ -88,39 +96,42 @@ defmodule Lovelace.StageDesigner.Gemini do
     end
   end
 
-  defp request(settings, key, opts) do
-    timeout = settings.timeout_seconds * 1000
+  defp request(settings, key, opts, test_port) do
+    # No default steps/plugins: no global Req defaults, redirects, decompression or retries.
+    # Explicit Req.Plug injection preserves process-owned Req.Test stubs in existing tests.
+    request =
+      Req.Request.new(
+        method: :post,
+        url: @host <> settings.model <> ":generateContent",
+        headers: [
+          {"x-goog-api-key", key},
+          {"accept-encoding", "identity"},
+          {"content-type", "application/json"}
+        ],
+        body: Jason.encode!(payload(settings)),
+        adapter: if(Keyword.has_key?(opts, :plug), do: Req.Plug, else: GeminiTransport),
+        options: [receive_timeout: settings.timeout_seconds * 1000] ++ Keyword.take(opts, [:plug])
+      )
 
-    options = [
-      url: @host <> settings.model <> ":generateContent",
-      headers: [{"x-goog-api-key", key}, {"accept-encoding", "identity"}],
-      json: payload(settings),
-      retry: false,
-      redirect: false,
-      http_errors: :return,
-      compressed: false,
-      decode_body: false,
-      finch: [
-        protocols: [:http1],
-        conn_opts: [transport_opts: [timeout: min(timeout, 10_000)]],
-        receive_timeout: timeout,
-        request_timeout: timeout,
-        pool_timeout: min(timeout, 5000)
-      ],
-      into: &receive_chunk/2
-    ]
+    request = %{
+      request
+      | into: &receive_chunk/2,
+        private: %{lovelace_test_loopback_port: test_port}
+    }
 
-    options =
-      case Keyword.fetch(opts, :plug) do
-        {:ok, plug} -> Keyword.put(options, :plug, plug)
-        :error -> options
-      end
+    case Req.post(request) do
+      {:ok, response} ->
+        parse_response(response)
 
-    case Req.post(options) do
-      {:ok, response} -> parse_response(response)
-      {:error, %Req.TransportError{reason: :timeout}} -> {:error, :timeout}
-      {:error, %Req.TransportError{reason: reason}} -> transport_error(reason)
-      {:error, _} -> {:error, :transport_error}
+      {:error, %Req.TransportError{reason: reason}}
+      when reason in [:timeout, :response_too_large, :client_configuration_error, :provider_error] ->
+        {:error, reason}
+
+      {:error, %Req.TransportError{reason: reason}} ->
+        transport_error(reason)
+
+      {:error, _} ->
+        {:error, :transport_error}
     end
   rescue
     ArgumentError -> {:error, :client_configuration_error}
@@ -182,6 +193,7 @@ defmodule Lovelace.StageDesigner.Gemini do
             ],
        do: {:error, {:transport_error, reason}}
 
+  defp transport_error(:tls_error), do: {:error, {:transport_error, :tls_error}}
   defp transport_error({:tls_alert, _details}), do: {:error, {:transport_error, :tls_error}}
   defp transport_error(_reason), do: {:error, :transport_error}
 

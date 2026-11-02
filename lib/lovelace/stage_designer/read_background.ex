@@ -13,7 +13,9 @@ defmodule Lovelace.StageDesigner.ReadBackground do
       {:ok, state} when not is_nil(state) ->
         url = Enum.find_value(state.history, &image_url(settings, &1))
 
-        status = if settings.enabled, do: state.status, else: :disabled
+        # A persisted reservation is not proof a task is still alive (possibly in
+        # another BEAM). Never announce active preparation from durable state alone.
+        status = if settings.enabled, do: public_status(state.status), else: :disabled
         {:ok, %{url: url, status: status}}
 
       {:ok, nil} ->
@@ -25,6 +27,9 @@ defmodule Lovelace.StageDesigner.ReadBackground do
   rescue
     _ -> {:ok, %{url: nil, status: :unavailable}}
   end
+
+  defp public_status(:generating), do: :uncertain
+  defp public_status(status), do: status
 
   defp image_url(settings, digest) do
     case Storage.read(settings, digest) do

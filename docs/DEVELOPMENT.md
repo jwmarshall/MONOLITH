@@ -30,7 +30,9 @@ checkout folder name are separate from application identifiers and were not chan
 | `ash`, `ash_sqlite`, `ash_phoenix` | Resources/domains/actions/policies, SQLite persistence, Phoenix forms | Runtime |
 | `simple_sat` | Pure-Elixir SAT solver required by the first production Ash policies | Runtime |
 | `ash_authentication`, `ash_authentication_phoenix` | Future LOVELACE authentication | Runtime; no strategy or resources configured |
-| `req` | HTTP integration client; built-in `Req.Test` stubs/expectations | Runtime; test utilities used in tests |
+| `req` | HTTP request/response contracts; built-in `Req.Test` stubs/expectations | Runtime; test utilities used in tests |
+| `mint` | Private unpooled Gemini transport, avoiding credential-bearing Finch telemetry | Runtime; promoted from existing locked transitive dependency |
+| `exqlite` | Private SQLite coordination handle for cross-BEAM filesystem exclusion | Runtime; already used by AshSqlite, now an explicit direct dependency |
 | `vix` | Strict JPEG pixel decoding through libvips; original provider bytes retained | Runtime; native dependency |
 | `credo`, `ash_credo` | General and Ash-aware static analysis | Dev/test, not started at runtime |
 | `sobelow` | Phoenix security scanning | Dev/test, not started at runtime |
@@ -44,6 +46,21 @@ the initial test toolkit. StreamData is already transitive through Ash; no addit
 factory library is installed. See `mix.lock` for exact versions.
 
 ## Vendored animation assets
+
+Topbar **3.0.0** supplies the existing LiveView navigation/form progress indicator
+through `assets/js/app.js`'s local `assets/vendor/topbar.js` import. The source was
+verified byte-for-byte against the SHA-512-verified npm archive and its immutable
+upstream Git commit before pinning. Topbar is **MIT**; its complete permission,
+copyright and warranty/liability notice is retained in `topbar.LICENSE.txt` and
+an appended esbuild-preserved legal comment. That comment is the only local source
+change. Keep the full notice in distributed bundles (and ship any legal sidecars
+if the build policy changes), not merely the short upstream `@license MIT` header.
+See [Topbar provenance and updates](../assets/vendor/topbar.README.md) for exact
+artifact/commit URLs, upstream/local checksums, license-text provenance and the
+intentional verification/update procedure. ExUnit pins source, license and package
+metadata, and verifies the upstream bytes and complete embedded notice. No runtime
+retrieval or npm installation is introduced. Review Topbar advisories separately;
+`mix audit` is Hex-scoped. Existing GSAP and font checks must remain intact.
 
 Self-hosting and vendoring UI assets are project requirements. GSAP **3.15.0** core
 (including CSSPlugin) is bundled from `assets/vendor/gsap/gsap.js` through the existing
@@ -141,10 +158,10 @@ those modules are not compiled in dev. Compilation must precede standalone Credo
 
 Sobelow's `--private` disables update-check network requests; `--exit low` fails on
 all reported confidence levels. `--skip` honors narrowly reviewed function annotations
-in `StageDesigner.Storage` only: `Traversal.FileModule` cannot distinguish trusted local
-configuration plus exact content-hash/UUID filenames from user-controlled paths. Five
-annotated helpers cover reads, directory creation, cleanup, bounded file opening, and
-atomic writes. The invariants are documented at each function and exercised by digest,
+in `StageDesigner.Storage` and `StageDesigner.Coordination` only: `Traversal.FileModule` cannot distinguish trusted local
+configuration plus exact content-hash/UUID filenames from user-controlled paths. Narrowly
+annotated helpers cover reads, directory/coordination-file creation, cleanup, bounded
+file opening, and atomic writes. The invariants are documented at each function and exercised by digest,
 symlink, tamper, unregistered-file, retention, and crash-cleanup tests. No whole-check,
 module, confidence-level, or fingerprint exclusion is configured. Review annotations if
 these functions change; never extend them to arbitrary uploads or user-selected paths.
@@ -159,7 +176,8 @@ A clean audit is a point-in-time result, not a guarantee about all transitive co
 ## Test conventions
 
 - Use `Lovelace.DataCase, async: false` for database/resource tests and the existing
-  SQL sandbox helpers. Ash async execution is disabled in `config/test.exs`.
+  SQL sandbox helpers. `LOVELACE_TEST_DATABASE` optionally selects a disposable test
+  database (create its parent directory first); it has no effect outside test config. Ash async execution is disabled in `config/test.exs`.
 - Keep ConnCase/LiveView tests synchronous because they also acquire the sandbox.
   Pure functions and isolated `Req.Test` cases may be asynchronous.
 - Create records through Ash actions or `Ash.Generator` helpers. Use `Ash.Test` for

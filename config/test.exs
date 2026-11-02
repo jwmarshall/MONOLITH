@@ -11,7 +11,8 @@ config :ash,
 # to provide built-in test partitioning in CI environment.
 # Run `mix help test` for more information.
 config :lovelace, Lovelace.Repo,
-  database: Path.expand("../lovelace_test.db", __DIR__),
+  database:
+    System.get_env("LOVELACE_TEST_DATABASE") || Path.expand("../lovelace_test.db", __DIR__),
   # SQLite sandbox tests are serialized; one connection also avoids fresh-file startup contention.
   pool_size: 1,
   pool: Ecto.Adapters.SQL.Sandbox

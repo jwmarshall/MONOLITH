@@ -266,8 +266,44 @@ defmodule Lovelace.StageDesigner.GeminiTest do
                Gemini.generate(%Settings{}, api_key: key, plug: {Req.Test, __MODULE__})
     end
 
-    assert {:error, :invalid_options} = Gemini.generate(%Settings{}, api_key: @key, retry: true)
+    for {option, value} <- [
+          retry: true,
+          adapter: Req.Finch,
+          url: "http://127.0.0.1/",
+          base_url: "http://127.0.0.1/",
+          host: "127.0.0.1",
+          test_loopback_port: 1234,
+          lovelace_test_loopback_port: 1234,
+          connect_options: [transport_opts: [verify: :verify_none]]
+        ] do
+      assert {:error, :invalid_options} =
+               Gemini.generate(%Settings{}, [{:api_key, @key}, {option, value}])
+    end
+
     assert {:error, :invalid_options} = Gemini.generate(%Settings{}, %{})
+  end
+
+  test "global Req plugins and defaults cannot add instrumentation to the private request" do
+    previous = Req.default_options()
+    on_exit(fn -> Req.default_options(previous) end)
+    owner = self()
+
+    Req.default_options(
+      plugins: [
+        fn request ->
+          send(owner, :unsafe_global_plugin)
+          request
+        end
+      ],
+      redirect: true,
+      retry: :transient,
+      adapter: Req.Finch
+    )
+
+    bytes = PNG.image()
+    stub(response([image_part(bytes)]))
+    assert {:ok, ^bytes} = generate()
+    refute_received :unsafe_global_plugin
   end
 
   test "rejects invalid JSON, wrong content types and unexpected compression" do

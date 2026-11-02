@@ -43,7 +43,7 @@ defmodule Lovelace.StageDesigner.StartupTest do
     end)
 
     assert {:ok, :generated} = startup(@now)
-    assert_receive {:stage_background, %{url: nil, status: :generating}}
+    assert_receive {:stage_background, %{url: nil, status: :uncertain}}
     assert_receive {:stage_background, %{url: url, status: :ready}}
     assert url =~ ~r|\A/stage/background/[0-9a-f]{64}\.png\z|
     assert {:ok, %{url: ^url, status: :ready}} = StageDesigner.background()
@@ -91,7 +91,7 @@ defmodule Lovelace.StageDesigner.StartupTest do
 
     state = StageDesigner.get_state!(1, actor: @actor)
     assert length(state.history) == 7
-    assert length(File.ls!(directory)) == 7
+    assert length(image_files(directory)) == 7
     assert Enum.any?(File.ls!(directory), &String.ends_with?(&1, ".jpg"))
     assert Enum.any?(File.ls!(directory), &String.ends_with?(&1, ".png"))
     assert String.ends_with?(StageDesigner.background!().url, ".jpg")
@@ -229,7 +229,7 @@ defmodule Lovelace.StageDesigner.StartupTest do
 
     state = StageDesigner.get_state!(1, actor: @actor)
     assert length(state.history) == 7
-    assert length(File.ls!(directory)) == 7
+    assert length(image_files(directory)) == 7
     assert (File.stat!(directory).mode &&& 0o777) == 0o700
 
     for filename <- File.ls!(directory) do
@@ -310,6 +310,140 @@ defmodule Lovelace.StageDesigner.StartupTest do
     assert response(get(conn, "/stage/background/#{String.duplicate("a", 64)}.png"), 404)
     assert response(get(conn, "/stage/background/not-a-digest.png"), 404)
     assert {:error, _} = StageDesigner.image("../secret")
+  end
+
+  test "valid wrong-hash replacements cannot be selected or served", %{
+    conn: conn,
+    directory: directory
+  } do
+    for {format, offset} <- [{:png, 0}, {:jpeg, 2}] do
+      fixture = if format == :png, do: &PNG.image/2, else: &JPEG.image/2
+      fallback = fixture.(7, 3)
+      current = fixture.(8, 3)
+      replacement = fixture.(9, 3)
+      assert :ok = Image.validate(replacement)
+
+      Req.Test.expect(__MODULE__, &respond(&1, fallback))
+      assert {:ok, :generated} = startup(DateTime.add(@now, offset * 86_400))
+      fallback_url = StageDesigner.background!().url
+      Req.Test.expect(__MODULE__, &respond(&1, current))
+      assert {:ok, :generated} = startup(DateTime.add(@now, (offset + 1) * 86_400))
+      current_url = StageDesigner.background!().url
+      [digest | _] = StageDesigner.get_state!(1, actor: @actor).history
+      extension = Image.extension(format)
+      File.write!(Path.join(directory, digest <> "." <> extension), replacement)
+
+      assert {:error, :unavailable_image} = Storage.read(Settings.get(), digest)
+      assert StageDesigner.background!().url == fallback_url
+      assert response(get(conn, current_url), 404)
+      assert response(get(conn, fallback_url), 200) == fallback
+    end
+  end
+
+  test "valid hash-matching but unregistered imagery is private even during orphan grace", %{
+    conn: conn,
+    directory: directory
+  } do
+    Req.Test.expect(__MODULE__, &respond(&1, PNG.image()))
+    assert {:ok, :generated} = startup(@now)
+    manifest = StageDesigner.get_state!(1, actor: @actor).history
+
+    for bytes <- [PNG.image(11, 3), JPEG.image(11, 3)] do
+      assert {:ok, digest} = Storage.store(Settings.get(), bytes)
+      refute digest in manifest
+      assert {:ok, ^bytes} = Storage.read(Settings.get(), digest)
+      path = Path.join(directory, digest <> "." <> Image.extension(Image.format(bytes)))
+      File.touch!(path, DateTime.to_unix(@now))
+      assert {:ok, :cached} = startup(DateTime.add(@now, 1))
+      assert File.exists?(path)
+      assert {:ok, ^bytes} = Storage.read(Settings.get(), digest)
+      assert {:error, _} = StageDesigner.image(digest)
+      assert response(get(conn, Storage.url(digest, Image.format(bytes))), 404)
+    end
+
+    assert StageDesigner.get_state!(1, actor: @actor).history == manifest
+  end
+
+  test "stale publication and failure cannot change a winning record" do
+    initial = StageDesigner.initialize_state!(%{}, actor: @actor)
+    stale = StageDesigner.reserve_state!(initial, %{last_attempt_at: @now}, actor: @actor)
+    later = DateTime.add(@now, 86_400)
+    winner = StageDesigner.reserve_state!(stale, %{last_attempt_at: later}, actor: @actor)
+
+    winner =
+      StageDesigner.publish_state!(
+        winner,
+        %{history: [String.duplicate("a", 64)], generated_at: later},
+        actor: @actor
+      )
+
+    expected = Map.take(winner, [:version, :last_attempt_at, :generated_at, :status, :history])
+
+    assert {:error, _} =
+             StageDesigner.publish_state(
+               stale,
+               %{history: [String.duplicate("b", 64)], generated_at: @now},
+               actor: @actor
+             )
+
+    assert Map.take(StageDesigner.get_state!(1, actor: @actor), Map.keys(expected)) == expected
+    assert {:error, _} = StageDesigner.fail_state(stale, %{}, actor: @actor)
+    assert Map.take(StageDesigner.get_state!(1, actor: @actor), Map.keys(expected)) == expected
+  end
+
+  test "repeated output moves a distinct digest forward without evicting useful history", %{
+    conn: conn,
+    directory: directory
+  } do
+    settings = %{Settings.get() | retain_count: 2}
+    Application.put_env(:lovelace, :stage_designer, settings)
+    a = PNG.image(13, 3)
+    b = JPEG.image(13, 3)
+    c = PNG.image(14, 3)
+
+    urls =
+      for {bytes, day} <- Enum.with_index([a, b, a, a, c]) do
+        Req.Test.expect(__MODULE__, &respond(&1, bytes))
+        assert {:ok, :generated} = startup(DateTime.add(@now, day * 86_400))
+        history = StageDesigner.get_state!(1, actor: @actor).history
+        assert history == Enum.uniq(history)
+        assert length(history) == min(day + 1, 2)
+
+        if day in [2, 3] do
+          assert {:ok, ^b} = Storage.read(settings, List.last(history))
+        end
+
+        StageDesigner.background!().url
+      end
+
+    [url_a, url_b, repeated_a, repeated_again, url_c] = urls
+    assert repeated_a == url_a
+    assert repeated_again == url_a
+    state = StageDesigner.get_state!(1, actor: @actor)
+    assert Enum.map(state.history, &Storage.url/1) == [url_c, url_a]
+    assert length(image_files(directory)) == 2
+    assert response(get(conn, url_b), 404)
+    assert response(get(conn, url_a), 200) == a
+    assert response(get(conn, url_c), 200) == c
+    File.write!(Path.join(directory, hd(state.history) <> ".png"), PNG.image(15, 3))
+    assert StageDesigner.background!().url == url_a
+    assert response(get(conn, url_a), 200) == a
+  end
+
+  test "interrupted reservation is reported as uncertain without changing its cooldown" do
+    state = StageDesigner.initialize_state!(%{}, actor: @actor)
+    reserved = StageDesigner.reserve_state!(state, %{last_attempt_at: @now}, actor: @actor)
+    assert {:ok, :cached} = startup(DateTime.add(@now, 60))
+    assert %{url: nil, status: :uncertain} = StageDesigner.background!()
+    persisted = StageDesigner.get_state!(1, actor: @actor)
+    assert persisted.status == :generating
+    assert persisted.version == reserved.version
+    assert persisted.last_attempt_at == @now
+    assert {:ok, :cached} = StageDesigner.retry_failed_startup(%{now: @now}, actor: @actor)
+  end
+
+  defp image_files(directory) do
+    directory |> File.ls!() |> Enum.filter(&(Path.extname(&1) in [".png", ".jpg"]))
   end
 
   defp startup(now) do

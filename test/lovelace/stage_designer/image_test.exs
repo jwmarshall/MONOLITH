@@ -83,12 +83,46 @@ defmodule Lovelace.StageDesigner.ImageTest do
     end
   end
 
-  test "rejects dimensions and encoded byte size above limits" do
-    for {width, height} <- [{0, 1}, {1, 0}, {8193, 1}, {1, 8193}, {4001, 4000}] do
+  for {limit, control, oversized} <- [
+        {"width", {8192, 1}, {8193, 1}},
+        {"height", {1, 8192}, {1, 8193}},
+        {"pixel count", {4000, 4000}, {4001, 4000}}
+      ] do
+    test "rejects otherwise-valid PNGs above the #{limit} limit" do
+      {width, height} = unquote(control)
+      assert :ok = Image.validate(monochrome_png(width, height))
+
+      {width, height} = unquote(oversized)
+      bytes = monochrome_png(width, height)
+      assert byte_size(bytes) < 16_384
+      assert {:error, :invalid_image} = Image.validate(bytes)
+    end
+  end
+
+  test "rejects zero dimensions" do
+    for {width, height} <- [{0, 1}, {1, 0}] do
       assert {:error, :invalid_image} = Image.validate(png(width, height, <<0>>))
     end
+  end
 
-    assert {:error, :invalid_image} = Image.validate(:binary.copy(<<0>>, 10 * 1024 * 1024 + 1))
+  test "encoded PNG byte limit discriminates valid metadata at 10 MiB and one byte over" do
+    max_bytes = 10 * 1024 * 1024
+
+    for {size, expected} <- [{max_bytes, :ok}, {max_bytes + 1, {:error, :invalid_image}}] do
+      # Valid tEXt keyword, separator and Latin-1 text, with a correct chunk CRC.
+      # Each chunk stays below the separate per-chunk cap, including the rejected file.
+      base = png(1, 1, <<0, 0>>, color: 0, depth: 1)
+      metadata = "Padding\0" <> :binary.copy("x", size - byte_size(base) - 12 - 8)
+
+      bytes =
+        assemble(header(1, 1, color: 0, depth: 1), [
+          PNG.chunk("tEXt", metadata),
+          PNG.chunk("IDAT", :zlib.compress(<<0, 0>>))
+        ])
+
+      assert byte_size(bytes) == size
+      assert Image.validate(bytes) == expected
+    end
   end
 
   test "rejects invalid headers and unsupported critical chunks" do
@@ -184,6 +218,14 @@ defmodule Lovelace.StageDesigner.ImageTest do
 
     assert {:error, :invalid_image} =
              Image.validate(assemble(header(1, 1), [PNG.chunk("IDAT", bomb)]))
+  end
+
+  # One-bit grayscale keeps the largest raw fixture near 2 MiB, not 64 MiB RGBA.
+  # Every row has a valid filter byte and exactly ceil(width / 8) packed pixels;
+  # the extra column in 4001x4000 therefore has real entropy data, not just an IHDR edit.
+  defp monochrome_png(width, height) do
+    row = :binary.copy(<<0>>, 1 + div(width + 7, 8))
+    png(width, height, :binary.copy(row, height), color: 0, depth: 1)
   end
 
   defp png(width, height, raw, opts \\ []) do

@@ -88,6 +88,10 @@ defmodule LovelaceWeb.Layouts do
     "Preparing the background. The current landscape remains available."
   end
 
+  defp background_status(%{status: :uncertain}) do
+    "The background attempt has no confirmed outcome. The current landscape remains available."
+  end
+
   defp background_status(%{status: status}) when status in [:failed, :error, :unavailable] do
     "Background unavailable. Using the previous image or original landscape."
   end

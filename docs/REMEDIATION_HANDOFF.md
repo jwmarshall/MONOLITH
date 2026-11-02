@@ -2,7 +2,11 @@
 
 ## Status and scope
 
-**All tasks below are outstanding. This handoff does not implement fixes.**
+**F1–F3, G1–G8 and A1–A3 are implemented and verified below.**
+The finding narratives and reviewed line numbers preserve the historical baseline;
+they do not describe unresolved defects in the remediated tree. Focused and final
+cross-file source reviews returned **[APPROVED]**, including the final telemetry
+allowlist hardening follow-up. Execution limits remain explicit below.
 
 Eight focused reviewers assessed the current application tree after the reviewer
 skills were created. The final cross-file review rejected acceptance for three
@@ -49,9 +53,9 @@ Paths and line numbers below refer to the reviewed tree and will move as fixes l
 
 ### F1 — Credential-bearing transport telemetry
 
-- [ ] Implement a transport boundary that cannot emit credentials or raw provider
+- [x] Implement a transport boundary that cannot emit credentials or raw provider
   request/response contents into telemetry.
-- [ ] Complete G1 below at the real instrumentation seam.
+- [x] Complete G1 below at the real instrumentation seam.
 
 **Evidence:** `lib/lovelace/stage_designer/gemini.ex:95–110` supplies the API key in
 `x-goog-api-key` and the prompt as JSON to Req. The installed adapter builds a
@@ -88,8 +92,8 @@ timeout/error and exception paths, not only request-start or safe warning text.
 
 ### F2 — Stale post-publication pruning can delete newer imagery
 
-- [ ] Coordinate destructive cleanup with authoritative publication across BEAMs.
-- [ ] Complete G2 below, including reconciliation and crash/partial-failure paths.
+- [x] Coordinate destructive cleanup with authoritative publication across BEAMs.
+- [x] Complete G2 below, including reconciliation and crash/partial-failure paths.
 
 **Evidence:** `lib/lovelace/stage_designer/startup.ex:81–84` publishes then calls
 `Storage.prune(settings, history)` with the local manifest. In
@@ -132,9 +136,9 @@ old orphan/temp files. Crashes cannot grant permission for a paid retry.
 
 ### F3 — Topbar's vendored-asset records are incomplete
 
-- [ ] Retain reviewed Topbar license/provenance/checksum records, or remove the
+- [x] Retain reviewed Topbar license/provenance/checksum records, or remove the
   dependency without breaking navigation-progress behavior.
-- [ ] Add an integrity/license regression test if the dependency remains.
+- [x] Add an integrity/license regression test if the dependency remains.
 
 **Evidence:** `assets/js/app.js:10` imports `assets/vendor/topbar.js`. Its header
 identifies Topbar 3.0.0, MIT, an upstream URL and copyright, but no accompanying
@@ -165,9 +169,9 @@ production code or mutate the user's working database. Keep all data synthetic.
 
 ### G1 — Exercise transport telemetry, not only Req.Test
 
-- [ ] Cover credential/prompt/request/result containment at the actual adapter's
+- [x] Cover credential/prompt/request/result containment at the actual adapter's
   instrumentation seam, including start/stop/error/exception and streamed data.
-- [ ] Verify safe diagnostic categories still work, with no raw error/provider data.
+- [x] Verify safe diagnostic categories still work, with no raw error/provider data.
 
 `test/lovelace/stage_designer/gemini_test.exs` currently uses Req.Test, which bypasses
 the real Finch transport. Existing log-redaction tests cannot catch F1. Use only
@@ -178,11 +182,11 @@ Detach test handlers and terminate any fake processes on exit.
 
 ### G2 — Deterministic publication/cleanup interleavings
 
-- [ ] Pause A after publication but before cleanup, publish B, resume A and assert
+- [x] Pause A after publication but before cleanup, publish B, resume A and assert
   B's file, manifest and serving path remain correct.
-- [ ] Cover a current in-flight write, stale reconciliation, repeated identical
+- [x] Cover a current in-flight write, stale reconciliation, repeated identical
   digests, retention count one and normal retention/pruning.
-- [ ] Exercise crash/abort/expired-ownership behavior for the chosen coordination
+- [x] Exercise crash/abort/expired-ownership behavior for the chosen coordination
   design; no stale owner may continue deleting or publish missing files.
 
 Use deterministic barriers/messages, not a 24-hour sleep. Inject approved test time
@@ -194,10 +198,10 @@ orphan/temp grace policy or document an equally safe reviewed replacement.
 
 ### G3 — Otherwise-valid oversized PNG/JPEG inputs
 
-- [ ] Add valid synthetic images over each dimension limit and over the pixel cap.
-- [ ] Protect encoded-byte limits with structurally valid oversized inputs or a
+- [x] Add valid synthetic images over each dimension limit and over the pixel cap.
+- [x] Protect encoded-byte limits with structurally valid oversized inputs or a
   test seam that discriminates the byte guard from unrelated format rejection.
-- [ ] Establish that JPEG rejection happens before native decoding/allocation.
+- [x] Establish that JPEG rejection happens before native decoding/allocation.
 
 At `test/lovelace/stage_designer/image_test.exs:88–90`, oversized PNGs contain only
 `<<0>>` scanline data. At `jpeg_test.exs:52–54,66–68`, the frame helper has no
@@ -211,9 +215,9 @@ still does not prove early preflight protection.
 
 ### G4 — Valid wrong-hash replacement
 
-- [ ] Publish image A, replace its digest-path bytes with different valid image B,
+- [x] Publish image A, replace its digest-path bytes with different valid image B,
   and assert the hash check rejects the replacement.
-- [ ] Check both background fallback selection and the image endpoint; include
+- [x] Check both background fallback selection and the image endpoint; include
   PNG/JPEG or mixed-format cases where the changed behavior needs them.
 
 `startup_test.exs:241` writes `"corrupt"`, which fails format validation independently
@@ -223,8 +227,8 @@ An intact retained fallback must still be selected/served.
 
 ### G5 — Valid unregistered content-addressed file
 
-- [ ] Store a valid correctly named/hash-matching file absent from the manifest.
-- [ ] Confirm direct storage validation succeeds while the public image action
+- [x] Store a valid correctly named/hash-matching file absent from the manifest.
+- [x] Confirm direct storage validation succeeds while the public image action
   and HTTP endpoint refuse it, including during orphan-cleanup grace.
 
 The unknown digest in `startup_test.exs:297–312` has no corresponding valid file;
@@ -234,9 +238,9 @@ existing malformed-name, traversal and symlink tests too.
 
 ### G6 — Stale publication and failure actions
 
-- [ ] Add synchronous Ash-action tests rejecting stale `publish` and `fail`, not
+- [x] Add synchronous Ash-action tests rejecting stale `publish` and `fail`, not
   only stale `reserve`.
-- [ ] Assert the winning record's version, timestamps, status and history remain
+- [x] Assert the winning record's version, timestamps, status and history remain
   unchanged after each stale attempt.
 
 `startup_test.exs:188–193` covers reservation only. The current production locks at
@@ -246,9 +250,9 @@ writes. Distinguish these database tests from F2's post-commit filesystem defect
 
 ### G7 — Repeated identical successful output
 
-- [ ] Generate A, B, then A again on eligible synthetic timestamps; verify unique
+- [x] Generate A, B, then A again on eligible synthetic timestamps; verify unique
   history, newest-first ordering and correct fallback/file retention.
-- [ ] Exercise the configured retention bound without duplicate entries evicting
+- [x] Exercise the configured retention bound without duplicate entries evicting
   useful distinct history, including mixed PNG/JPEG history when applicable.
 
 Current retention tests always produce different images. Protect `Enum.uniq`
@@ -257,7 +261,7 @@ maximum array length enforces distinctness.
 
 ### G8 — Independent-connection reservation-commit evidence
 
-- [ ] Add a bounded regression proving the reservation is visible from an
+- [x] Add a bounded regression proving the reservation is visible from an
   independent database connection/process before the fake HTTP boundary proceeds.
 
 This is a recommended hardening check from the Ash review, not an identified
@@ -271,21 +275,98 @@ SQLite files. Keep this separate from choosing or installing a job engine.
 
 These were nonblocking, but preserve them rather than losing the findings:
 
-- [ ] **A1 — Honest interrupted-attempt status.** `read_background.ex:16` forwards
+- [x] **A1 — Honest interrupted-attempt status.** `read_background.ex:16` forwards
   persisted `:generating` and `lib/lovelace_web/components/layouts.ex:87–88` announces
   active preparation even after startup returns cached with no task. Represent
   interrupted/uncertain state honestly, with regression coverage. Never reset the
   cooldown, blindly retry or treat stale `generating` as an eligible diagnostic retry.
-- [ ] **A2 — Measure synchronous mount-time image decoding.** `HomeLive.mount/3`
+- [x] **A2 — Measure synchronous mount-time image decoding.** `HomeLive.mount/3`
   calls background selection, which invokes storage validation and full JPEG pixel
   evaluation. Profile with synthetic retained imagery before asserting a latency
   failure or changing caching/async boundaries; preserve validation and safe serving.
-- [ ] **A3 — Reconcile operational chronology.** `STAGE_DESIGNER.md:56` still says
+- [x] **A3 — Reconcile operational chronology.** `STAGE_DESIGNER.md:56` still says
   the server was not restarted, while `HANDOFF.md` section 18 records restart and
   successful display. Label old operations historical; do not restart the server
   to make the prose true.
 
-## Suggested delivery order and completion gate
+## Implemented remediation and fresh evidence
+
+- **F1/G1:** `GeminiTransport` replaces Finch with a step-free Req request and
+  private, passive Mint HTTP/1 connection. The module documents the installed
+  Req/Finch/Mint instrumentation audit. Events have fixed timing/status/category
+  shapes; no request/result/exception payload is emitted. Actual loopback TCP/TLS
+  tests cover success, streaming/trailers, informational responses, bounded bytes
+  and deadlines, errors, throws/exits/exceptions and connection closure. Test builds
+  reject the ordinary production connector; cached-action tests always use a
+  synthetic key and rejecting fake plug. An isolated in-memory mutation emitting
+  a raw synthetic request as Finch metadata fails the actual-seam assertions.
+  Production host/TLS/no-retry rules remain.
+- **F2/G2/G8:** `Coordination`, `Storage.store_and_publish/4` and the revised startup
+  lifecycle use permanent private SQLite sidecar exclusion per shared storage root.
+  A pooled main-transaction lock was explicitly rejected because connection loss
+  can revoke it while callbacks survive. The private handle cannot expire while
+  its callback lives; raw same-process unlink prevents queued post-crash deletion.
+  Publication commits before separately locked cleanup rereads authoritative history.
+  See [the complete protocol and native-lifetime reasoning](STORAGE_COORDINATION.md).
+  Thirteen synchronous tests use independent non-sandbox disposable pools and
+  deterministic barriers: stale A/B cleanup, reconciliation/grace, in-flight and
+  identical-digest publication, rollback/crash, main connection death/timeout,
+  killed owners, raw unlink ownership, retention, lock identity and independent
+  reservation visibility before fake HTTP. A separate disposable release smoke
+  also confirmed a second BEAM cannot acquire a live owner's sidecar and can acquire
+  it after release. The full publication interleaving uses independent pools, not
+  two BEAMs; no native-unlink stall was injected. OTP's documented dirty-NIF lifetime
+  supplies the in-progress native-call crash argument. An isolated in-memory
+  mutation restoring caller-list pruning makes the paused A/B test fail because
+  B's published image becomes unreadable, directly discriminating the original bug.
+- **F3:** verified Topbar 3.0.0 against the SHA-512-verified registry archive and
+  immutable upstream commit. Full MIT notice, exact provenance/package metadata,
+  source/license checksums and update procedure are retained beside `topbar.js`.
+  Tests pin those bytes and the unchanged upstream executable source; the complete
+  notice is embedded as an esbuild-preserved legal comment. GSAP/font checks remain.
+- **G3:** valid one-bit PNG/grayscale JPEG controls cover both 8192/8193 axes,
+  16M/over-cap pixels and exact 10 MiB/+1-byte valid metadata. Actual JPEG loader
+  call counts prove preflight precedes native decoding. Separate disposable BEAM
+  mutations removing each format's width/height/pixel/byte guard fail the intended
+  assertions; moving JPEG decoding before preflight also fails the call-count guard.
+- **G4–G7:** synchronous startup tests cover valid same-format wrong-hash PNG/JPEG
+  replacements with retained fallback/HTTP rejection, valid hash-matching files
+  excluded from manifest serving during grace, stale publish/fail with unchanged
+  winning version/timestamps/status/history, and A/B/A/repeated-A mixed-format
+  distinct retention. In-memory hash/membership/uniqueness guard mutations each
+  fail the corresponding regression. Production source was never left weakened.
+- **A1–A3:** durable `generating` is publicly `uncertain`, without changing persisted
+  state, cooldown or diagnostic eligibility. LiveView/status regressions protect
+  honest wording. Synthetic actual mount measurements (including pixel-cap JPEGs)
+  and their limitations are recorded in `STAGE_DESIGNER.md`; no optimization was
+  inferred or implemented. Historical operations now agree with `HANDOFF.md` §18.
+
+Fresh verification with generation disabled and synthetic/disposable data:
+
+- `mix check`: **132 ExUnit + 32 JavaScript tests**, format, warnings-as-errors,
+  Credo/AshCredo, Sobelow, schema drift and assets passed.
+- `mix audit`: no vulnerabilities or retired Hex packages found.
+- Production warnings-as-errors compilation, minified asset deployment and release
+  assembly passed. A disposable release started **without an HTTP listener**, applied
+  migrations to an empty database and then reopened the current schema. Synthetic
+  JPEG native loading/storage/Ash publication/cleanup/serving-action checks passed;
+  test-only loopback APIs were absent from the production release.
+- `mix usage_rules.sync --yes` refreshed guidance. Mint 1.11.0 and Exqlite 0.43.0
+  became explicit direct dependencies at their existing locked versions; `mix.lock`
+  remains unchanged after dependency resolution. No business schema changes.
+- Source-focused reviews covered transport security/reliability, storage/Ash
+  concurrency, image/vendor policy, tests and uncertainty UI. Confirmed findings
+  were fixed and re-reviewed. Final cross-file current-state review, including a
+  follow-up on emission-time category allowlisting, returned **[APPROVED]** with
+  no blockers/advisories. Reviews are source-scoped, not execution certification.
+
+The user's server, private environment/settings, databases, generated imagery and
+runtime targets were not inspected, modified or restarted. No real provider request,
+operator diagnostic generation or mailbox action occurred. Browser/cross-browser,
+hosted CI and live-provider behavior were not freshly verified. Hex audit does not
+cover all vendored-JS/native advisories. Temporary release/test data is disposable.
+
+## Historical suggested delivery order and completion gate
 
 1. Reproduce F1/F2 with discriminating fake-boundary/interleaving tests. Record the
    chosen transport and cross-process coordination designs before implementation.

@@ -27,10 +27,17 @@ tier, not full desktop-native resolution; revisit visual quality after a real ge
   updates the manifest and open LiveViews through application-wide PubSub, not mailbox topics.
 - Keep the last **seven distinct successful images**, newest first. Invalid/missing current
   files fall back through retained images, then to the original SVG. There is no gallery UI.
+- Storage writes/publication and destructive cleanup share nonexpiring cross-BEAM
+  exclusion on the configured storage root. Cleanup rereads the committed manifest
+  under that exclusion; a delayed publisher's old list is never deletion authority.
+  Publication commits before a separate pruning critical section, so rollback cannot
+  resurrect references to deleted files. HTTP remains outside both sections.
 - Stale unreferenced generated images and interrupted temporary writes are reconciled
-  on eligible/cached startup checks after a five-minute grace period. This prevents
-  interrupted publications from accumulating indefinitely without deleting an in-flight
-  write from a concurrent process. Brief extra files can exist during publication/recovery.
+  on eligible/cached startup checks after a five-minute grace period. Active writes
+  are protected by exclusion, not age guesses. Brief extra files can exist during
+  publication/recovery. See [storage coordination](STORAGE_COORDINATION.md): keep
+  the private `.stage-coordination.sqlite3` identity for the lifetime of a shared root;
+  never unlink/replace it while any LOVELACE process may use that root.
 
 ## Inactivity / scenery mode
 
@@ -52,12 +59,14 @@ on another machine. The private local `.env` contains encrypted settings, includ
 API key. Its plaintext decryption key is in private `.env.keys`; both are ignored and
 mode `0600`. `.env.example` is deliberately readable, credential-free, and disabled by default.
 
-This checkout's local settings now enable startup generation, retain seven images, and
-use a three-minute idle timer. The supplied API-key entry was left untouched. The running server was **not restarted**.
-A subsequent read-only model-metadata check succeeded, and the user explicitly authorized
-one diagnostic generation attempt after a failure: it returned HTTP 429 / `RESOURCE_EXHAUSTED`.
-No automatic follow-up request was made. Model metadata access does not establish billing
-or image-generation quota. Eligible application restarts may incur a charge.
+Historical setup: local settings enabled startup generation, seven retained images,
+and a three-minute idle timer without restarting the then-running server. A later
+read-only model-metadata check succeeded; one explicitly authorized diagnostic attempt
+returned HTTP 429 / `RESOURCE_EXHAUSTED`, with no automatic follow-up. Subsequently,
+the user restarted with JPEG support and authorized one successful generation, then
+confirmed its display after refreshing (see `HANDOFF.md` sections 16–18). These are
+separate historical operations, not actions performed during remediation. Model metadata
+access alone does not establish billing or quota. Eligible restarts may incur a charge.
 
 For a **fresh checkout only**, from the repository root:
 
@@ -191,6 +200,12 @@ dataset sharing disabled. Requests set `store: false`, but that does not overrid
 monitoring or contractual retention. Never include email, names, calendars, projects,
 or other private context. No search grounding, remote references, or browser Google calls.
 
+Gemini uses a private Req adapter over unpooled Mint, not Finch's credential-bearing
+request instrumentation. Its transport events contain only numeric timing/status and
+allowlisted categories, never requests, payloads, credentials or raw exceptions.
+Req/Mint upgrades must re-audit this boundary and run its actual loopback transport
+regressions; `Req.Test` alone is not transport-containment evidence.
+
 Failures log the failing stage, a safe error category, HTTP status when available, and
 an actionable hint. Only allowlisted Google error/status codes are retained in the error
 result; provider messages, quota metadata, request objects, exception text, prompts, and
@@ -213,8 +228,31 @@ state, requires the service actor, reserves a fresh timestamp/version before HTT
 leaves the normal cooldown/retry policy intact. It must not be invoked without the user's
 explicit permission for another potentially billable request. It refuses successful or
 still-`generating` attempts, including interrupted ones. A persisted `generating` state after a crash is not
-permission to retry. There is no automatic job recovery.
+permission to retry. Public background reads expose that reservation as `uncertain`,
+not proof that preparation is currently active; the UI announces an unconfirmed outcome.
+This also honestly describes an in-progress request before its outcome is known. The
+persisted state/timestamp/version are unchanged. There is no automatic job recovery.
 
-Automated tests use fake keys, local PNG fixtures, and `Req.Test`, never real Google calls.
+## Synthetic mount-time measurement
+
+Remediation profiled the actual disconnected `HomeLive.mount/3` path in a disposable
+test database/storage directory, with seven distinct synthetic JPEGs retained for each
+case, valid current imagery, and 12 sequential mounts per case. Fixture encoding/storage
+were outside the timed section. On the existing local OTP29/Elixir1.20 runtime:
+
+| JPEG size | First mount | Median | Maximum |
+| --- | ---: | ---: | ---: |
+| 2×2 | 22.800 ms | 0.709 ms | 22.800 ms |
+| 1920×1080 | 3.998 ms | 4.473 ms | 4.632 ms |
+| 4000×4000 (pixel cap) | 23.666 ms | 23.497 ms | 24.204 ms |
+
+These include the Ash read, bounded file/hash validation, full native JPEG evaluation,
+and socket assignment. Only the selected current image is decoded, not all seven valid
+retained images. These local observations are not an SLO, browser latency measurement,
+worst-case damaged-file benchmark, or cross-platform guarantee. No caching/async change
+was justified or made; validation and safe serving remain intact. No private imagery
+or running server was used.
+
+Automated tests use fake keys, local PNG/JPEG fixtures, and fake transports, never real Google calls.
 `mix check` includes Ash codegen drift and native Node hook tests. See
 [development guidance](DEVELOPMENT.md) for scoped Sobelow false-positive annotations and gates.

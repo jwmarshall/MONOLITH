@@ -13,9 +13,10 @@ Treat **confirmed requirements** as product constraints. Architecture proposals 
 open questions below are not additional user commitments. Read the actual code and
 `mix.lock` before assuming a feature or dependency exists.
 
-**Current next work:** resolve the review blockers and regression gaps in
-[the remediation handoff](REMEDIATION_HANDOFF.md) before expanding product features.
-All remediation tasks remain outstanding; section 20 records the review outcome.
+**Current status:** the blockers and regression gaps in
+[the remediation handoff](REMEDIATION_HANDOFF.md) are implemented and verified;
+section 21 records the remediation and its limits. Section 20 is the historical
+review baseline, not an outstanding-defect list. Product integrations remain deferred.
 
 LOVELACE's visual direction draws on the sterile, brutalist architecture in
 *Blade Runner*. The long-term purpose is a personal productivity and innovation
@@ -138,7 +139,8 @@ No job-runner dependency is installed. No Google credentials are needed to run t
 | `.github/workflows/ci.yml` | Quality/security/test/asset checks and online audits |
 | `docs/DEVELOPMENT.md` | Dependency roles, commands, migrations, test conventions, tooling safety |
 | `.env.example`, `docs/STAGE_DESIGNER.md` | Secret-free template, dotenvx workflow, generator/idle behavior |
-| `lib/lovelace/stage_designer/` | Ash state/actions, validated settings, Gemini boundary, private PNG storage |
+| `lib/lovelace/stage_designer/` | Ash state/actions, settings, private Mint Gemini boundary, coordinated PNG/JPEG storage |
+| `docs/STORAGE_COORDINATION.md` | Cross-BEAM private SQLite handle/raw-unlink protocol and crash reasoning |
 | `assets/js/hooks/{workspace_idle,stage_background}.js` | Client idle lifecycle and local-image fallback |
 | `test/js/workspace_idle_test.mjs` | Dependency-free Node hook tests, included in `mix check` |
 | `DEPENDENCY_RULES.md` | UsageRules-managed links into fetched dependency guidance |
@@ -810,7 +812,8 @@ account isolation was N/A for the deferred Gmail implementation.
 
 See [REMEDIATION_HANDOFF.md](REMEDIATION_HANDOFF.md) for F1–F3, G1–G8, secondary
 advisories, safe reproduction evidence, acceptance criteria, implementation boundaries,
-verification and re-review routing. **No fixes have been implemented.**
+verification and re-review routing. **At that historical review point, no fixes
+had been implemented; section 21 supersedes this status.**
 
 Fresh review-time checks passed with generation explicitly disabled: `mix check`
 (**86 ExUnit + 32 Node tests**, lint/security/schema drift/assets), `mix audit`
@@ -821,4 +824,63 @@ no real credentials or images and did not start LOVELACE; temporary data was rem
 No application source, private configuration/data, runtime targets or dependencies
 were changed. Browser, release-runtime/native loading, hosted CI and live-provider
 behavior remain outside this fresh verification. Green gates are a baseline, not
-approval of the outstanding issues or evidence of completed remediation.
+approval of those then-outstanding issues or evidence of completed remediation.
+
+## 21. Completed review remediation
+
+Implemented F1–F3, G1–G8 and A1–A3 from `REMEDIATION_HANDOFF.md`:
+
+- Gemini now uses a step-free Req request and private passive Mint adapter, avoiding
+  Finch's credential-bearing instrumentation. Safe transport events contain only
+  numeric timings/status and fixed categories. Real loopback TCP/TLS fake-boundary
+  tests exercise streaming, errors/exceptions, byte/time limits, interim responses,
+  safe diagnostics and connection closure. Test builds refuse the ordinary production
+  connector, so missing fake wiring cannot issue a billable request.
+- Storage/publication/cleanup share permanent per-root SQLite-sidecar exclusion via
+  a private direct Exqlite handle. It cannot be revoked by the main Repo's timeout
+  or connection death. Raw same-process unlink avoids queued post-crash deletion.
+  Ash publication commits before separately locked cleanup rereads the authoritative
+  manifest; old caller lists cannot delete newer images. Provider HTTP stays outside
+  transactions/locks, and business versions are not cleanup counters. Keep
+  `.stage-coordination.sqlite3` for the lifetime of a shared root; never rotate it
+  while any process could use the root. See `STORAGE_COORDINATION.md` for assumptions,
+  failure handling, orphan grace, native-lifetime evidence and operational rules.
+- Verified Topbar 3.0.0 against its registry archive/immutable upstream commit,
+  retained full MIT notice and provenance/checksum records, pinned integrity tests,
+  and embedded the full notice in an esbuild-preserved legal comment. No executable
+  Topbar behavior changed; GSAP/font records and tests remain intact.
+- Discriminating valid oversized PNG/JPEG, wrong-hash replacement, unregistered-file,
+  stale publish/fail, repeated-output retention and independent committed-reservation
+  tests close the review gaps. Separate non-sandbox disposable SQLite pools and
+  deterministic barriers cover stale cleanup, in-flight/identical digests, crash,
+  rollback, main connection death/timeout and killed private lock owners. Mutation
+  probes prove the image/hash/membership/distinctness assertions reject missing guards.
+- Public `generating` reservations are `uncertain`, not asserted live tasks; persisted
+  state, timestamps, cooldown and diagnostic eligibility are unchanged. Status/LiveView
+  tests cover honest wording. Synthetic actual mount timings are documented in
+  `STAGE_DESIGNER.md`, without an invented SLO or unnecessary optimization. Historical
+  restart/generation chronology now agrees with section 18.
+- Mint 1.11.0 and Exqlite 0.43.0 are explicit direct dependencies at their existing
+  locked versions; dependency resolution left `mix.lock` unchanged. UsageRules refreshed.
+  No business migration/snapshot or runtime-target changes were needed.
+
+Fresh verification with generation disabled, key unset, and disposable databases:
+`mix check` passed **132 ExUnit + 32 JavaScript tests**, lint/security/schema drift
+and assets; `mix audit` found no vulnerabilities or retired Hex packages; production
+warnings-as-errors compilation, minified assets and disposable release assembly passed.
+The release migrated an empty database and reopened the current schema, fully validated
+and stored a synthetic JPEG, published/pruned through Ash/storage, and served it through
+the image action. Test-only loopback helpers were absent; HTTP/distribution stayed off.
+Source-focused reviews cover transport security/reliability, storage/Ash concurrency,
+image/vendor policy, regressions and uncertainty UI. Final cross-file current-state
+source review and final telemetry-allowlist follow-up returned **[APPROVED]** with
+no blockers/advisories; source review does not certify execution.
+
+No private settings/credentials, real databases/imagery, mailbox or running server was
+read, changed or restarted. No real provider or diagnostic generation was invoked.
+Browser/cross-browser, hosted CI and live-provider behavior were not freshly verified.
+Publication interleavings use two independent pools; a separate disposable release
+smoke confirmed exclusion and subsequent acquisition across actual independent BEAMs.
+Killing an in-progress native unlink is justified by the OTP dirty-NIF/resource contract,
+not a fault injected into native code. Full completion evidence is in the remediation
+handoff; earlier verification records remain historical.

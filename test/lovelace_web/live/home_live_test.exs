@@ -167,6 +167,30 @@ defmodule LovelaceWeb.HomeLiveTest do
     assert has_element?(view, "#workspace-background[aria-hidden=true]")
   end
 
+  test "an interrupted attempt is not announced as active preparation on mount", %{conn: conn} do
+    alias Lovelace.StageDesigner
+    alias Lovelace.StageDesigner.Settings
+    actor = %{role: :stage_designer}
+    previous = Application.fetch_env!(:lovelace, :stage_designer)
+
+    Application.put_env(:lovelace, :stage_designer, %Settings{
+      enabled: true,
+      storage_dir: Path.join(System.tmp_dir!(), "lovelace-uncertain-#{Ash.UUID.generate()}")
+    })
+
+    on_exit(fn -> Application.put_env(:lovelace, :stage_designer, previous) end)
+
+    StageDesigner.initialize_state!(%{}, actor: actor)
+    |> StageDesigner.reserve_state!(%{last_attempt_at: ~U[2026-11-01 12:00:00.000000Z]},
+      actor: actor
+    )
+
+    {:ok, view, _html} = live(conn, ~p"/")
+    assert has_element?(view, "#stage-background-status", "no confirmed outcome")
+    refute has_element?(view, "#stage-background-status", "Preparing")
+    assert StageDesigner.get_state!(1, actor: actor).status == :generating
+  end
+
   test "receives canonical JPEG stage updates through PubSub with the same image hook", %{
     conn: conn
   } do

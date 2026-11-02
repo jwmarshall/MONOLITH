@@ -35,7 +35,7 @@ defmodule Lovelace.StageDesigner.Startup do
   defp attempt(settings, now, provider_options, retry_failed?) do
     with {:ok, _} <- StageDesigner.initialize_state(%{}, actor: @actor),
          {:ok, state} when not is_nil(state) <- StageDesigner.get_state(1, actor: @actor) do
-      Storage.reconcile(settings, state.history, DateTime.to_unix(now))
+      report_cleanup(Storage.reconcile(settings, state.history, DateTime.to_unix(now)))
 
       if eligible?(state, settings, now, retry_failed?) do
         reserve_and_generate(state, settings, now, provider_options)
@@ -73,27 +73,32 @@ defmodule Lovelace.StageDesigner.Startup do
   end
 
   defp generate(reserved, settings, now, provider_options) do
-    with {:provider, {:ok, bytes}} <- {:provider, Gemini.generate(settings, provider_options)},
-         {:storage, {:ok, digest}} <- {:storage, Storage.store(settings, bytes)},
-         history = Enum.take(Enum.uniq([digest | reserved.history]), settings.retain_count),
-         {:publication, {:ok, _}} <-
-           {:publication,
-            StageDesigner.publish_state(reserved, %{history: history, generated_at: now},
-              actor: @actor
-            )} do
-      Storage.prune(settings, history)
-      notify()
-      :generated
-    else
-      {:publication, {:error, _error}} ->
-        fail(reserved, :publication, :publication_error)
-
-      {stage, {:error, reason}} ->
-        fail(reserved, stage, reason)
-
-      _ ->
-        fail(reserved, :startup, :unexpected_error)
+    case Gemini.generate(settings, provider_options) do
+      {:ok, bytes} -> publish(reserved, settings, now, bytes)
+      {:error, reason} -> fail(reserved, :provider, reason)
     end
+  end
+
+  defp publish(reserved, settings, now, bytes) do
+    case Storage.store_and_publish(settings, bytes, reserved, now) do
+      {:ok, published} ->
+        # This is intentionally a separate transaction after publication COMMIT.
+        report_cleanup(Storage.prune(settings, published.history))
+        notify()
+        :generated
+
+      {:error, {stage, reason}} ->
+        fail(reserved, stage, reason)
+    end
+  end
+
+  defp report_cleanup(:ok), do: :ok
+
+  defp report_cleanup({:error, _}) do
+    Logger.warning(
+      "LOVELACE stage storage cleanup incomplete; keeping published scenery; " <>
+        "check local storage and database availability (no generation retry)"
+    )
   end
 
   defp fail(reserved, stage, reason) do
