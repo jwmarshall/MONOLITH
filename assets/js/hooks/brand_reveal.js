@@ -10,9 +10,21 @@ export default {
 
     this.active = false
     this.completed = false
+    this.exiting = false
     this.motionPreference = window.matchMedia("(prefers-reduced-motion: reduce)")
     this.context = gsap.context(() => {
-      this.timeline = gsap.timeline({paused: true, onComplete: () => this.complete()})
+      this.timeline = gsap.timeline({
+        paused: true,
+        onComplete: () => {
+          // Hold the finished mark briefly, then unflip the letters and untrace
+          // the monogram. Do not open the workspace gate until the exit finishes.
+          this.exiting = true
+          this.timeline.timeScale(1.8).reverse()
+        },
+        onReverseComplete: () => {
+          if (this.active && this.exiting) this.complete()
+        },
+      })
         .fromTo(stroke,
           {strokeDasharray: length, strokeDashoffset: length},
           {strokeDashoffset: 0, duration: 1.35, ease: "power2.inOut", immediateRender: true},
@@ -22,6 +34,7 @@ export default {
           {opacity: 1, rotationX: 0, yPercent: 0, duration: 0.6,
             stagger: 0.085, ease: "power3.out", immediateRender: true},
           1.35)
+        .to({}, {duration: 0.25})
     }, this.el)
 
     this.onFocus = () => this.reveal()
@@ -31,7 +44,7 @@ export default {
       this.timeline.pause()
     }
     this.onMotionChange = () => {
-      if (this.active && this.motionPreference.matches) this.timeline.progress(1).pause()
+      if (this.active && this.motionPreference.matches) this.finishWithoutMotion()
     }
 
     this.el.addEventListener("lovelace:brand-focus", this.onFocus)
@@ -47,9 +60,17 @@ export default {
     // Pointer focus and click can fire together. Never restart an active reveal.
     if (this.active || this.completed) return
     this.active = true
+    this.exiting = false
 
-    if (this.motionPreference.matches) this.timeline.progress(1).pause()
-    else this.timeline.restart()
+    if (this.motionPreference.matches) this.finishWithoutMotion()
+    else this.timeline.timeScale(1).restart()
+  },
+
+  finishWithoutMotion() {
+    // Suppress callbacks: seeking to the end must not start a reverse animation
+    // when reduced motion is requested, including during the exit.
+    this.timeline.progress(1, true).pause()
+    this.complete()
   },
 
   complete() {

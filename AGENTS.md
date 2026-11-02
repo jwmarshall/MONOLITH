@@ -21,7 +21,7 @@ configuration keys, and database filenames.
 
 ## Implementation
 
-- Phoenix LiveView + Ash/AshSqlite over Ecto/SQLite; Tailwind with LOVELACE's dark/amber tokens.
+- Phoenix LiveView + Ash/AshSqlite over Ecto/SQLite; Tailwind with LOVELACE's dark/sea-glass tokens.
   Model business behavior with Ash resources, domains, actions, and policies, not parallel
   hand-written Ecto contexts. Register domains and commit migrations plus snapshots.
 - AshAuthentication protects a single local owner; connected Gmail identities are separate.

@@ -209,24 +209,11 @@ defmodule LovelaceWeb.HomeLive do
         phx-hook="BrandReveal"
         phx-update="ignore"
       >
-        <svg
+        <Layouts.monogram
           id="lovelace-monogram"
           class="workspace-monogram"
-          viewBox="0 0 104 104"
-          fill="none"
-          xmlns="http://www.w3.org/2000/svg"
-          aria-hidden="true"
-          focusable="false"
-        >
-          <path
-            id="lovelace-monogram-stroke"
-            d="M16 82C34 65 64 23 56 12C48 1 33 37 29 63C24 94 41 88 57 70C73 51 89 18 80 12C70 3 56 42 52 66C47 91 62 90 88 71"
-            stroke="currentColor"
-            stroke-width="1.8"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-          />
-        </svg>
+          stroke_id="lovelace-monogram-stroke"
+        />
         <p class="workspace-wordmark" aria-label="LOVELACE">
           <span
             :for={{letter, index} <- Enum.with_index(String.graphemes("LOVELACE"))}
@@ -239,7 +226,6 @@ defmodule LovelaceWeb.HomeLive do
       <div id="workspace-content" class="workspace-content" inert>
         <p id="workspace-save-status" class="sr-only" role="status">{@save_status}</p>
         <div class="workspace-topline">
-          <span class="workspace-signature">LOVELACE</span>
           <.form for={%{}} action="/lock" method="post" id="owner-lock-form">
             <button type="submit" class="workspace-action">Lock</button>
           </.form>

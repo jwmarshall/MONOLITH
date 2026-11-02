@@ -11,7 +11,13 @@ import topbar from "../vendor/topbar"
 import BrandReveal from "./hooks/brand_reveal"
 import WorkspaceIdle from "./hooks/workspace_idle"
 import WorkspaceEntrance from "./hooks/workspace_entrance"
-import StageBackground from "./hooks/stage_background"
+import StageBackground, {observeStageImage} from "./hooks/stage_background"
+
+// Controller-rendered unlock/setup has no LiveView hooks. These observers belong
+// only to their image elements and are collected with the document on navigation.
+for (const image of document.querySelectorAll("[data-static-stage-image]")) {
+  observeStageImage(image, value => image.setAttribute("data-loaded", value))
+}
 
 const csrfToken = document.querySelector("meta[name='csrf-token']").getAttribute("content")
 const liveSocket = new LiveSocket("/live", Socket, {
@@ -21,7 +27,8 @@ const liveSocket = new LiveSocket("/live", Socket, {
 })
 
 // Show progress bar on live navigation and form submits
-topbar.config({barColors: {0: "#d6aa69"}, shadowColor: "rgba(0, 0, 0, .3)"})
+const accentColor = getComputedStyle(document.documentElement).getPropertyValue("--color-primary").trim()
+topbar.config({barColors: {0: accentColor || "#8bcbc1"}, shadowColor: "rgba(0, 0, 0, .3)"})
 window.addEventListener("phx:page-loading-start", _info => topbar.show(300))
 window.addEventListener("phx:page-loading-stop", _info => topbar.hide())
 

@@ -65,6 +65,14 @@ defmodule LovelaceWeb.HomeLiveTest do
            )
 
     assert has_element?(view, "#lovelace-monogram[aria-hidden=true][focusable=false] path")
+
+    assert has_element?(
+             view,
+             "#workspace > #workspace-monogram.stage-monogram[aria-hidden=true][focusable=false] path"
+           )
+
+    refute has_element?(view, ".workspace-signature")
+    refute has_element?(view, ".workspace-topline", "LOVELACE")
     assert has_element?(view, "#workspace-content[inert]")
     assert has_element?(view, "#workspace-list[phx-update=stream]")
     assert has_element?(view, "#directory-heading", "Workspaces")

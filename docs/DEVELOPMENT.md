@@ -76,9 +76,12 @@ separately when updating. ExUnit checks the pinned files and retained license no
 `assets/js/hooks/brand_reveal.js` owns only the decorative, ignored brand subtree.
 LiveView client-side commands dispatch focus/reset events; CSS still owns glass blur
 and opacity. The hook traces the SVG with native dash properties, then flips eight
-HEEx-authored letters. No DrawSVG/SplitText plugin is used. It suppresses duplicate
-focus/click replays, pauses on Escape, restarts on a fresh focus, responds to reduced
-motion, and reverts its GSAP context/removes listeners when destroyed. Keep business
+HEEx-authored letters. It holds the finished logo for 250ms, then reverses the same
+letter/trace choreography at 1.8× speed before handing off to working content. No
+DrawSVG/SplitText plugin is used. It suppresses duplicate focus/click replays, pauses
+on Escape, restarts an interrupted entrance at normal speed on fresh focus, responds
+to reduced motion (including mid-exit), and reverts its GSAP context/removes listeners
+when destroyed. Keep business
 UI outside this `phx-update="ignore"` subtree. The always-present screen-reader heading
 is separate; decorative letter-by-letter rendering is hidden from assistive technology.
 
@@ -127,7 +130,15 @@ workspace records. Creation and rename use `AshPhoenix.Form`; names are trimmed,
 and bounded to 64 characters server-side. There are deliberately no delete/archive actions,
 or projects. Account connection and read-only mail are implemented separately in `Lovelace.Mail`.
 
-`WorkspaceEntrance` gates server-owned content with `inert` until `BrandReveal` completes,
+The shared `Layouts.stage/1` wraps both `Layouts.app/1` and static owner unlock/setup
+screens. All workspace/mail empty states remain within that glass shell. Static screens
+read the same app-wide local background without triggering generation; the image observer
+is shared with the LiveView hook and only reveals successfully loaded images. The palette
+is sea-glass teal (`#8BCBC1`, hover `#B5E2DA`) on charcoal (`#141918`), with distinct
+warning/error tokens. Workspace idle/Escape visually blurs the entire content plane
+(3px) and dims it; no DOM focus removal, authentication change, or privacy guarantee.
+
+`WorkspaceEntrance` gates server-owned content with `inert` until `BrandReveal` finishes its exit,
 then uses sticky LiveView JS attributes to preserve the entrance state through patches.
 The ignored decorative brand owns only its GSAP subtree. Escape during an unfinished reveal
 restarts it on next activation; after completion, Escape/idle only change focal planes and

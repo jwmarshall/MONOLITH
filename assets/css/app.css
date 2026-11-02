@@ -31,26 +31,26 @@
   default: true;
   prefersdark: true;
   color-scheme: "dark";
-  --color-base-100: #141412;
-  --color-base-200: #1b1b18;
-  --color-base-300: #34342e;
-  --color-base-content: #eeede5;
-  --color-primary: #d6aa69;
-  --color-primary-content: #19150e;
-  --color-secondary: #b9b3a5;
-  --color-secondary-content: #141412;
-  --color-accent: #d6aa69;
-  --color-accent-content: #19150e;
-  --color-neutral: #34342e;
-  --color-neutral-content: #eeede5;
-  --color-info: #9bb8c5;
-  --color-info-content: #141412;
+  --color-base-100: #141918;
+  --color-base-200: #1b2321;
+  --color-base-300: #34433f;
+  --color-base-content: #e9efec;
+  --color-primary: #8bcbc1;
+  --color-primary-content: #102321;
+  --color-secondary: #b0bfba;
+  --color-secondary-content: #141918;
+  --color-accent: #8bcbc1;
+  --color-accent-content: #102321;
+  --color-neutral: #34433f;
+  --color-neutral-content: #e9efec;
+  --color-info: #9bbfe2;
+  --color-info-content: #141918;
   --color-success: #a5bb91;
-  --color-success-content: #141412;
+  --color-success-content: #141918;
   --color-warning: #d6aa69;
   --color-warning-content: #19150e;
   --color-error: #dc9487;
-  --color-error-content: #141412;
+  --color-error-content: #141918;
   --radius-selector: 0.125rem;
   --radius-field: 0.125rem;
   --radius-box: 0.125rem;
@@ -76,19 +76,23 @@
 }
 
 ::selection {
-  background: #d6aa69;
-  color: #141412;
+  background: var(--color-primary);
+  color: var(--color-primary-content);
 }
 
-/* Two focal planes: working content stays sharp; only scenery and the glass edge blur. */
+/* Two focal planes: active content is sharp; idle content yields to the scenery. */
 :root {
   --workspace-focus-duration: 650ms;
   --workspace-focus-easing: cubic-bezier(0.22, 1, 0.36, 1);
   --workspace-scenery-blur: 14px;
   --workspace-chrome-blur: 1.4px;
+  --workspace-content-blur: 3px;
+  --color-primary-hover: #b5e2da;
 }
 
 .glass-workspace {
+  --workspace-inline-padding: clamp(28px, 7vw, 112px);
+  --workspace-top-padding: 36px;
   position: relative;
   isolation: isolate;
   min-height: 100svh;
@@ -149,6 +153,29 @@
   filter: blur(var(--workspace-chrome-blur));
   pointer-events: none;
   transition: filter var(--workspace-focus-duration) var(--workspace-focus-easing);
+}
+
+/* The signature belongs to focused glass; scenery mode has no corner branding. */
+.stage-monogram {
+  position: absolute;
+  z-index: 1;
+  top: var(--workspace-top-padding);
+  left: var(--workspace-inline-padding);
+  width: 44px;
+  height: 44px;
+  color: var(--color-base-content);
+  opacity: 0;
+  filter: blur(var(--workspace-chrome-blur));
+  pointer-events: none;
+  transition:
+    opacity var(--workspace-focus-duration) var(--workspace-focus-easing),
+    filter var(--workspace-focus-duration) var(--workspace-focus-easing);
+}
+
+.stage-static .stage-monogram,
+.glass-workspace:has(#workspace-pane[aria-pressed="true"]):has(.workspace-glass[data-entered="true"]) .stage-monogram {
+  opacity: 0.9;
+  filter: blur(0);
 }
 
 .workspace-brand {
@@ -236,12 +263,17 @@
 .workspace-glass[data-entered="true"] {
   .workspace-pane { display: none; }
   .workspace-brand { opacity: 0; visibility: hidden; }
-  .workspace-content { visibility: visible; opacity: 0.22; }
+  .workspace-content {
+    visibility: visible;
+    opacity: 0.3;
+    filter: blur(var(--workspace-content-blur));
+  }
 }
 
 .glass-workspace:has(#workspace-pane[aria-pressed="true"]) .workspace-glass[data-entered="true"] {
   background: rgb(12 17 16 / 58%);
-  .workspace-content { opacity: 1; }
+  .workspace-content { opacity: 1; filter: blur(0); }
+  #owner-lock-form { visibility: visible; opacity: 1; }
 }
 
 .workspace-content {
@@ -250,13 +282,59 @@
   overflow-y: auto;
   visibility: hidden;
   opacity: 0;
-  color: #f3efe4;
-  padding: 36px clamp(28px, 7vw, 112px) 24px;
+  color: var(--color-base-content);
+  filter: blur(0);
+  padding: var(--workspace-top-padding) var(--workspace-inline-padding) 24px;
   text-shadow: 0 1px 2px rgb(0 0 0 / 75%);
   display: flex;
   flex-direction: column;
-  transition: opacity var(--workspace-focus-duration) var(--workspace-focus-easing);
+  transition:
+    opacity var(--workspace-focus-duration) var(--workspace-focus-easing),
+    filter var(--workspace-focus-duration) var(--workspace-focus-easing);
 }
+
+/* Owner unlock/setup uses the same edge-to-edge glass, not a floating card.
+   It remains focused and usable without JavaScript, with the local SVG fallback. */
+.stage-static {
+  .workspace-background { filter: blur(var(--workspace-scenery-blur)); }
+  .workspace-glass { background: rgb(12 17 16 / 58%); }
+  .workspace-glass::after { filter: none; }
+}
+
+.owner-glass {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow-y: auto;
+  padding: 48px 28px;
+}
+
+.owner-content {
+  width: 100%;
+  max-width: 384px;
+  margin-block: auto;
+  color: var(--color-base-content);
+  text-shadow: 0 1px 2px rgb(0 0 0 / 75%);
+}
+
+.owner-password {
+  width: 100%;
+  border: 1px solid color-mix(in srgb, var(--color-primary) 55%, transparent);
+  background: rgb(12 17 16 / 25%);
+  padding: 12px 14px;
+  color: var(--color-base-content);
+}
+
+.owner-submit {
+  padding: 12px 20px;
+  background: var(--color-primary);
+  color: var(--color-primary-content);
+  cursor: pointer;
+  text-shadow: none;
+}
+
+.owner-submit:hover { background: var(--color-primary-hover); }
+#owner-unlock-error { color: var(--color-error); }
 
 .workspace-topline, .workspace-footer {
   display: flex;
@@ -266,13 +344,20 @@
   flex-shrink: 0;
 }
 
-.workspace-signature { font-size: 10px; letter-spacing: 0.38em; font-weight: 400; }
+.workspace-topline { justify-content: flex-end; }
+
+/* Landscape mode has no lock affordance, including invisible keyboard targets. */
+#owner-lock-form {
+  visibility: hidden;
+  opacity: 0;
+  transition: opacity var(--workspace-focus-duration) var(--workspace-focus-easing);
+}
 .workspace-directory { width: 100%; max-width: 1000px; margin: clamp(40px, 8vh, 80px) auto 56px; flex: 1; }
 .workspace-directory-heading { display: flex; align-items: center; justify-content: space-between; gap: 24px; margin-bottom: 28px; }
 .workspace-directory h2 { font-size: clamp(28px, 3vw, 34px); line-height: 1.2; letter-spacing: -0.035em; font-weight: 300; overflow-wrap: anywhere; }
 .workspace-directory h2:focus { outline: none; }
 .workspace-action { display: inline-flex; align-items: center; justify-content: center; gap: 10px; padding: 12px 0; font-size: 13px; color: #e1dfd3; cursor: pointer; transition: color 160ms; }
-.workspace-action:hover, .workspace-open:hover { color: #e7bc7f; }
+.workspace-action:hover, .workspace-open:hover { color: var(--color-primary-hover); }
 .workspace-action:disabled { opacity: 0.4; cursor: wait; }
 .workspace-directory-heading > .workspace-action { border-bottom: 1px solid rgb(238 237 229 / 30%); flex-shrink: 0; }
 .workspace-back { margin-bottom: 24px; color: #eeebe1; }
@@ -290,16 +375,19 @@
 .workspace-editor .label { color: #eeebe1; }
 .workspace-form-feedback { font-size: 13px; color: #f0b7a9; line-height: 1.6; }
 .workspace-editor-actions { display: flex; gap: 24px; margin-top: 20px; }
-.workspace-action-primary { color: #e7bc7f; border-bottom: 1px solid #d6aa69; }
+.workspace-action-primary { color: var(--color-primary); border-bottom: 1px solid var(--color-primary); }
 .workspace-notice { padding: 28px 0; color: #e1dfd3; font-size: 14px; }
 .workspace-landing { border-top: 1px solid rgb(238 237 229 / 25%); padding-top: 28px; }
-.workspace-landing h3 { font-size: 17px; font-weight: 400; }
-.workspace-landing p { margin-top: 10px; color: #eeebe1; font-size: 13px; line-height: 1.8; }
+.workspace-landing > h3 { font-size: 17px; font-weight: 400; }
+.workspace-landing > p { margin-top: 10px; color: var(--color-secondary); font-size: 13px; line-height: 1.8; }
 .workspace-footer { justify-content: flex-end; font-size: 11px; color: #eeebe1; }
 .workspace-footer kbd { font-family: inherit; border: 1px solid rgb(238 237 229 / 30%); padding: 2px 5px; margin-right: 5px; }
 
 @media (max-width: 640px) {
-  .workspace-content { padding: 32px 28px 24px; }
+  .glass-workspace {
+    --workspace-inline-padding: 28px;
+    --workspace-top-padding: 32px;
+  }
   .workspace-directory { margin-top: 40px; margin-bottom: 40px; }
   .workspace-directory-heading { align-items: flex-start; flex-direction: column; gap: 16px; margin-bottom: 24px; }
   .workspace-open { gap: 16px; padding: 20px 0; }
@@ -324,12 +412,22 @@
     filter: none;
   }
 
+  .glass-workspace .stage-monogram {
+    color: CanvasText;
+    filter: none;
+  }
+
   .workspace-content, .workspace-action, .workspace-footer, .workspace-row-enter,
-  .workspace-name-input, .workspace-form-hint, .workspace-landing p {
+  .workspace-name-input, .workspace-form-hint, .workspace-landing > p {
     color: CanvasText;
     text-shadow: none;
   }
   .workspace-row, .workspace-list, .workspace-editor, .workspace-landing,
   .workspace-name-input { border-color: CanvasText; }
-  .workspace-glass[data-entered="true"] .workspace-content { opacity: 1; }
+  .workspace-glass[data-entered="true"] .workspace-content { opacity: 1; filter: none; }
+  .glass-workspace .workspace-glass { background: Canvas; }
+  .workspace-glass::after { background: none; border-color: CanvasText; filter: none; }
+  .owner-content, #owner-unlock-error { color: CanvasText; text-shadow: none; }
+  .owner-password { background: Canvas; color: CanvasText; border-color: CanvasText; }
+  .owner-submit, .owner-submit:hover { background: ButtonFace; color: ButtonText; border: 1px solid ButtonText; }
 }

@@ -66,11 +66,18 @@ defmodule LovelaceWeb.OwnerController do
   defp unlock_form(conn, status \\ 200, error? \\ false) do
     configured? = match?({:ok, true}, Owner.configured())
 
+    background =
+      case Lovelace.StageDesigner.background() do
+        {:ok, background} -> background
+        {:error, _reason} -> %{url: nil, status: :unavailable}
+      end
+
     conn
     |> put_status(status)
     |> put_layout(false)
     |> render(:unlock,
       configured?: configured?,
+      background: background,
       error?: error?,
       csrf_token: get_csrf_token()
     )

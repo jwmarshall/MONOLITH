@@ -20,6 +20,9 @@ review baseline, not an outstanding-defect list. **Section 23 supersedes the def
 Gmail/auth/jobs status below:** the first read-only implementation now exists, but
 Google setup and real-account/native credential operations remain manual. The user
 reported a working connection after section 24's fix; no agent inspected the mailbox.
+**Section 26 supersedes the original amber palette, idle content sharpness and abrupt
+entrance handoff:** sea-glass tokens, a shared static/live stage, reverse logo exit and
+whole-content idle defocus are now implemented.
 
 LOVELACE's visual direction draws on the sterile, brutalist architecture in
 *Blade Runner*. The long-term purpose is a personal productivity and innovation
@@ -100,7 +103,7 @@ Implemented:
   a conflict-safe **Personal** starter, quiet directory and empty workspace landing.
   These are local owner spaces, not connected accounts or authentication. Projects are
   explicitly deferred by the latest user interview; no organization terminology in UI.
-- Shared dark/amber design tokens, self-hosted Space Grotesk variable typography,
+- Shared dark/sea-glass design tokens, self-hosted Space Grotesk variable typography,
   custom favicon, keyboard focus and skip-link support. GSAP 3.15.0 is vendored locally
   with licensing/provenance/checksums; no npm install or runtime CDN is required.
 - Tailwind/esbuild pipeline; generated daisyUI core component primitives retained.
@@ -138,7 +141,7 @@ No Google credentials are needed to run the shell or offline automated tests.
 | `lib/lovelace_web/router.ex` | Browser pipeline, root LiveView, dev dashboard |
 | `lib/lovelace_web/components/` | Layouts and generated core UI components |
 | `assets/css/app.css` | LOVELACE theme tokens and Tailwind setup (`lovelace` theme key) |
-| `assets/js/app.js` | LiveSocket, hooks, amber navigation progress indicator |
+| `assets/js/app.js` | LiveSocket, hooks, theme-colored navigation progress indicator |
 | `assets/js/hooks/brand_reveal.js` | Local GSAP trace/letter reveal lifecycle |
 | `assets/vendor/gsap/` | Pinned GSAP source, upstream metadata, license, provenance |
 | `config/` | Dev/test/prod settings and runtime configuration |
@@ -280,10 +283,12 @@ The shell is not yet ready to store or render private email.
 
 ## 7. Visual contract
 
-The user selected **warm cinematic minimalism**, grounded in sterile, brutalist,
-minimalist dark architecture. Translate the reference, do not reproduce film branding.
+The original direction was **warm cinematic minimalism**, grounded in sterile,
+brutalist, minimalist dark architecture. The latest interview (section 26) replaces
+amber UI accents with muted **sea glass** while preserving the architecture, typography
+and glass. Translate the reference, do not reproduce film branding.
 
-- Near-black and charcoal planes, restrained warm amber, off-white text.
+- Near-black and charcoal planes, restrained sea-glass teal, pale neutral text.
 - Strong geometry, fine dividers, limited corner rounding, deliberate negative space.
 - Strong typographic hierarchy; readable practical density inside mail/project views.
 - Avoid neon cyberpunk, HUD decoration, excessive glow, animated backgrounds,
@@ -293,9 +298,10 @@ minimalist dark architecture. Translate the reference, do not reproduce film bra
 - Never trade contrast or long-message readability for cinematic dimness.
 - Motion should be functional, subtle, and respect reduced-motion preferences.
 
-Initial tokens are in `assets/css/app.css`: background `#141412`, secondary surface
-`#1b1b18`, border `#34342e`, text `#eeede5`, amber `#d6aa69`. They are a starting point,
-not a fully approved visual system. No external font/CDN is required.
+Current tokens are in `assets/css/app.css`: background `#141918`, secondary surface
+`#1b2321`, border `#34433f`, text `#E9EFEC`, teal `#8BCBC1`, hover `#B5E2DA`, primary
+button text `#102321`. Warnings/errors retain separate colors. No external font/CDN
+is required. Historical amber references below describe earlier iterations.
 
 ### Glass workspace standard (user-directed foundation)
 
@@ -321,8 +327,10 @@ not a fully approved visual system. No external font/CDN is required.
   persistence are involved in focus switching. The idle hook executes these same sticky
   client commands, preserves elapsed time across patches/hidden tabs, and tears down
   timers/listeners. Brand hook teardown removes listeners and reverts its GSAP context.
-  Keyboard focus indicators and alerts never blur. Reduced motion shows the finished
-  brand immediately, including if enabled mid-reveal; forced colors removes scenery/blur.
+  Active controls, focus indicators and alerts stay sharp. Idle/Escape now softly
+  defocuses the whole content plane, including headings, until intentional wake restores
+  it. DOM focus is never removed. Reduced motion skips the entrance/exit choreography,
+  including if enabled mid-reveal or mid-exit; forced colors removes scenery/blur/dimming.
 - Self-host UI assets and vendor third-party scripts/fonts with pinned versions, licenses,
   provenance, and checksums. No runtime CDN, font service, or remote-image dependency.
   GSAP's source is bundled by esbuild; it does not require a JavaScript package manager.
@@ -341,7 +349,7 @@ not a fully approved visual system. No external font/CDN is required.
 
 Organizations are called **workspaces**, and projects are deferred. After the first
 completed brand reveal, an airy directory replaces the brand on the same full-viewport
-pane: warm typography, thin dividers, no floating card grid. Create and rename are
+pane: quiet typography, thin dividers, no floating card grid. Create and rename are
 persistent; opening a workspace leads to a named, intentionally empty landing, not a
 simulated inbox/dashboard. The starter is **Personal**. Escape/idle preserve navigation
 and unsaved form contents; waking resumes immediately without replaying the entrance.
@@ -1155,3 +1163,91 @@ These are not observed account leaks, and source approvals do not certify native
 credential permissions, real-provider recovery, visual/browser accessibility or hosted CI.
 No agent command accessed the connected mailbox, existing private database/settings or
 real credentials, changed a grant, invoked a real provider or restarted the user's server.
+
+## 26. Shared glass, sea-glass palette and quieter transitions
+
+The interactive interview selected one shared stage/glass shell across unlock, setup
+and all workspace/mail empty states; muted sea-glass teal instead of orange; a reverse
+logo exit; and soft whole-content idle blur. Inactivity remains visual only: keep the
+three-minute timeout, Escape and first-input wake, without changing authentication.
+These choices supersede the original amber and always-sharp idle-content guidance.
+
+- `Layouts.stage/1` owns the edge-to-edge scenery shared by the static owner screens
+  and live workspace. Unlock/setup read the same validated app-wide background through
+  the existing Ash action, never initiate generation, and retain the local SVG fallback.
+  A shared image-load observer supports both static images and sticky LiveView hook
+  attributes. No hooks, inert gate or idle timer block the password/setup screen.
+- Teal `#8BCBC1`, hover `#B5E2DA`, charcoal `#141918`, text `#E9EFEC`, button text
+  `#102321`; workspace/mail accents, selection, focus and navigation progress agree.
+  Semantic warnings/errors stay distinct. Narrowed legacy landing typography so it
+  no longer overrides mail paragraph styles or the new accent hierarchy.
+- The existing GSAP reveal holds for 250ms, then reverses the letter flips and stroke
+  trace at 1.8× speed. Only after exit does the workspace gate open. Interrupted exits
+  replay from the start at normal speed; completed entrances never replay on idle wake.
+  Reduced motion skips both stages, including preference changes mid-exit; teardown
+  removes observers and reverts the animation context.
+- Idle/Escape applies a 3px blur and dimming to the entire working-content plane,
+  including headings/mail. The background is sharp. Wake preserves the original key/
+  click and control focus. Forced colors removes blur/dimming. This is not a lock or
+  a privacy guarantee; Lock still revokes the browser session.
+
+Verification: source-only UI review found no blockers, with two low advisories corrected
+(legacy landing selectors and current-contract documentation). Ad hoc headless Chrome
+using a disposable test-mode loopback server, synthetic owner and fake Gmail provider
+verified ordinary-motion hold/reverse before gate opening, idle 3px blur and preserved
+first-key/focus wake, disconnected/empty-inbox/empty-search glass containment, teal mail
+accent, reduced motion, forced colors, static unlock markup with JS disabled, and layout
+width at 1440px/390px. Zero page external requests or JavaScript exceptions were observed.
+These are not permanent browser tests, aesthetic user approval, assistive-technology or
+cross-browser certification. Temporary server/browser processes are stopped afterward.
+
+Final verification with generation disabled and a fresh disposable database: `mix check`
+passed **265 ExUnit + 56 Node tests**, formatting, application warnings-as-errors,
+Credo/AshCredo, Sobelow, schema drift and assets. `mix audit` found no vulnerabilities or
+retired packages. Minified/digested assets built for the browser smoke; UsageRules was
+refreshed. No dependencies, schemas, runtime targets, private settings, real mailbox/
+credentials/scenery or existing database were changed; no real provider request,
+native credential operation or user-server restart.
+
+## 27. Persistent corner monogram
+
+The user requested the cursive double-`l` at the top-left of every glass pane
+(corrected from top-right during implementation),
+replacing the unlocked workspace's small LOVELACE text. `Layouts.stage/1` now renders
+that decorative, noninteractive signature outside the scrolling/gated working content;
+it is shared by unlock/setup, the entrance, directory and all workspace/mail views.
+`Layouts.monogram/1` reuses the original SVG for both the corner and centered animation
+without sharing animation IDs. The centered entrance choreography is unchanged.
+
+The corner follows the glass focus: hidden in the default landscape, on Escape and
+while idle. It also stays hidden throughout the centered entrance/reverse-exit animation,
+then fades in with the workspace/views only when the entrance gate opens and the glass
+is focused. Static owner screens show it immediately. These latest refinements supersede
+its initial idle blur/dimming and during-entrance visibility. Reduced motion and forced
+colors preserve that visibility contract.
+The Lock action stays in the top-right, with matching top/side padding shared through
+responsive glass-shell CSS tokens; it remains clear of the corner signature. It is hidden
+in landscape mode (including from keyboard navigation) and appears only with an entered,
+focused workspace. Unlock removes
+both visible LOVELACE text and “Unlock your workspace”; an invisible “Unlock LOVELACE”
+heading preserves the page's accessible name. Password labels, form, errors and terminal
+setup guidance remain intact. Regression assertions cover the shared decorative mark,
+removed wordmarks and retained screen-reader heading.
+
+Verification of the initial corner implementation: `mix check` passed **265 ExUnit +
+56 Node tests**; `mix audit` found no vulnerabilities or retired packages, and UsageRules
+was refreshed. A disposable
+loopback/synthetic-data Chrome smoke confirmed the corner's shared top and symmetric
+side padding with Lock at desktop/mobile widths, idle defocus, forced-color sharpness,
+unlock heading removal, and continued entrance/mail-empty-state behavior. No page
+external requests or JS exceptions were observed. Temporary processes were stopped;
+no user-server restart or real mailbox/provider/credential access occurred. Visual user
+approval, assistive-technology and cross-browser testing remain outside these checks.
+
+The subsequent visibility refinements passed `mix check` (**265 ExUnit + 56 Node tests**)
+and clean `mix audit`. Synthetic-data Chrome checks confirmed both corner monogram and
+Lock are hidden in initial/idle/Escape landscape (also in forced colors), the corner
+stays hidden throughout reveal/hold/reverse exit, and both appear with the active workspace.
+Unlock retains its corner mark. Existing padding, input wake, empty states and reduced-motion
+checks also passed, with no page external requests or JS exceptions. Temporary processes
+were stopped; no user server, real provider or private data was involved.

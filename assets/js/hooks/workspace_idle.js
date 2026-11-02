@@ -49,7 +49,8 @@ export default {
     if (!this.idle && this.window.Date.now() - this.lastActivity >= this.duration()) {
       this.idle = true
       // This command sets aria-pressed=false AND resets the independent brand.
-      // Never blur active controls: the next key should still reach its target.
+      // CSS visually defocuses content; never call DOM blur(): the next key
+      // should still reach the existing control, sharpening it before input.
       this.command("reset")
     }
   },

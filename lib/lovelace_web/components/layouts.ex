@@ -6,40 +6,85 @@ defmodule LovelaceWeb.Layouts do
 
   embed_templates "layouts/*"
 
-  attr :flash, :map, required: true
-  attr :background, :map, default: %{url: nil, status: :unavailable}
+  attr :id, :string, required: true
+  attr :class, :string, default: nil
+  attr :background, :map, default: %{url: nil, status: :ready}
+  attr :static, :boolean, default: false
+  attr :rest, :global
   slot :inner_block, required: true
 
-  def app(assigns) do
-    assigns =
-      assigns
-      |> assign(:background_url, local_background_url(assigns.background))
-      |> assign(:idle_minutes, Application.get_env(:lovelace, :workspace_idle_minutes, 3))
+  # Static owner screens and LiveViews share the same validated local scenery.
+  # Static images use the same load observer without requiring a LiveView socket.
+  def stage(assigns) do
+    assigns = assign(assigns, :background_url, local_background_url(assigns.background))
 
     ~H"""
-    <div
-      id="workspace"
-      class="glass-workspace"
-      phx-hook="WorkspaceIdle"
-      data-idle-minutes={@idle_minutes}
-      data-workspace-focus={focus_workspace()}
-      data-workspace-reset={reset_workspace()}
-    >
-      <a href="#main-content" class="workspace-skip-link">Skip to workspace</a>
-      <div id="workspace-background" class="workspace-background" aria-hidden="true">
+    <div id={@id} class={["glass-workspace", @class]} {@rest}>
+      <div id={"#{@id}-background"} class="workspace-background" aria-hidden="true">
         <img
           :if={@background_url}
           id={"stage-background-#{Path.rootname(Path.basename(@background_url))}"}
           class="workspace-background-image"
           src={@background_url}
           alt=""
-          phx-hook="StageBackground"
+          phx-hook={if !@static, do: "StageBackground"}
+          data-static-stage-image={@static && "true"}
         />
       </div>
+      {render_slot(@inner_block)}
+      <.monogram id={"#{@id}-monogram"} class="stage-monogram" />
+    </div>
+    """
+  end
+
+  attr :id, :string, required: true
+  attr :class, :string, default: nil
+  attr :stroke_id, :string, default: nil
+
+  def monogram(assigns) do
+    ~H"""
+    <svg
+      id={@id}
+      class={@class}
+      viewBox="0 0 104 104"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <path
+        id={@stroke_id}
+        d="M16 82C34 65 64 23 56 12C48 1 33 37 29 63C24 94 41 88 57 70C73 51 89 18 80 12C70 3 56 42 52 66C47 91 62 90 88 71"
+        stroke="currentColor"
+        stroke-width="1.8"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+      />
+    </svg>
+    """
+  end
+
+  attr :flash, :map, required: true
+  attr :background, :map, default: %{url: nil, status: :unavailable}
+  slot :inner_block, required: true
+
+  def app(assigns) do
+    assigns =
+      assign(assigns, :idle_minutes, Application.get_env(:lovelace, :workspace_idle_minutes, 3))
+
+    ~H"""
+    <.stage
+      id="workspace"
+      background={@background}
+      phx-hook="WorkspaceIdle"
+      data-idle-minutes={@idle_minutes}
+      data-workspace-focus={focus_workspace()}
+      data-workspace-reset={reset_workspace()}
+    >
+      <a href="#main-content" class="workspace-skip-link">Skip to workspace</a>
       <p id="stage-background-status" class="sr-only" role="status" aria-live="polite">
         {background_status(@background)}
       </p>
-
       <main
         id="main-content"
         class="workspace-glass"
@@ -69,7 +114,7 @@ defmodule LovelaceWeb.Layouts do
         </button>
         {render_slot(@inner_block)}
       </main>
-    </div>
+    </.stage>
 
     <.flash_group flash={@flash} />
     """

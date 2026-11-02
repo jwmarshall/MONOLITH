@@ -45,6 +45,14 @@ After **three minutes** without intentional interaction, the glass returns to it
 background-focused state and pauses/resets the brand reveal. Clicks, keyboard input,
 scrolling, and touch renew the timer. Mouse movement does not count or wake the workspace.
 Clicking or typing restores workspace focus; Escape still returns to the scenery.
+All workspace content, including view names and mail, softly blurs (3px) and dims in
+this mode; it sharpens again on wake. This is a visual effect, not a privacy guarantee.
+Forced colors removes the blur/dimming so controls remain usable.
+
+The unlock and terminal-setup screens share the same edge-to-edge stage/glass shell
+and current validated local image (or original SVG fallback). These static pages stay
+focused, without an idle timer or entrance gate. The read-only background lookup never
+starts a generation. Their image-load observer does not require a LiveView socket.
 
 The timer is client-only, preserves keyboard focus on existing controls, counts elapsed
 hidden-tab/sleep time, and is not reset by a LiveView patch or new background. Listener

@@ -34,6 +34,16 @@ defmodule LovelaceWeb.WorkspacesLiveTest do
     view |> element("#open-#{studio.id}") |> render_click()
     assert has_element?(view, "#directory-heading", "Studio")
     assert has_element?(view, "#workspace-landing", "Gmail")
+    assert has_element?(view, "#workspace > #workspace-background.workspace-background")
+    assert has_element?(view, "#workspace > #workspace-monogram.stage-monogram path")
+    refute has_element?(view, ".workspace-signature")
+
+    assert has_element?(
+             view,
+             "#workspace > #main-content.workspace-glass #workspace-content #mail-accounts",
+             "No accounts attached yet"
+           )
+
     refute has_element?(view, "#workspace-list")
 
     view |> element("#rename-current-workspace") |> render_click()

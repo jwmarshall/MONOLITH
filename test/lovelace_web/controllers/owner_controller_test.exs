@@ -1,5 +1,6 @@
 defmodule LovelaceWeb.OwnerControllerTest do
   use LovelaceWeb.ConnCase, async: false
+  require Phoenix.LiveViewTest
   alias Lovelace.Owner
   alias LovelaceWeb.OwnerUnlock
   @password "a long local test password"
@@ -18,6 +19,7 @@ defmodule LovelaceWeb.OwnerControllerTest do
              "mix lovelace.owner.setup"
 
     assert LazyHTML.query(document, "#owner-unlock-form") |> Enum.empty?()
+    assert_owner_stage(document)
     assert get_resp_header(conn, "cache-control") == ["no-store"]
   end
 
@@ -31,6 +33,34 @@ defmodule LovelaceWeb.OwnerControllerTest do
     assert LazyHTML.query(document, "input[name=_csrf_token]") |> Enum.any?()
     assert LazyHTML.query(document, "input[type=password][name=password]") |> Enum.any?()
     assert LazyHTML.query(document, "input[name=email],input[name=username]") |> Enum.empty?()
+    assert_owner_stage(document)
+  end
+
+  test "static owner screens share the local stage allowlist without LiveView hooks" do
+    url = "/stage/background/#{String.duplicate("a", 64)}.jpg"
+
+    for candidate <- [url, "https://remote.test/image.jpg", "/stage/background/not-a-digest.jpg"] do
+      html =
+        Phoenix.LiveViewTest.render_component(&LovelaceWeb.OwnerHTML.unlock/1,
+          configured?: true,
+          error?: false,
+          csrf_token: "synthetic-csrf",
+          background: %{url: candidate, status: :ready}
+        )
+
+      document = LazyHTML.from_fragment(html)
+      assert_owner_stage(document)
+
+      images =
+        LazyHTML.query(document, "#owner-stage-background img[data-static-stage-image=true]")
+
+      if candidate == url do
+        assert LazyHTML.attribute(images, "src") == [url]
+        assert LazyHTML.attribute(images, "data-loaded") == []
+      else
+        assert Enum.empty?(images)
+      end
+    end
   end
 
   test "login rotates browser session and lock revokes its token", %{conn: conn} do
@@ -63,6 +93,7 @@ defmodule LovelaceWeb.OwnerControllerTest do
     conn = post_password(conn, "private wrong value")
     response = html_response(conn, 401)
     assert response =~ "Unable to unlock"
+    assert_owner_stage(LazyHTML.from_document(response))
     refute response =~ "private wrong value"
     refute get_session(conn, :owner_session_token)
   end
@@ -196,6 +227,27 @@ defmodule LovelaceWeb.OwnerControllerTest do
     do: Enum.any?(value, &contains_secret?(&1, secret))
 
   defp contains_secret?(_value, _secret), do: false
+
+  defp assert_owner_stage(document) do
+    for selector <- [
+          "#owner-stage.glass-workspace.stage-static",
+          "#owner-stage-background.workspace-background[aria-hidden=true]",
+          "#owner-stage > #main-content.workspace-glass.owner-glass[aria-labelledby=owner-unlock-heading]",
+          "#owner-unlock-heading.sr-only",
+          "#owner-stage > #owner-stage-monogram.stage-monogram[aria-hidden=true][focusable=false] path"
+        ] do
+      assert document |> LazyHTML.query(selector) |> Enum.any?()
+    end
+
+    refute LazyHTML.to_html(document) =~ "Unlock your workspace"
+    assert document |> LazyHTML.query(".owner-content > .text-primary") |> Enum.empty?()
+
+    # Unlock/setup work without a socket or an entrance gate. The original SVG
+    # remains underneath any generated image that hasn't loaded successfully.
+    assert document
+           |> LazyHTML.query("[inert], [phx-hook]")
+           |> Enum.empty?()
+  end
 
   defp post_password(conn, password) do
     conn

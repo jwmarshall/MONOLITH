@@ -1,7 +1,7 @@
 import assert from "node:assert/strict"
 import test from "node:test"
 import WorkspaceIdle from "../../assets/js/hooks/workspace_idle.js"
-import StageBackground from "../../assets/js/hooks/stage_background.js"
+import StageBackground, {observeStageImage} from "../../assets/js/hooks/stage_background.js"
 
 class FakeTarget {
   listeners = new Map()
@@ -253,6 +253,25 @@ test("destruction removes every listener and timer", t => {
   clock.advance(300_000)
   document.emit("keydown", {key: "a"})
   assert.deepEqual(commands, [])
+})
+
+test("static stage handles cached loads/failure without a LiveView socket", () => {
+  for (const width of [0, 200]) {
+    const image = new FakeTarget()
+    image.complete = true
+    image.naturalWidth = width
+    const stop = observeStageImage(image, value => image.setAttribute("data-loaded", value))
+    assert.equal(image.getAttribute("data-loaded"), width > 0 ? "true" : "false")
+    image.naturalWidth = 200
+    image.emit("load")
+    assert.equal(image.getAttribute("data-loaded"), "true")
+    image.emit("error")
+    assert.equal(image.getAttribute("data-loaded"), "false")
+    stop()
+    assert.equal(image.listenerCount, 0)
+    image.emit("load")
+    assert.equal(image.getAttribute("data-loaded"), "false")
+  }
 })
 
 test("stage overlay remains hidden on failure and handles cached loads/teardown", () => {
