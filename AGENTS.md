@@ -1,8 +1,5 @@
 # Working on LOVELACE
 
-Read `docs/HANDOFF.md` before planning features; `docs/DEVELOPMENT.md` covers tooling.
-Consult relevant dependency guidance in `DEPENDENCY_RULES.md` before using its APIs.
-
 The project name is **LOVELACE**, always uppercase in prose and UI. Use `:lovelace`
 for the OTP application, `Lovelace`/`LovelaceWeb` for modules, and `lovelace` in paths,
 configuration keys, and database filenames.
