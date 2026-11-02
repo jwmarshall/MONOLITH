@@ -53,8 +53,7 @@ config :spark,
   ]
 
 config :lovelace,
-  # Register each domain here when its first resource is introduced.
-  ash_domains: [],
+  ash_domains: [Lovelace.StageDesigner],
   ecto_repos: [Lovelace.Repo],
   generators: [timestamp_type: :utc_datetime]
 

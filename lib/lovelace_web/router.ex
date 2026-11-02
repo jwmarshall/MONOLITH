@@ -18,6 +18,19 @@ defmodule LovelaceWeb.Router do
     plug :accepts, ["json"]
   end
 
+  pipeline :stage_image do
+    plug :accepts, ["png", "jpg"]
+
+    plug :put_secure_browser_headers, %{
+      "content-security-policy" => "default-src 'none'; frame-ancestors 'none'"
+    }
+  end
+
+  scope "/stage", LovelaceWeb do
+    pipe_through :stage_image
+    get "/background/:filename", StageBackgroundController, :show
+  end
+
   scope "/", LovelaceWeb do
     pipe_through :browser
 

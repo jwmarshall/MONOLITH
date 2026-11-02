@@ -19,6 +19,9 @@ jobs:
         with:
           version-file: .tool-versions
           version-type: strict
+      - uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
       - uses: actions/cache@v4
         with:
           path: |
@@ -29,7 +32,7 @@ jobs:
         run: mix deps.get
       - name: Install asset tools
         run: mix assets.setup
-      - name: Check formatting, compilation, Credo, Sobelow, tests, and assets
+      - name: Check formatting, compilation, Credo, Sobelow, schema drift, tests, and assets
         run: mix check
       - name: Check dependency advisories and retired Hex packages
         run: mix audit

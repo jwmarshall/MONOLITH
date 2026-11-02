@@ -23,6 +23,16 @@ end
 config :lovelace, LovelaceWeb.Endpoint,
   http: [port: String.to_integer(System.get_env("PORT", "4000"))]
 
+# dotenvx injects these before startup. API keys are resolved only at the HTTP boundary,
+# never retained in application configuration, Ash attributes, or LiveView assigns.
+config :lovelace,
+       :stage_designer,
+       Lovelace.StageDesigner.Settings.from_env(System.get_env(), config_env() == :test)
+
+config :lovelace,
+       :workspace_idle_minutes,
+       Lovelace.StageDesigner.Settings.idle_minutes(System.get_env())
+
 if config_env() == :dev do
   # Reload browser tabs when matching files change.
   config :lovelace, LovelaceWeb.Endpoint,

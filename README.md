@@ -10,6 +10,7 @@ The first product slice is an account-separated, project-oriented Gmail workspac
 
 - [Agent handoff: requirements, architecture, guardrails, and next steps](docs/HANDOFF.md)
 - [Development tooling and testing conventions](docs/DEVELOPMENT.md)
+- [Stage designer: encrypted configuration and agreed direction](docs/STAGE_DESIGNER.md)
 - [Repository working instructions](AGENTS.md)
 - [Dependency-supplied agent guidance](DEPENDENCY_RULES.md) (requires fetched dependencies)
 
@@ -20,8 +21,9 @@ cursive `l` monogram. The glass fills the viewport: at rest, the landscape is sh
 and the branding is hidden. Click or keyboard-focus the pane to soften the landscape
 and reveal the centered monogram with **LOVELACE** beneath it; Escape restores the view.
 The cursive `ll` traces onto the focused glass, followed by the LOVELACE letters flipping
-up one at a time. Escape cancels the sequence; focusing again replays it. Reduced-motion
-mode shows the finished brand immediately.
+up one at a time. Escape cancels the sequence; focusing again replays it. After three
+minutes without intentional interaction, focus returns to the scenery; click or type to
+resume. Mouse movement does not count. Reduced-motion mode shows the finished brand immediately.
 
 GSAP, Space Grotesk, and the landscape are self-hosted. GSAP's pinned source is vendored
 under `assets/vendor/gsap/` with license, provenance, and integrity checks—no npm install,
@@ -41,6 +43,7 @@ separately; no particular checkout folder name is required to run the applicatio
 - AshPhoenix; AshAuthentication + AshAuthenticationPhoenix installed for future auth
 - Tailwind CSS 4; generated daisyUI primitives with LOVELACE's dark/amber tokens
 - Req, ExUnit, LiveViewTest, and Ash's testing helpers
+- Vix/libvips for bounded strict JPEG validation; original image bytes are kept locally
 
 Authentication strategy/resources/screens, Gmail, and durable jobs are **not
 implemented**. The job-runner package remains undecided. Adding auth dependencies
@@ -65,7 +68,8 @@ For an interactive Elixir shell, use `iex -S mix phx.server` instead.
 runs the seed file, and installs/builds the Tailwind and esbuild binaries. Initial
 setup requires network access and native build tools (for dependencies such as
 bcrypt). No npm install, Docker, PostgreSQL, Redis, or Google credentials are required.
-Node is preserved in `.tool-versions`, but assets use Mix-managed binaries.
+Assets use Mix-managed binaries. Node (the existing `.tool-versions` LTS target) is
+required for the dependency-free JavaScript hook tests in `mix check`, not asset building.
 
 The server listens on `127.0.0.1:4000`. Both development and production configuration
 remain loopback-only. There is no application login yet. The development-only
@@ -75,7 +79,7 @@ LiveDashboard is at `/dev/dashboard`; Tidewave MCP is at `/tidewave/mcp`.
 ## Checks
 
 ```sh
-mix check                 # formatting, compile, Credo/AshCredo, Sobelow, tests, assets
+mix check                 # format, compile, lint/security, schema drift, Elixir/JS tests, assets
 mix audit                 # online: dependency advisories and retired Hex packages
 ```
 
@@ -85,7 +89,7 @@ rewrite formatting or unlock dependencies. Run `mix format` to apply formatting.
 resources. See the development guide for individual commands and conventions.
 
 GitHub Actions runs checks and audits using the Elixir/OTP versions from
-`.tool-versions`. No Google credentials, browser installation, or network services
+`.tool-versions` and Node LTS for hook tests. No Google credentials, browser installation, or network services
 are required for tests. Dependency downloads and the online audit require network access.
 
 ## Local data and configuration
@@ -98,9 +102,16 @@ are required for tests. Dependency downloads and the online audit require networ
 - Database-backed tests must remain synchronous. Ash async execution is disabled in tests.
 - `mix ecto.reset` **destroys the current environment's database** and rebuilds it.
 - `PORT=4001 mix phx.server` changes the HTTP port.
-- No Google environment variables or dotenv loading are wired up yet.
-- `.env*`, `secrets/`, databases, dependencies, and build outputs are ignored.
-  Do not commit credentials, real email, or token-containing fixtures.
+- [Stage-designer configuration](docs/STAGE_DESIGNER.md) uses the external dotenvx CLI:
+  private encrypted `.env`, private `.env.keys`, and a public, secret-free `.env.example`.
+  Start with `dotenvx run --strict -f .env -- mix phx.server` to inject the environment;
+  plain Mix does not load dotenv files. Generation is opt-in, server-side, and asynchronous:
+  once per eligible app startup with a persistent 24-hour attempt cooldown, no retries,
+  seven retained local PNG/JPEG images, and previous-image/SVG fallback. No API key is needed when
+  disabled. The API key never goes to the browser; see the guide for activation/costs.
+- `.env*` (except `.env.example`), `secrets/`, generated `data/stage-designer/` content,
+  databases, dependencies, and build outputs are ignored. Keep dotenvx private keys
+  separately backed up; never commit credentials, real email, or token-containing fixtures.
 - Generated dev/test signing secrets are public development defaults, not deployment
   credentials or keys suitable for encrypting OAuth tokens.
 
@@ -114,6 +125,8 @@ from the latter. Releases also require built assets and an explicit server start
 `/` mounts `LovelaceWeb.HomeLive`, with the full-viewport glass surface, focus-dependent
 LOVELACE identity, and matching favicon. It has no marketing, fake mailbox data, or
 product controls; screen-reader instructions identify the unconnected foundation.
-No production domains or resources are registered yet (`ash_domains: []`). Test-only
-Ash resources verify persistence and rollback inside the SQL sandbox; they do not
-introduce product tables or migrations. Read the handoff before starting features.
+`Lovelace.StageDesigner` is the first production Ash domain, with a SQLite singleton
+for generation reservations and the retained-image manifest, explicit internal-write
+policies, and committed migration/snapshot files. Gemini is the only implemented provider
+boundary; Gmail and account/project resources remain unimplemented. Test-only Ash resources
+still verify the foundation inside the SQL sandbox. Read the handoff before starting features.

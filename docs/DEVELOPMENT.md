@@ -28,8 +28,10 @@ checkout folder name are separate from application identifiers and were not chan
 | Dependency | Role | Scope |
 | --- | --- | --- |
 | `ash`, `ash_sqlite`, `ash_phoenix` | Resources/domains/actions/policies, SQLite persistence, Phoenix forms | Runtime |
+| `simple_sat` | Pure-Elixir SAT solver required by the first production Ash policies | Runtime |
 | `ash_authentication`, `ash_authentication_phoenix` | Future LOVELACE authentication | Runtime; no strategy or resources configured |
 | `req` | HTTP integration client; built-in `Req.Test` stubs/expectations | Runtime; test utilities used in tests |
+| `vix` | Strict JPEG pixel decoding through libvips; original provider bytes retained | Runtime; native dependency |
 | `credo`, `ash_credo` | General and Ash-aware static analysis | Dev/test, not started at runtime |
 | `sobelow` | Phoenix security scanning | Dev/test, not started at runtime |
 | `mix_audit` | Advisory database checks via `mix deps.audit` | Dev/test, not started at runtime |
@@ -67,6 +69,45 @@ progress, letter order, repeated focus, interruption/replay, preference changes,
 teardown, LiveView updates, local-only requests, and the unchanged production CSP.
 No `unsafe-eval` or remote script allowance is necessary for this integration.
 
+## Encrypted local environment
+
+See [stage-designer setup](STAGE_DESIGNER.md) for dotenvx initialization, hidden-prompt
+API-key entry, explicit environment injection, permissions, backups, and privacy caveats.
+The external CLI (validated with 2.38.2) needs no npm/Mix application dependency.
+Encrypted `.env` and plaintext private `.env.keys` remain ignored and owner-only;
+`.env.example` is a readable, secret-free public template. Plain Mix does not load it.
+
+Stage settings now control an opt-in asynchronous startup generator, persisted 24-hour
+attempt cooldown, and seven-image history. `Lovelace.StageDesigner` is the first production
+Ash domain; provider work never runs in LiveView callbacks. `LOVELACE_WORKSPACE_IDLE_MINUTES`
+controls the client-only screensaver (default three minutes). No gallery/editor exists.
+Do not inject real Google credentials into tests or CI. Test runtime forces real startup
+generation off; focused provider tests inject fake keys/`Req.Test`. For maintenance commands,
+force `LOVELACE_STAGE_ENABLED=false` to avoid an unintended application-startup request.
+The shell still runs without dotenvx or an API key when generation is disabled.
+
+## Image validation dependency
+
+`vix` 0.42.0 is pinned in `mix.lock` for JPEG validation, not image generation or UI code.
+Its JPEG-specific loader uses `fail-on: :VIPS_FAIL_ON_WARNING`, sequential access, and
+revalidation; extracting raw pixels forces lazy decoding. Before any native load, bounded
+segment parsing limits the encoded file to 10 MiB and dimensions to 8192 per side / 16M
+pixels. Decoded dimensions, band count, and pixel bytes are checked as well. The original
+encoded bytes are stored without re-encoding, retaining metadata/provenance. Do not replace
+this with header-only sniffing or a decoder that silently recovers damaged entropy data.
+
+Vix's Elixir wrapper is MIT; libvips is LGPL-2.1-or-later and its bundled libraries have
+additional upstream terms. Follow [Vix installation/provenance](https://github.com/akash-akya/vix/tree/v0.42.0)
+and [libvips licensing](https://www.libvips.org/). Prebuilt macOS/Linux artifacts are provided
+by Vix; building from source needs the upstream native toolchain/libvips. No GUI framework,
+ImageMagick process, separate service, or runtime asset download was introduced. Native
+compilation and packaged-release loading were verified with the existing local OTP29 /
+Elixir1.20 runtime; hosted Linux CI remains unverified. Native decoding is not process
+isolation; keep this dependency updated and retain the preflight limits.
+
+See [STAGE_DESIGNER.md](STAGE_DESIGNER.md#documentation-review-output-formats-and-validation)
+for Developer API MIME-schema findings and the PNG final-IDAT padding correction.
+
 ## Daily commands
 
 ```sh
@@ -82,8 +123,10 @@ mix audit
 1. `mix format --check-formatted`
 2. `mix lint` (compile with warnings as errors, then `mix credo --strict`)
 3. `mix security` (`mix sobelow --private --exit low`)
-4. `mix test`
-5. `mix assets.build`
+4. `mix ash.codegen --check` (migration/snapshot drift)
+5. `mix test`
+6. `mix test.js` (native Node test runner, no npm dependencies)
+7. `mix assets.build`
 
 `mix precommit` delegates to `mix check`. Neither fixes formatting nor updates the
 lockfile. Run `mix format` explicitly before committing. Credo includes selected
@@ -97,9 +140,16 @@ checks can load `test/support` resources. If you override `MIX_ENV`, remember th
 those modules are not compiled in dev. Compilation must precede standalone Credo runs.
 
 Sobelow's `--private` disables update-check network requests; `--exit low` fails on
-all reported confidence levels. No findings are suppressed in the initial baseline.
-The browser pipeline has an explicit Content-Security-Policy. This is only one
-layer of defense, not an email sanitizer or a complete auth/security review.
+all reported confidence levels. `--skip` honors narrowly reviewed function annotations
+in `StageDesigner.Storage` only: `Traversal.FileModule` cannot distinguish trusted local
+configuration plus exact content-hash/UUID filenames from user-controlled paths. Five
+annotated helpers cover reads, directory creation, cleanup, bounded file opening, and
+atomic writes. The invariants are documented at each function and exercised by digest,
+symlink, tamper, unregistered-file, retention, and crash-cleanup tests. No whole-check,
+module, confidence-level, or fingerprint exclusion is configured. Review annotations if
+these functions change; never extend them to arbitrary uploads or user-selected paths.
+The browser pipeline retains its explicit CSP; the image endpoint has a restrictive CSP
+and `nosniff`. These are not an email sanitizer or a complete auth/security review.
 
 `mix audit` runs `mix deps.audit` for known security advisories and `mix hex.audit`
 for retired packages. It is intentionally separate from the local quality gate
@@ -160,10 +210,14 @@ mix ash.migrate
 mix ash.codegen --check
 ```
 
-Codegen drift is not part of `mix check` yet because no production domains/resources
-exist. Add it with the first schema change. Conventional `mix ecto.*` tasks continue
-to work against the same repo. Do not generate auth resources before choosing the
-owner-login strategy and reviewing SQLite's email case-insensitive uniqueness behavior.
+Codegen drift is part of `mix check` now that `Lovelace.StageDesigner` owns a production
+SQLite state resource. Its migration and snapshot must stay together. The singleton's
+version-checked reservation commits before HTTP; SQLite does not support Ash's atomic
+`expr_error`, so these three updates explicitly use the record path with a SQL version
+filter (`require_atomic? false`, `atomic_upgrade? false`), not an unchecked read/write race.
+Conventional `mix ecto.*` tasks continue to work against the same repo. Do not generate
+auth resources before choosing the owner-login strategy and reviewing SQLite email
+case-insensitive uniqueness behavior.
 
 The base Ash installer configured Spark formatting, current recommended compatibility
 settings, dev/test policy diagnostics, signed pagination keysets, and dev protocol
@@ -220,8 +274,9 @@ runs. It can execute Elixir and SQL with the process's access to local data.
 `.github/workflows/ci.yml` runs on pushes and pull requests with read-only repository
 permissions. It reads Elixir/OTP from `.tool-versions`, caches dependencies/builds,
 installs asset binaries, and runs `mix check` plus `mix audit` in the test environment.
-It does not require Node/npm or external application services. The hosted workflow
-must still be verified on GitHub; local runs do not prove runner/runtime availability.
+It also installs Node LTS for the native hook tests; no npm install or external application
+service is required. `.tool-versions` remains unchanged. The hosted workflow must still
+be verified on GitHub; local runs do not prove runner/runtime availability.
 
 Deferred until justified:
 

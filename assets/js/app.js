@@ -9,12 +9,14 @@ import {LiveSocket} from "phoenix_live_view"
 import {hooks as colocatedHooks} from "phoenix-colocated/lovelace"
 import topbar from "../vendor/topbar"
 import BrandReveal from "./hooks/brand_reveal"
+import WorkspaceIdle from "./hooks/workspace_idle"
+import StageBackground from "./hooks/stage_background"
 
 const csrfToken = document.querySelector("meta[name='csrf-token']").getAttribute("content")
 const liveSocket = new LiveSocket("/live", Socket, {
   longPollFallbackMs: 2500,
   params: {_csrf_token: csrfToken},
-  hooks: {...colocatedHooks, BrandReveal},
+  hooks: {...colocatedHooks, BrandReveal, WorkspaceIdle, StageBackground},
 })
 
 // Show progress bar on live navigation and form submits

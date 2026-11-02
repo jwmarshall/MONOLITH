@@ -6,13 +6,26 @@ defmodule LovelaceWeb.HomeLive do
 
   @impl true
   def mount(_params, _session, socket) do
-    {:ok, assign(socket, :page_title, "Workspace")}
+    if connected?(socket), do: Phoenix.PubSub.subscribe(Lovelace.PubSub, "stage_designer")
+
+    background =
+      case Lovelace.StageDesigner.background() do
+        {:ok, background} -> background
+        {:error, _reason} -> %{url: nil, status: :unavailable}
+      end
+
+    {:ok, assign(socket, page_title: "Workspace", background: background)}
+  end
+
+  @impl true
+  def handle_info({:stage_background, %{url: _url, status: _status} = background}, socket) do
+    {:noreply, assign(socket, :background, background)}
   end
 
   @impl true
   def render(assigns) do
     ~H"""
-    <Layouts.app flash={@flash}>
+    <Layouts.app flash={@flash} background={@background}>
       <h1 id="workspace-title" class="sr-only">LOVELACE</h1>
       <div
         id="workspace-brand"

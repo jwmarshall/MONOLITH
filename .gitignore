@@ -45,10 +45,15 @@ npm-debug.log
 *.sqlite3
 *.sqlite3-*
 
-# Local credentials and environment files (templates may be committed).
+# Local credentials and environment files (only the secret-free template is public).
 .env
 .env.*
 !.env.example
+# dotenvx private decryption keys must never be committed, even with encrypted .env.
+.env.keys
 /secrets/
+
+# Stage-designer output and refresh metadata (private local data).
+/data/stage-designer/
 .DS_Store
 

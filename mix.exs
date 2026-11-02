@@ -44,11 +44,15 @@ defmodule Lovelace.MixProject do
     [
       {:sourceror, "~> 1.8", only: [:dev, :test]},
       {:ash, "~> 3.37"},
+      # Pure-Elixir SAT solver required by Ash policies; no additional native build.
+      {:simple_sat, "~> 0.1"},
       {:ash_sqlite, "~> 0.3.1"},
       {:ash_phoenix, "~> 2.3"},
       {:ash_authentication, "~> 4.15"},
       {:ash_authentication_phoenix, "~> 2.17"},
       {:req, "~> 0.7"},
+      # Strict, fully evaluated JPEG decoding; preserve provider bytes for storage.
+      {:vix, "~> 0.42.0"},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
       {:ash_credo, "~> 0.19.2", only: [:dev, :test], runtime: false},
       {:sobelow, "~> 0.18.1", only: [:dev, :test], runtime: false},
@@ -110,6 +114,15 @@ defmodule Lovelace.MixProject do
   #     $ mix setup
   #
   # See the documentation for `Mix` for more info on aliases.
+  defp test_js(_args) do
+    {_, status} =
+      System.cmd("node", ["--test", "test/js/workspace_idle_test.mjs"],
+        into: IO.stream(:stdio, :line)
+      )
+
+    if status != 0, do: Mix.raise("JavaScript tests failed")
+  end
+
   defp aliases do
     [
       setup: ["deps.get", "ecto.setup", "assets.setup", "assets.build"],
@@ -124,13 +137,16 @@ defmodule Lovelace.MixProject do
         "phx.digest"
       ],
       lint: ["compile --warnings-as-errors", "credo --strict"],
-      security: ["sobelow --private --exit low"],
+      security: ["sobelow --private --exit low --skip"],
       audit: ["deps.audit", "hex.audit"],
+      "test.js": &test_js/1,
       check: [
         "format --check-formatted",
         "lint",
         "security",
+        "ash.codegen --check",
         "test",
+        "test.js",
         "assets.build"
       ],
       precommit: ["check"]

@@ -14,8 +14,18 @@ defmodule Lovelace.Application do
        repos: Application.fetch_env!(:lovelace, :ecto_repos), skip: skip_migrations?()},
       {DNSCluster, query: Application.get_env(:lovelace, :dns_cluster_query) || :ignore},
       {Phoenix.PubSub, name: Lovelace.PubSub},
-      # Start a worker by calling: Lovelace.Worker.start_link(arg)
-      # {Lovelace.Worker, arg},
+      # One asynchronous attempt per application startup, never restarted/retried.
+      %{
+        id: Lovelace.StageDesigner.Startup,
+        start:
+          {Task, :start_link,
+           [
+             fn ->
+               Lovelace.StageDesigner.generate_on_startup(%{}, actor: %{role: :stage_designer})
+             end
+           ]},
+        restart: :temporary
+      },
       # Start to serve requests, typically the last entry
       LovelaceWeb.Endpoint
     ]

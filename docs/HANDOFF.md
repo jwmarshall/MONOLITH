@@ -72,16 +72,20 @@ Implemented:
 
 - A conventional, non-umbrella Phoenix application (`:lovelace`, `Lovelace`, `LovelaceWeb`).
 - `AshSqlite.Repo` over Ecto, transactional writes enabled, a single connection in all
-  environments, SQLite configuration, empty application migration directory and seeds.
-- Ash/AshPhoenix and authentication libraries; no production domains/resources yet.
+  environments, SQLite configuration, stage-designer migration/snapshot, and seeds.
+- Ash/AshPhoenix and authentication libraries; `Lovelace.StageDesigner` is the first
+  production domain, with a persistent SQLite reservation/manifest resource and policies.
 - Credo/AshCredo, Sobelow, mix_audit, Req/Req.Test, Igniter, UsageRules, and dev-only Tidewave.
 - A `mix check` quality gate and `mix audit` online dependency gate; GitHub Actions configured.
-- Explicit browser Content-Security-Policy; no security-scan findings suppressed.
+- Explicit browser Content-Security-Policy; narrowly reviewed storage-path scan annotations
+  are documented in `DEVELOPMENT.md` (no blanket exclusions).
 - `/` is a full-viewport glass LiveView with an original local landscape. There is no
   top title. Click/keyboard focus sharpens the pane, blurs the scenery, and reveals a
   centered double cursive `l` monogram tracing onto the glass, followed by **LOVELACE**
   letters flipping up one at a time. Escape cancels/hides the brand and restores the scenery. No marketing, fake data, or product controls.
-  Screen-reader instructions explicitly identify the unconnected foundation.
+  Screen-reader instructions explicitly identify the unconnected work features. A
+  configurable three-minute client-only inactivity timer returns focus to the scenery;
+  intentional input wakes it, but mouse movement does not.
 - Shared dark/amber design tokens, self-hosted Space Grotesk variable typography,
   custom favicon, keyboard focus and skip-link support. GSAP 3.15.0 is vendored locally
   with licensing/provenance/checksums; no npm install or runtime CDN is required.
@@ -91,10 +95,16 @@ Implemented:
   Req.Test, CSP, development-tool exclusion, and vendored asset integrity checks.
   See section 13 for the current verification record.
 - Loopback-only dev **and production** listeners; development LiveView origin checks enabled.
+- Opt-in, asynchronous Gemini startup generation with a persistent 24-hour attempt
+  cooldown, no automatic retries, seven retained validated local PNG/JPEG images, and
+  previous-image/SVG fallback.
+  Open LiveViews update through app-wide PubSub. dotenvx keeps the API key/local settings
+  encrypted and private; `.env.example` is credential-free. No gallery/editor UI exists;
+  section 14 is the historical interview and section 15 records implementation.
 - Git ignore rules for local credentials, databases/sidecars, dependencies, and builds.
 
-**Not implemented:** account/project/mail schemas, OAuth, credential storage, provider
-HTTP client, mailbox UI, message rendering, attachments, Gmail actions, synchronization,
+**Not implemented:** account/project/mail schemas, OAuth, mailbox credential storage,
+Gmail HTTP client, mailbox UI, message rendering, attachments, Gmail actions, synchronization,
 PubSub domain notifications, durable jobs, login, desktop/startup packaging, or a product
 backup/restore workflow. A basic Mix production release was validated during the rename.
 The CI workflow is written but has not been executed on a hosted GitHub runner.
@@ -116,13 +126,17 @@ No job-runner dependency is installed. No Google credentials are needed to run t
 | `assets/js/hooks/brand_reveal.js` | Local GSAP trace/letter reveal lifecycle |
 | `assets/vendor/gsap/` | Pinned GSAP source, upstream metadata, license, provenance |
 | `config/` | Dev/test/prod settings and runtime configuration |
-| `priv/repo/` | Future migrations and seeds (no domain tables yet) |
+| `priv/repo/`, `priv/resource_snapshots/` | Stage-designer migration/snapshot and seeds |
 | `test/support/` | Connection and SQL sandbox helpers |
 | `test/lovelace_web/live/home_live_test.exs` | HTTP/live shell, CSP, and test-environment MCP exclusion |
 | `test/lovelace/` | Ash/SQLite and Req.Test foundation checks |
 | `.credo.exs` | Credo plugin and explicit Ash security checks |
 | `.github/workflows/ci.yml` | Quality/security/test/asset checks and online audits |
 | `docs/DEVELOPMENT.md` | Dependency roles, commands, migrations, test conventions, tooling safety |
+| `.env.example`, `docs/STAGE_DESIGNER.md` | Secret-free template, dotenvx workflow, generator/idle behavior |
+| `lib/lovelace/stage_designer/` | Ash state/actions, validated settings, Gemini boundary, private PNG storage |
+| `assets/js/hooks/{workspace_idle,stage_background}.js` | Client idle lifecycle and local-image fallback |
+| `test/js/workspace_idle_test.mjs` | Dependency-free Node hook tests, included in `mix check` |
 | `DEPENDENCY_RULES.md` | UsageRules-managed links into fetched dependency guidance |
 
 ## 4. Environment and verification
@@ -138,7 +152,8 @@ nodejs lts
 During bootstrap these resolved to OTP 29.0.1, Elixir 1.20.0 (compiled with OTP 27),
 and Node v24.22.2. `nodejs lts` is a moving alias, not an exact reproducibility pin;
 it was deliberately not rewritten. `mix.exs` now requires Elixir `~> 1.20`.
-Node/npm is not needed by the current Mix-managed asset pipeline.
+Node/npm is not needed by the Mix-managed asset pipeline. Node LTS is now required
+for the dependency-free JavaScript tests included in `mix check`.
 
 See `README.md` for setup and commands. SQLite files are local and ignored.
 Database-backed tests are synchronous; the test sandbox pool has one connection to
@@ -162,8 +177,9 @@ Use a modular monolith, not a collection of services. **Use Ash domains/resource
 actions, validations/changes, and policies for business behavior.** Do not implement
 parallel hand-written Ecto contexts or duplicate action authorization in LiveViews.
 AshSqlite still uses Ecto underneath; migrations and resource snapshots must be reviewed
-and committed together. No production domains/resources exist yet (`ash_domains: []`).
-Suggested future domain/integration namespaces (proposals, not existing modules):
+and committed together. `Lovelace.StageDesigner` is registered with state and generic
+action resources; it is app-wide scenery, not mailbox-owned data. Suggested future
+mail/account domain namespaces (proposals, not existing modules):
 
 - `Lovelace.Accounts`: future owner authentication plus distinct connected Google account
   identities and credential lifecycle. Do not make a linked mailbox a separate LOVELACE user.
@@ -279,19 +295,24 @@ not a fully approved visual system. No external font/CDN is required.
   At rest, formal UI chrome is softly defocused (currently 1.4px); the scenery is sharp.
 - Clicking the pane or reaching it by keyboard swaps the focal planes: chrome sharpens,
   scenery softens (currently 14px), and a restrained tint supports future working content.
-  Repeated clicks keep the pane focused. Escape restores the distant view; there is
-  no inactivity timer, hover switching, or surprise defocus while working.
+  Repeated clicks keep the pane focused. Escape restores the distant view. The user
+  subsequently requested a configurable inactivity timer: after three idle minutes the
+  scenery returns. Click/keyboard/scroll/touch renew the timer; mouse movement does not.
+  Click or keyboard input restores workspace focus without moving focus off controls.
 - Focus switching uses LiveView client-side JS commands and CSS; brand choreography
   uses a GSAP hook on the decorative `phx-update="ignore"` subtree. No server events or
-  persistence are involved. Hook teardown removes listeners and reverts its GSAP context.
+  persistence are involved in focus switching. The idle hook executes these same sticky
+  client commands, preserves elapsed time across patches/hidden tabs, and tears down
+  timers/listeners. Brand hook teardown removes listeners and reverts its GSAP context.
   Keyboard focus indicators and alerts never blur. Reduced motion shows the finished
   brand immediately, including if enabled mid-reveal; forced colors removes scenery/blur.
 - Self-host UI assets and vendor third-party scripts/fonts with pinned versions, licenses,
   provenance, and checksums. No runtime CDN, font service, or remote-image dependency.
   GSAP's source is bundled by esbuild; it does not require a JavaScript package manager.
-- `priv/static/images/distant-shore.svg` is original, replaceable local scenery, not a
-  remotely fetched image. Its landscape is a starting interpretation, not a user-selected
-  photograph. No external content requests, animation, or parallax.
+- `priv/static/images/distant-shore.svg` is original local fallback scenery, not a
+  user-selected photograph. Optional Gemini output is fetched server-side under the
+  explicit policy in `STAGE_DESIGNER.md`, validated, stored privately, and served locally.
+  No browser external-image requests, animated backgrounds, or parallax.
 - Extend this focal-plane model when adding real controls: keyboard focus must sharpen
   the working pane, the first click must still activate the intended control, and active
   content must remain readable. The current full-pane focus button is an empty-shell
@@ -539,3 +560,199 @@ The user selected GSAP and made self-hosting/vendoring an explicit project requi
 - Temporary production/browser processes and data were removed; the pre-existing
   development server was left running. User visual approval, cross-browser testing,
   and hosted CI remain open. `.tool-versions` and `mix.lock` are unchanged.
+
+## 14. Stage-designer interview and encrypted configuration (historical)
+
+The user selected a **configuration-only** foundation, not implementation of a
+Gemini client or designer UI. Confirmed future direction:
+
+- Automatic curation of original cinematic brutalist architecture, distant landscapes,
+  charcoal and restrained amber, quiet negative space; no people, text, or busy foregrounds.
+- Gemini Developer API with a server-only Google AI Studio API key, favoring speed/cost.
+  The initial template selects documented stable `gemini-nano-banana-2.1`, `16:9`, `1K`.
+- Refresh on application-process startup only, with a 24-hour persistent cache/cooldown,
+  one attempt, no automatic retries, and previous-image/original-SVG fallback.
+- Both encrypted `.env` and private `.env.keys` stay local and ignored, with mode `0600`.
+  Only the readable, credential-free `.env.example` belongs in Git. No live key supplied.
+
+The installed dotenvx 2.38.2 CLI encrypted all template values into local `.env` and
+created local decryption keys without a cloud service or OS-keychain change. Explicit
+`dotenvx run` injection is documented; no Elixir dotenv dependency or implicit loader
+was added. The stage variables are **not consumed by application code yet**. Changing
+an enable flag does not implement generation; the existing homepage is unchanged.
+See [STAGE_DESIGNER.md](STAGE_DESIGNER.md) for setup, the proposed configuration contract,
+provider documentation/privacy caveats, and implementation prerequisites. Future
+attempt reservations must survive failed requests/restarts to enforce cooldowns;
+actual spending controls, output validation, local serving, and fake-provider tests
+must exist before activation. Retention limits and an exact money budget remain open.
+
+Verification: `mix check` passed with **20 tests**, clean Credo/AshCredo and Sobelow,
+and successful assets; `mix audit` found no vulnerabilities or retired packages.
+Local checks confirmed all 12 values decrypt to the example, the API key remains empty,
+both private files are mode `0600` and ignored, the example is not ignored, and strict
+injection refuses to execute without a decryption key. No values or keys were printed.
+`git diff --check` passed. No browser check was needed for this configuration-only change.
+
+No Google generation request, API-key validation, mailbox access, dependency change,
+runtime-target change, or application-server restart was performed during this setup.
+
+## 15. Startup generation and inactivity scenery mode
+
+The user approved implementation and selected a **three-minute** configurable idle
+period, intentional actions only (no mouse-movement wake), startup activation on their
+next restart, and retention of the **last seven** generated images. This supersedes the
+configuration-only status in section 14 and the original no-inactivity-timer contract.
+
+Implemented:
+
+- `Lovelace.StageDesigner` Ash domain, SQLite singleton state resource, explicit policies,
+  generic startup/background/image actions, migration and resource snapshot. Internal
+  service actor is required for writes; public reads expose only safe imagery/status.
+  This is application-wide scenery, independent of mail/account identities.
+- A temporary supervised Task makes at most one asynchronous startup attempt. The
+  version-checked reservation commits before HTTP; timestamps survive failure/crash and
+  enforce a minimum 24-hour cooldown. Repeated restarts and missing images do not bypass
+  it. There is no timer, browser-triggered generation, durable job engine, or retry loop.
+- Server-only Gemini REST boundary, header-only API key resolved at request time, fixed
+  HTTPS host, redirects/retries off, overall deadline, bounded streaming JSON, refusal
+  handling, and generic safe errors. No key/provider payload in logs, DB, or UI assigns.
+- Static PNG validation (chunks/CRC, dimensions/pixels, bounded inflation and scanlines),
+  10 MiB image / 16 MiB response caps, content-addressed private storage with atomic rename,
+  seven-image manifest, and stale orphan/temp-file cleanup on startup checks after a
+  five-minute concurrency grace period. Current/retained-image/SVG fallback remains local.
+- Same-origin digest-only image endpoint, manifest membership/content-hash checks,
+  `nosniff`, private cache headers, restrictive image CSP, and read-only LiveView PubSub
+  updates. New image overlays appear only after load; failures leave the original SVG.
+- Separate client-only `WorkspaceIdle` hook using the existing sticky focus/reset JS
+  commands and brand events. Keyboard focus remains on controls; click/keyboard input
+  wakes the workspace. Mouse movement does not renew/wake, patches do not reset elapsed
+  activity, hidden-tab/sleep time counts, and teardown removes listeners/timers.
+- Added `simple_sat` **0.1.4**, a pure-Elixir solver needed by the first Ash policies.
+  SQLite does not implement `expr_error` for atomic optimistic locking; the three state
+  updates explicitly use record-path SQL version filters instead. Stale writers fail.
+- `mix check` now also checks Ash migration/snapshot drift and 32 native Node hook tests.
+  CI installs Node LTS matching the existing moving runtime target; no npm install.
+  `.tool-versions` is unchanged; `mix usage_rules.sync --yes` refreshed guidance.
+- Sobelow uses `--skip` for five specifically annotated storage helpers only. An independent
+  read-only review confirmed the traversal reports are false positives: roots are
+  privileged local configuration and filenames are exact digest/UUID forms. Path, symlink,
+  tamper, membership, and cleanup behavior is tested. No blanket category/module/low-level
+  exclusion was added. See `DEVELOPMENT.md` before changing these invariants.
+
+Verification:
+
+- `mix check`: passed; **65 ExUnit tests + 32 Node tests**, clean Credo/AshCredo, reviewed
+  scoped Sobelow annotations, schema-drift check, and assets. `mix audit`: clean.
+- Development migration applied with generation explicitly disabled; no existing data
+  was deleted. Production warnings-as-errors compile, assets deployment, and packaged
+  release assembly passed. The release also migrated an empty temporary database.
+- Headless Chrome against a temporary loopback packaged release with **fake PNG imagery**
+  checked local overlay loading, focus/idle reset, mouse-movement exclusion, keyboard
+  wake and preserved focus, Escape, reduced motion, failed-image SVG fallback, forced
+  colors, and mobile fit. The browser check temporarily shortened the DOM timer only;
+  deterministic Node tests exercise the actual three-minute deadline. No JavaScript/CSP
+  errors or external requests were observed. Temporary processes/data were removed.
+- Encrypted local nonsecret flags were updated for generation on the next restart,
+  seven retained images, and a three-minute timer. The user's API-key entry was not
+  inspected or changed. Private files remain ignored and mode `0600`.
+
+The user's existing server was not restarted. **No real Gemini generation, API-key
+validation, billing, or mailbox activity was performed.** The next dotenvx-backed app
+restart may incur a charge. Real generated-image quality/account availability, hosted
+CI, and cross-browser checks remain unverified. Gallery/editor/manual refresh controls
+and an exact dollar budget remain out of scope. A persisted `generating` status after
+an interrupted process represents an uncertain attempt; it is not an automatic retry.
+
+## 16. Safe failure diagnostics and explicitly authorized diagnostic retry
+
+The user reported the generic background-failure warning. The original implementation
+threw away failure details; they could not be recovered from the persisted failed state.
+
+- Added `StageDesigner.Diagnostics`: logs a safe stage/category, HTTP status, and actionable
+  hints. The Gemini boundary returns allowlisted Google status/ErrorInfo reason codes,
+  distinguishes connection and client-option failures, and never returns raw provider
+  text, metadata, prompts, credentials, or exception messages for logging.
+- Added an internal service-actor-only `retry_failed_startup` Ash action, explicitly
+  separate from startup. It accepts only a failed prior attempt and takes a fresh
+  version-checked reservation before making one request. It is never called automatically
+  or from browser controls. User consent is required before any potentially billable use;
+  ordinary startup cooldown/no-retry behavior is unchanged. Successful/running attempts
+  are not eligible for this diagnostic action.
+- A read-only authenticated model-metadata GET returned HTTP 200 with `generateContent`
+  support. The public REST contract was independently reviewed; no unsupported field or
+  model-ID defect was confirmed. Metadata access does not imply available generation quota.
+- The user then explicitly authorized **one** diagnostic generation attempt. It returned
+  **HTTP 429 / RESOURCE_EXHAUSTED**. No additional generation request or automatic retry
+  followed. The reservation now reflects that deliberate attempt; the existing server,
+  API-key entry, and scenery were not replaced/restarted. Check project API billing and
+  model quota in AI Studio/Google Cloud before considering another explicit attempt.
+
+Regression tests cover safe HTTP/error-code extraction, unknown/malicious provider text,
+DNS/TLS and client-option failures, warning redaction, stage separation, operator-action
+policies, and unchanged cooldowns. Tests still use only fake keys and `Req.Test`; the
+single authorized real attempt was a diagnostic operation, not an automated test.
+
+`mix check` passed with **74 ExUnit tests + 32 Node tests**, clean lint/security and
+schema-drift checks, and successful assets. `mix audit` and `git diff --check` passed.
+No UI behavior changed in this follow-up; browser checks were not repeated.
+
+## 17. Image-format documentation review and JPEG compatibility
+
+A later user-authorized single generation attempt reached image handling but failed
+with `invalid_image`, rather than the earlier quota error. Its original MIME/payload
+was discarded, so **JPEG mismatch is plausible, not proven**. The user requested a
+documentation review and explicitly approved adding validated JPEG support. No further
+real generation or authenticated provider request was made during this investigation.
+
+Findings and corrections:
+
+- Reviewed the Gemini Developer API REST reference and public v1beta discovery metadata.
+  Existing `imageConfig` documents aspect ratio/size, not a reliable PNG output selector;
+  the newer image-response-format schema explicitly supports JPEG. Imagen/Vertex fields
+  must not be copied into the Developer API request. Existing supported request fields
+  remain unchanged; MIME plus actual bytes now govern accepted PNG/JPEG output.
+- Separate safe failure categories for unsupported formats, malformed image parts, bad
+  base64, excessive size, MIME mismatch, and structural/decoder rejection. No raw response,
+  prompt, image metadata, exception, or credential is logged to diagnose format failures.
+- Added pinned **Vix 0.42.0** / libvips for JPEG-specific strict pixel decoding, with
+  header/byte/dimension preflight before native loading, full lazy-image evaluation,
+  warning-level failure, and decoded dimension/band/size checks. Baseline/progressive
+  8-bit and grayscale JPEG are tested. Original encoded bytes/provenance are preserved,
+  not transcoded, relabeled PNG, or authenticated as valid C2PA manifests.
+- Local storage, digest routes, controller, background selection, UI allowlist, and mixed
+  seven-image pruning/fallback now support canonical `.jpg` / `image/jpeg` alongside
+  `.png` / `image/png`. Wrong extensions, MIME mismatches, and other types fail closed.
+  Existing digest-only Ash manifests remain compatible; no schema change was necessary.
+- PNG review reproduced rejection of unused final-IDAT bytes that PNG section 11.2.3
+  tells decoders to ignore. Switched from undocumented `inflateInit/3` strict mode to
+  the documented initializer; stream completion, exact scanlines, CRC/order, dimensions,
+  and rejection of bytes after IEND remain. No inflate-boundary bug was reproduced.
+- PNG synthetic C2PA `caBX` handling and image-sized input pass. PNG validation is
+  structural, not a complete reconstructed-color/conformance proof; metadata preservation
+  is not provenance authentication. Native JPEG decoding is not a process sandbox.
+
+Verification: `mix check` passed with **86 ExUnit tests + 32 Node tests**, clean lint,
+security and schema drift, and successful assets; `mix audit` passed. UsageRules guidance
+was refreshed. Production warnings-as-errors compile, asset deployment, release assembly,
+and native Vix loading passed on the existing OTP29/Elixir1.20 runtime. Headless Chrome
+against a temporary loopback packaged release with a **locally encoded synthetic JPEG**
+verified correct `.jpg`/`image/jpeg` serving and overlay, idle/focus/keyboard/reduced-motion,
+failed-image SVG fallback, forced colors, and mobile fit, with no JS/CSP errors or external
+requests. Temporary processes/data were removed; the user's existing server, credentials,
+cooldown, and real images were untouched. Hosted Linux CI, cross-browser testing, and a
+successful real Gemini image remain unverified. See `STAGE_DESIGNER.md` for source links
+and `DEVELOPMENT.md` for native build/licensing notes. `.tool-versions` is unchanged.
+
+## 18. First successful real generation and user display confirmation
+
+After restarting with JPEG support, the user explicitly requested one generation.
+The operator action generated, validated, stored, and activated a real background.
+The user refreshed and confirmed that it displays. No extra automatic generation was
+performed. The user's image, key, environment files, and private database remain ignored
+and must not be committed.
+
+The operator invocation ran in a separate BEAM process: its SQLite/files were shared,
+but its local PubSub was not the running server's PubSub, hence the required refresh.
+Generation inside the running server already broadcasts a LiveView image update; no
+browser-visible regenerate control has been implemented. This distinction was explained
+to the user. Broader visual-quality review, hosted CI, and cross-browser checks remain open.
