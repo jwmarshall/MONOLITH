@@ -8,7 +8,9 @@ defmodule LovelaceWeb.Endpoint do
     store: :cookie,
     key: "_lovelace_key",
     signing_salt: "AX124byL",
-    same_site: "Lax"
+    same_site: "Lax",
+    max_age: 43_200,
+    http_only: true
   ]
 
   socket "/live", Phoenix.LiveView.Socket,
@@ -26,6 +28,12 @@ defmodule LovelaceWeb.Endpoint do
     gzip: not code_reloading?,
     only: LovelaceWeb.static_paths(),
     raise_on_missing_only: code_reloading?
+
+  plug LovelaceWeb.Plugs.LocalHost
+  plug Plug.Session, @session_options
+  plug LovelaceWeb.OwnerUnlock
+  # Consume OAuth codes before any request instrumentation or parameter parsing.
+  plug LovelaceWeb.Plugs.GoogleOAuthCallback
 
   # This exposes code/SQL execution to development tools. Never enable remote access.
   if Mix.env() == :dev do
@@ -55,6 +63,5 @@ defmodule LovelaceWeb.Endpoint do
 
   plug Plug.MethodOverride
   plug Plug.Head
-  plug Plug.Session, @session_options
   plug LovelaceWeb.Router
 end

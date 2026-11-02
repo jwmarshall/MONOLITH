@@ -57,3 +57,6 @@ npm-debug.log
 /data/stage-designer/
 .DS_Store
 
+# Explicitly built local macOS Keychain helper.
+/priv/native/lovelace-keychain
+

@@ -53,7 +53,7 @@ config :spark,
   ]
 
 config :lovelace,
-  ash_domains: [Lovelace.StageDesigner, Lovelace.Workspaces],
+  ash_domains: [Lovelace.StageDesigner, Lovelace.Workspaces, Lovelace.Mail, Lovelace.Owner],
   ecto_repos: [Lovelace.Repo],
   generators: [timestamp_type: :utc_datetime]
 
@@ -73,6 +73,29 @@ config :lovelace, LovelaceWeb.Endpoint,
   ],
   pubsub_server: Lovelace.PubSub,
   live_view: [signing_salt: "U9kM1spw"]
+
+# Lite is Oban's bundled SQLite engine. Only identifiers enter durable job arguments.
+config :lovelace, Oban,
+  repo: Lovelace.Repo,
+  engine: Oban.Engines.Lite,
+  queues: [gmail: 1],
+  plugins: [
+    {Oban.Plugins.Cron, crontab: [{"* * * * *", Lovelace.Mail.SweepWorker}]},
+    {Oban.Plugins.Lifeline, rescue_after: :timer.minutes(5)},
+    {Oban.Plugins.Pruner, max_age: 86_400}
+  ]
+
+config :phoenix, :filter_parameters, [
+  "password",
+  "token",
+  "secret",
+  "code",
+  "state",
+  "verifier",
+  "query",
+  "refresh_token",
+  "access_token"
+]
 
 # Configure LiveView
 config :phoenix_live_view,

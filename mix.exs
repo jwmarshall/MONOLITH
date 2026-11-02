@@ -51,6 +51,7 @@ defmodule Lovelace.MixProject do
       {:ash_authentication, "~> 4.15"},
       {:ash_authentication_phoenix, "~> 2.17"},
       {:req, "~> 0.7"},
+      {:oban, "~> 2.24.2"},
       # Private Gemini adapter avoids credential-bearing Finch instrumentation.
       {:mint, "~> 1.11.0"},
       # Non-pooled SQLite handles coordinate local filesystem mutations across BEAMs.

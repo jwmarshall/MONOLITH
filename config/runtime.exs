@@ -23,6 +23,11 @@ end
 config :lovelace, LovelaceWeb.Endpoint,
   http: [port: String.to_integer(System.get_env("PORT", "4000"))]
 
+# Fixed local origin matches the browser session and LiveView's origin protection.
+# Client credentials are resolved only at the private Google HTTP boundary.
+config :lovelace, :gmail,
+  redirect_uri: "http://localhost:#{System.get_env("PORT", "4000")}/oauth/google/callback"
+
 # dotenvx injects these before startup. API keys are resolved only at the HTTP boundary,
 # never retained in application configuration, Ash attributes, or LiveView assigns.
 config :lovelace,

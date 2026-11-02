@@ -24,6 +24,8 @@ config :lovelace, LovelaceWeb.Endpoint,
   secret_key_base: "5RWMr/bQJIQMHlZzKnTdqUwnQlqIKscplAQBLI72Rd5xZ/Cg7njm4UAj2lm7s/2N",
   server: false
 
+config :lovelace, Oban, testing: :manual, queues: false, plugins: false
+
 # Print only warnings and errors during test
 config :logger, level: :warning
 

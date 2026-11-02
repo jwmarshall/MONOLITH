@@ -2,14 +2,16 @@ defmodule LovelaceWeb.HomeLive do
   @moduledoc "The glass entrance and local owner's saved workspaces."
   use LovelaceWeb, :live_view
 
+  alias Lovelace.Mail.ConnectionDiagnostics
   alias Lovelace.Workspaces
   alias Lovelace.Workspaces.Workspace
+  alias LovelaceWeb.{HomeMail, MailComponents}
 
-  # A local-only capability, not owner authentication or a Gmail identity.
+  # Capability minted only behind the HTTP and LiveView owner-session boundaries.
   @owner %{role: :local_owner}
 
   @impl true
-  def mount(_params, _session, socket) do
+  def mount(params, _session, socket) do
     if connected?(socket), do: Phoenix.PubSub.subscribe(Lovelace.PubSub, "stage_designer")
 
     background =
@@ -32,8 +34,11 @@ defmodule LovelaceWeb.HomeLive do
         save_status: ""
       )
       |> stream(:workspaces, [])
+      |> HomeMail.init()
 
-    {:ok, if(connected?(socket), do: load_workspaces(socket), else: socket)}
+    socket = if connected?(socket), do: load_workspaces(socket), else: socket
+    socket = resume_connection(socket, params)
+    {:ok, socket}
   end
 
   @impl true
@@ -41,7 +46,16 @@ defmodule LovelaceWeb.HomeLive do
     {:noreply, assign(socket, :background, background)}
   end
 
+  def handle_info({:mail_changed, _} = message, socket), do: HomeMail.handle_info(message, socket)
+  def handle_info(_message, socket), do: {:noreply, socket}
+
   @impl true
+  def handle_async(name, result, socket), do: HomeMail.handle_async(name, result, socket)
+
+  @impl true
+  def handle_event("mail:" <> _ = event, params, socket),
+    do: HomeMail.handle_event(event, params, socket)
+
   def handle_event("retry_workspaces", _params, socket) do
     {:noreply, load_workspaces(socket)}
   end
@@ -98,6 +112,7 @@ defmodule LovelaceWeb.HomeLive do
         {:noreply,
          socket
          |> assign(selected: workspace, editor: nil, form: nil, page_title: workspace.name)
+         |> HomeMail.open_workspace(workspace)
          |> focus_heading()}
 
       _ ->
@@ -108,6 +123,7 @@ defmodule LovelaceWeb.HomeLive do
   def handle_event("show_workspaces", _params, socket) do
     {:noreply,
      socket
+     |> HomeMail.leave_workspace()
      |> assign(selected: nil, editor: nil, form: nil, page_title: "Workspaces")
      |> load_workspaces()
      |> focus_heading()}
@@ -144,6 +160,38 @@ defmodule LovelaceWeb.HomeLive do
       |> stream(:workspaces, workspaces, reset: true)
     else
       _ -> assign(socket, workspaces_error: true, loading: false)
+    end
+  end
+
+  defp resume_connection(socket, params) do
+    socket =
+      case params["gmail"] do
+        "connected" ->
+          put_flash(socket, :info, "Gmail connected. Mail access is read-only.")
+
+        "failed" ->
+          put_flash(
+            socket,
+            :error,
+            ConnectionDiagnostics.message(params["stage"], params["reason"])
+          )
+
+        _ ->
+          socket
+      end
+
+    if connected?(socket) && is_binary(params["workspace"]) do
+      case Workspaces.get_workspace(params["workspace"], actor: @owner) do
+        {:ok, workspace} ->
+          socket
+          |> assign(selected: workspace, page_title: workspace.name)
+          |> HomeMail.open_workspace(workspace)
+
+        _ ->
+          socket
+      end
+    else
+      socket
     end
   end
 
@@ -192,6 +240,9 @@ defmodule LovelaceWeb.HomeLive do
         <p id="workspace-save-status" class="sr-only" role="status">{@save_status}</p>
         <div class="workspace-topline">
           <span class="workspace-signature">LOVELACE</span>
+          <.form for={%{}} action="/lock" method="post" id="owner-lock-form">
+            <button type="submit" class="workspace-action">Lock</button>
+          </.form>
         </div>
 
         <section class="workspace-directory" aria-labelledby="directory-heading">
@@ -308,8 +359,7 @@ defmodule LovelaceWeb.HomeLive do
           </div>
 
           <div :if={@selected && !@editor} id="workspace-landing" class="workspace-landing">
-            <h3>Nothing here yet.</h3>
-            <p>Mail and other integrations are not connected.</p>
+            <MailComponents.panel mail={@mail} workspace={@selected} />
           </div>
         </section>
 

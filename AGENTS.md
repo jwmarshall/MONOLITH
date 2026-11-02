@@ -24,14 +24,16 @@ configuration keys, and database filenames.
 - Phoenix LiveView + Ash/AshSqlite over Ecto/SQLite; Tailwind with LOVELACE's dark/amber tokens.
   Model business behavior with Ash resources, domains, actions, and policies, not parallel
   hand-written Ecto contexts. Register domains and commit migrations plus snapshots.
-- AshAuthentication support is installed, but strategies/resources/screens are deferred.
-  LOVELACE owner authentication and connected Gmail identities are separate concerns.
+- AshAuthentication protects a single local owner; connected Gmail identities are separate.
+  Owner setup is terminal-only. Keep HTTP/LiveView session guards and revocation intact.
 - Tidewave is dev-only code/SQL execution. Never enable remote access or expose it via tunnels.
   No separate SPA, PostgreSQL, Redis, or unnecessary infrastructure.
 - Keep business logic under `lib/lovelace/` and UI under `lib/lovelace_web/`.
   Keep provider HTTP/OAuth and long-running work out of LiveView callbacks.
-- Gmail and jobs are unimplemented. Verify current package compatibility before
-  choosing a SQLite job engine; do not assume Oban is already configured.
+- Gmail is read-only; Oban 2.24's bundled SQLite Lite engine handles account-scoped polling.
+  Keychain holds refresh tokens. See docs/GMAIL.md before changing grants/cache/jobs.
+- No external telemetry exporter. Stock Bandit's in-process conn metadata is an explicit
+  user-accepted local exception; never add payload logging/export without privacy review.
 - Clearly label placeholders; do not imply disconnected integrations are operational.
 - SQLite sandbox/database tests must be synchronous. Use fake provider responses,
   not live Google calls. Keep migrations and `mix.lock` with dependency/schema changes.

@@ -14,6 +14,10 @@ defmodule LovelaceWeb.Router do
     }
   end
 
+  pipeline :owner do
+    plug LovelaceWeb.Plugs.RequireOwner
+  end
+
   pipeline :api do
     plug :accepts, ["json"]
   end
@@ -34,7 +38,19 @@ defmodule LovelaceWeb.Router do
   scope "/", LovelaceWeb do
     pipe_through :browser
 
-    live "/", HomeLive, :index
+    get "/unlock", OwnerController, :new
+    post "/unlock", OwnerController, :create
+    post "/lock", OwnerController, :delete
+  end
+
+  scope "/", LovelaceWeb do
+    pipe_through [:browser, :owner]
+
+    post "/oauth/google/start", GoogleOAuthController, :create
+
+    live_session :owner, on_mount: [{LovelaceWeb.OwnerAuth, :require_owner}] do
+      live "/", HomeLive, :index
+    end
   end
 
   # Other scopes may use custom stacks.
@@ -52,7 +68,7 @@ defmodule LovelaceWeb.Router do
     import Phoenix.LiveDashboard.Router
 
     scope "/dev" do
-      pipe_through :browser
+      pipe_through [:browser, :owner]
 
       live_dashboard "/dashboard", metrics: LovelaceWeb.Telemetry
     end

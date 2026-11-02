@@ -3,13 +3,18 @@
 A private, desktop-first workspace for deliberate work, with warm cinematic minimalism
 and a nearly transparent glass interface.
 
-The first product slice is an account-separated, project-oriented Gmail workspace.
-**This repository is currently a runnable foundation, not a working email client.**
+The first product slice is an account-separated, read-only Gmail workspace.
+Local owner unlock, reusable workspace/account connections, inbox/search/conversations,
+and background polling are implemented. **Google setup and a manual real-account
+connection are still required for a new installation. The user has confirmed a working
+connection; automated verification uses fakes, not a real mailbox.**
+Projects and mailbox writes remain deferred.
 
 ## Start here
 
 - [Agent handoff: requirements, architecture, guardrails, and next steps](docs/HANDOFF.md)
-- [Next remediation: review blockers and regression gaps](docs/REMEDIATION_HANDOFF.md)
+- [Completed remediation: historical review and regression record](docs/REMEDIATION_HANDOFF.md)
+- [Read-only Gmail: Google setup, local unlock, Keychain and privacy](docs/GMAIL.md)
 - [Development tooling and testing conventions](docs/DEVELOPMENT.md)
 - [Focused reviewer skills, routing, and Scopewright creation prompts](docs/REVIEWERS.md)
 - [Stage designer: encrypted configuration and agreed direction](docs/STAGE_DESIGNER.md)
@@ -42,14 +47,16 @@ separately; no particular checkout folder name is required to run the applicatio
 - Elixir / Phoenix 1.8, LiveView 1.2, Bandit
 - **Ash** resources, domains, actions, and policies
 - **AshSqlite** over Ecto + SQLite (no separate database service)
-- AshPhoenix; AshAuthentication + AshAuthenticationPhoenix installed for future auth
+- AshPhoenix; AshAuthentication password strategy for one local owner
 - Tailwind CSS 4; generated daisyUI primitives with LOVELACE's dark/amber tokens
 - Req, ExUnit, LiveViewTest, and Ash's testing helpers
 - Vix/libvips for bounded strict JPEG validation; original image bytes are kept locally
 
-Authentication strategy/resources/screens, Gmail, and durable jobs are **not
-implemented**. The job-runner package remains undecided. Adding auth dependencies
-has not made this app authenticated or safe to expose to a network.
+- Oban's bundled SQLite Lite engine for durable, account-scoped read polling
+- macOS Security.framework helper for Gmail refresh tokens; private Mint provider HTTP
+
+Owner unlock does not make LOVELACE safe to expose to a network. It remains personal
+and loopback-only. See the Gmail guide's explicit local telemetry/privacy limitations.
 
 ## Local setup
 
@@ -60,6 +67,8 @@ asdf install              # if these runtimes are not already installed
 elixir --version
 node --version
 mix setup
+mix lovelace.keychain.build  # macOS + Apple Command Line Tools; required for real Gmail
+mix lovelace.owner.setup    # hidden local-terminal password prompt; no web signup
 mix phx.server
 ```
 
@@ -74,7 +83,8 @@ Assets use Mix-managed binaries. Node (the existing `.tool-versions` LTS target)
 required for the dependency-free JavaScript hook tests in `mix check`, not asset building.
 
 The server listens on `127.0.0.1:4000`. Both development and production configuration
-remain loopback-only. There is no application login yet. The development-only
+remain loopback-only. Unlock with the local owner password; use Lock to revoke the
+browser session. IP aliases redirect to the canonical localhost origin. The development-only
 LiveDashboard is at `/dev/dashboard`; Tidewave MCP is at `/tidewave/mcp`.
 **Tidewave can execute code and SQL; never expose it through a tunnel or enable remote access.**
 
@@ -120,15 +130,15 @@ are required for tests. Dependency downloads and the online audit require networ
 For a production-mode local release, `config/runtime.exs` requires
 `DATABASE_PATH` and `SECRET_KEY_BASE`; Ash pagination signing derives a separate key
 from the latter. Releases also require built assets and an explicit server start
-(`PHX_SERVER=true`). Desktop packaging and secure credential storage remain future work.
+(`PHX_SERVER=true`). Build the native Keychain helper on the target Mac before release
+assembly. Desktop packaging and signed-installer/credential migration remain future work.
 
 ## Current foundation
 
-`/` mounts `LovelaceWeb.HomeLive`, with the full-viewport glass surface, focus-dependent
-LOVELACE identity, and matching favicon. It has no marketing, fake mailbox data, or
-product controls; screen-reader instructions identify the unconnected foundation.
-`Lovelace.StageDesigner` is the first production Ash domain, with a SQLite singleton
-for generation reservations and the retained-image manifest, explicit internal-write
-policies, and committed migration/snapshot files. Gemini is the only implemented provider
-boundary; Gmail and account/project resources remain unimplemented. Test-only Ash resources
-still verify the foundation inside the SQL sandbox. Read the handoff before starting features.
+`/` mounts the owner-protected `LovelaceWeb.HomeLive`: glass entrance, saved workspace
+directory, workspace-specific account list and separate read-only Gmail views. There is
+no fake mail. `Lovelace.Workspaces`, `Lovelace.Owner` and `Lovelace.Mail` own their Ash
+resources/actions/policies and schema artifacts. `Lovelace.StageDesigner` retains the
+independent startup scenery workflow. Read [the Gmail guide](docs/GMAIL.md) before enabling
+Google access and [the handoff](docs/HANDOFF.md#23-read-only-gmail-and-owner-unlock) for
+current verification and remaining limits.

@@ -16,7 +16,10 @@ open questions below are not additional user commitments. Read the actual code a
 **Current status:** the blockers and regression gaps in
 [the remediation handoff](REMEDIATION_HANDOFF.md) are implemented and verified;
 section 21 records the remediation and its limits. Section 20 is the historical
-review baseline, not an outstanding-defect list. Product integrations remain deferred.
+review baseline, not an outstanding-defect list. **Section 23 supersedes the deferred
+Gmail/auth/jobs status below:** the first read-only implementation now exists, but
+Google setup and real-account/native credential operations remain manual. The user
+reported a working connection after section 24's fix; no agent inspected the mailbox.
 
 LOVELACE's visual direction draws on the sterile, brutalist architecture in
 *Blade Runner*. The long-term purpose is a personal productivity and innovation
@@ -114,12 +117,12 @@ Implemented:
   section 14 is the historical interview and section 15 records implementation.
 - Git ignore rules for local credentials, databases/sidecars, dependencies, and builds.
 
-**Not implemented:** account/project/mail schemas, OAuth, mailbox credential storage,
-Gmail HTTP client, mailbox UI, message rendering, attachments, Gmail actions, synchronization,
-PubSub domain notifications, durable jobs, login, desktop/startup packaging, or a product
-backup/restore workflow. A basic Mix production release was validated during the rename.
-The CI workflow is written but has not been executed on a hosted GitHub runner.
-No job-runner dependency is installed. No Google credentials are needed to run the shell.
+**Current read-only addition:** see section 23 and `GMAIL.md` for account/mail schemas,
+OAuth, Keychain integration, owner unlock, safe text reading, polling and durable jobs.
+**Still not implemented:** projects, attachments, mailbox mutations/drafts/sending,
+full history-based reconciliation, desktop/startup packaging or a product backup/restore
+workflow. Historical release/CI verification below does not certify the new integration.
+No Google credentials are needed to run the shell or offline automated tests.
 
 ### File map
 
@@ -964,3 +967,191 @@ cross-browser review and hosted CI remain open. There is no permanent selection 
 across full page reloads and no automatic cross-tab workspace list synchronization;
 refreshing the directory reloads
 saved records. These are local workspace records, not mailbox isolation boundaries.
+
+## 23. Read-only Gmail and owner unlock
+
+### Latest user interview (supersedes historical first-slice proposals)
+
+- Reusable Google connections: one connection can be attached to multiple workspaces;
+  each workspace can contain several accounts, never a merged inbox.
+- Workspace landing lists accounts first; choose one to open its paginated inbox,
+  whole-account Gmail search or plain-text conversations. No projects or mailbox writes.
+- Backend polling about every few minutes plus manual Refresh; continue while the app
+  runs, independent of browser sessions. No activity while the machine is asleep/off.
+- macOS Keychain for refresh tokens; local owner password unlock before private UI.
+- Safe plain text (including HTML-only extraction), no attachments/remote content.
+- Short bounded on-demand cache: seven days; implementation bounds are 120 entries and
+  25 MiB per account, 5 MiB per result. SQLite content remains unencrypted.
+- Workspace-only detach and separately confirmed global disconnect with cache/token
+  cleanup and attempted Google revocation. Setup guidance required; no existing client.
+- User explicitly authorized implementation, not just a plan. No real account access,
+  existing private-data migration, credential edits or running-server restart was needed.
+
+### Implemented boundaries
+
+- `Lovelace.Owner`: AshAuthentication password strategy, PBKDF2-SHA256 600k, local-only
+  hidden-input setup task, no web registration/reset, digest-only 12-hour sessions,
+  bounded unlock throttling, session regeneration/revocation and HTTP/LiveView guards.
+  Lock is security; the existing Escape/idle scenery mode is not. Backend polling
+  continues after browser lock while the app and OS credential store are available.
+- `Lovelace.Mail`: Google identity (`sub` unique, email display-only), reusable workspace
+  membership, namespaced cache, authorized orchestration actions, service account scopes,
+  connection-generation fences, and committed migrations/snapshots. Disconnect removes
+  all memberships/cache and retains only minimal disconnected identity metadata.
+- `Lovelace.Integrations.Google`: code/PKCE/offline grant, verified UserInfo binding,
+  refresh/revoke and GET-only Gmail threads API; fixed HTTPS hosts/paths, private passive
+  Mint, no Finch payload events, redirects/proxies/retries, bounded bytes/deadlines,
+  generic errors, and explicit fake seams. Test builds refuse real connections/vault use.
+- `priv/native/keychain.swift`: bounded JSON stdio Security.framework helper, fixed
+  service/account UUIDs, no secret argv/files/plaintext fallback. Explicit
+  `mix lovelace.keychain.build`; no automatic installation or actual credential operation.
+- CSRF-protected connection start; one-use 10-minute session-bound OAuth state; reconnect
+  rejects the wrong Google `sub`; early code/password handling avoids extra Phoenix
+  instrumentation. Canonical localhost origin prevents IP-cookie/origin mismatches.
+- Oban **2.24.2**, Apache-2.0, bundled SQLite Lite engine: concurrency 1, minute cron
+  discovery of overdue accounts, three-minute first-inbox-page polling, three attempts,
+  five-minute 429 cooldown, Lifeline rescue and job pruning. Jobs carry only IDs/epochs.
+  This is **not** Gmail history-cursor synchronization, a mirror or push delivery.
+- `HomeMail`/`MailComponents`: separate account landing/inbox/search/thread states,
+  asynchronous provider work, immediate clearing/cancellation on navigation, late-result
+  guards, account-scoped PubSub and truthful stale/error/timestamp feedback. Content
+  resolves from bounded ephemeral render storage rather than body-bearing socket assigns.
+- ORM query logging/telemetry is disabled by Repo defaults: Ecto otherwise includes both
+  mail parameters and returned rows. Do not bypass with raw SQL or per-call overrides.
+
+### Explicit instrumentation decision
+
+The user asked to verify the claim against documentation, then chose **Keep stock
+Bandit** after the distinction was explained. Bandit 1.14.1 documents and emits a raw
+`Plug.Conn` in request telemetry before endpoint middleware; it does **not** strip
+headers/query strings there. HTTP auth codes/session headers and potentially buffered
+password bytes can therefore be visible to trusted in-process handlers. **No external
+exporter is configured and no external transmission/persistent payload logging was
+established.** This is a deliberate local-only instrumentation exception, not a
+payload-free-server claim. No dependency was vendored/patched. Adding tracing/export
+agents or payload loggers needs a new privacy review. See `GMAIL.md` for evidence/limits.
+
+### Activation and verification
+
+See [GMAIL.md](GMAIL.md) for exact local migration, owner setup, helper build and Google
+Cloud Desktop-client configuration, the seven-day testing-mode grant limitation,
+personal-use verification policy, safe cache/backups, failed cleanup/revocation and
+Keychain access/signing limitations. No Google settings/credentials, real mailbox,
+existing private database/scenery or pre-existing running server were read or modified.
+No actual Keychain credential operation or real Gmail call was performed. New UI has
+not received visual browser/cross-browser or assistive-technology approval; hosted CI
+and real-account behavior remain unverified.
+
+Fresh verification with generation disabled and disposable databases:
+
+- `mix check`: **236 ExUnit + 52 Node tests passed**, format, application warnings-as-errors,
+  strict Credo/AshCredo, Sobelow, Ash schema drift and assets. Coverage includes two accounts
+  reusing provider IDs, workspace reuse/detach, stale generations/in-flight disconnect,
+  retention, durably retryable interrupted credential cleanup, failure states,
+  OAuth session/subject binding/path aliases, owner/session
+  policies and revocation, MIME/transport/vault bounds and opaque LiveView rendering.
+- A real loopback HTTP test confirms stock Bandit's documented raw request metadata;
+  it uses only synthetic code/header values and records the accepted limitation.
+  SQL regression tests enable debug logging so disabling privacy defaults is detectable.
+  Synthetic scenery interleavings explicitly opt into process-local query telemetry
+  barriers in test builds only; this seam is absent from production/mail paths.
+- `mix audit`: no vulnerabilities or retired Hex packages. `mix usage_rules.sync --yes`
+  refreshed/confirmed linked guidance. `git diff --check` passed; `.tool-versions` unchanged.
+- Production application compile with warnings-as-errors, minified/digested assets and
+  disposable packaged release assembly passed. The new upstream Oban build emitted an
+  Elixir-1.20 type warning in its retry rescue; application compilation remains clean.
+- The packaged release migrated an empty disposable SQLite database, configured/unlocked
+  a synthetic owner, confirmed an empty Gmail directory and bundled native helper presence,
+  persisted a delayed sweep job, then reopened schema/owner/job after a separate release
+  process restart. HTTP/distribution stayed off; no Google/Keychain operation was needed.
+  Native Swift helper compilation also passed. This does not certify Keychain permissions,
+  consent/API behavior, queued Gmail-provider recovery or visual browser behavior.
+
+No existing local database migration or server restart was performed. Apply migrations,
+build the helper and configure the owner before using the updated UI. Historical
+verification records above remain historical.
+
+## 24. Final OAuth-step troubleshooting and native stdin correction
+
+The user completed local migrations/owner setup and Google client configuration, then
+reported failure after Google consent despite a dotenvx-backed restart. The Google
+console offers `https://www.googleapis.com/auth/userinfo.email`, not the OpenID alias
+`email`; this is correct and was already accepted/tested. `GMAIL.md` now names the
+canonical console scope explicitly. No private configuration, grants or real mailbox
+were inspected to diagnose the failure.
+
+A synthetic probe reproduced a concrete helper defect: Foundation's
+`read(upToCount: 4096)` waits for a full buffer or EOF on this Mac, while the Elixir
+Port sends one shorter JSON line and leaves stdin open. The helper's watchdog expires
+before any SecItem call. Replaced that read with bounded POSIX `Darwin.read`, retaining
+newline/size validation, EINTR handling and the watchdog. A real-helper regression
+failed before the fix and passes afterward, using invalid operation/UUID/JSON inputs
+that cannot read/write/delete credentials. It runs on macOS with Apple tools and is
+explicitly skipped elsewhere. This reproduces the source defect, not a captured trace
+of the user's earlier consent attempt.
+
+Also added allowlisted callback-stage/category diagnostics and static actionable UI
+messages, never raw provider responses, URLs/codes/state/tokens/identity/exception text.
+A failed prior vault read is no longer treated as absence: it prevents an overwrite,
+and rollback failures are surfaced safely. Fake tests cover denied prior reads,
+callback Keychain categorization and malicious error/exception redaction. The original
+stock-Bandit local telemetry exception remains unchanged.
+
+`mix check` passed **241 ExUnit + 52 Node tests** (including actual macOS helper framing),
+with clean strict lint/security/schema drift/assets; `mix audit` passed and UsageRules
+was refreshed. The ignored local helper was rebuilt; no native credential operation,
+Google call, private-data access, configuration change or server restart was performed.
+The user subsequently restarted/retried and reported that the connection is working.
+This is user confirmation of the connection flow, not automated live-provider testing,
+mailbox-content inspection or comprehensive validation of all read/sync/account-switch paths.
+The agent has not accessed the connected mailbox or private credentials.
+
+## 25. Precommit review hardening and acceptance
+
+The user's successful connection confirmation is recorded in section 24. Before commit,
+the focused suite reviewed the whole slice and then re-reviewed its corrections:
+
+- Connection upsert is owner-only: an A-scoped service cannot supply A's UUID with
+  B's Google subject to mutate B through the subject conflict target. The adversarial
+  test asserts denial and unchanged identity/generation for both accounts.
+- Persisted rate-limit admission now covers queued polls, automatic PubSub-driven views,
+  token refresh, Gmail requests and forced Refresh. Short failure/publication transactions
+  preserve concurrent cooldowns. Cached reopen retains known error/stale state until
+  real recovery. Admission refusal has a distinct internal tag so crossing the expiry
+  edge cannot create another five-minute wait without a real provider rate-limit result.
+- Eviction reads metadata, not message payloads. Render references expire on read without
+  requiring another insertion. Gmail migration rollback drops children before the parent.
+- Regression sources now execute Sweep/Poll workers, assert topic-specific A/B delivery,
+  exercise actual async UI 429 PubSub/Refresh refusal, and verify exact seven-day expiry,
+  actual 5 MiB/+1 result bounds and 25 MiB/account eviction below the entry-count limit.
+- Credential compensation tests cover prior/absent/new credentials and failed restoration.
+  Valid account writes followed by a TEMP SQLite trigger rejecting membership insertion
+  prove SQL partial-write rollback. A separate in-memory mutation removing only the outer
+  transaction makes both new tests fail on the persisted new row/changed old generation;
+  the working-tree source was never mutated. Native I/O tests accumulate bounded stdout
+  through exit under one deadline rather than assuming a single data chunk.
+
+Focused source verdicts after remediation: architecture **[APPROVED]**, Ash/SQLite
+**[APPROVED]**, security/privacy **[APPROVED]**, integration reliability **[APPROVED]**,
+LiveView/UI **[APPROVED]**, test reliability **[APPROVED]**, account isolation **[APPROVED]**.
+Final cross-file source verdict: **[APPROVED]**, with no CRITICAL/HIGH blockers or
+unresolved verdict-essential dependencies. All seven integration checklist areas were
+checked; the documented credential-orphan advisory and broader verification limits remain.
+
+Fresh execution: `mix precommit` passed **264 ExUnit + 52 Node tests** plus format,
+application warnings-as-errors, strict Credo/AshCredo, Sobelow, schema drift and assets.
+`mix audit` found no vulnerabilities/retired packages. Production warnings-as-errors
+compile, minified assets, disposable packaged release assembly, populated Gmail down/up
+with foreign keys enabled, preserved workspace and delayed-job persistence across a
+separate release process restart passed. UsageRules guidance was refreshed/confirmed;
+`.tool-versions` is unchanged. HTTP/distribution stayed off in release probes.
+
+Remaining nonblocking follow-ups are explicit: a first credential write interrupted
+before its identity commits can leave an unindexed Keychain item (also possible after
+failed compensating deletion); no durable orphan reconciliation is implemented.
+`GMAIL.md` provides manual review guidance. Exhaustive connected A→B→A provider-delay/
+subscription and rotating-token reconnect/disconnect interleavings are not fully tested.
+These are not observed account leaks, and source approvals do not certify native
+credential permissions, real-provider recovery, visual/browser accessibility or hosted CI.
+No agent command accessed the connected mailbox, existing private database/settings or
+real credentials, changed a grant, invoked a real provider or restarted the user's server.

@@ -1,0 +1,101 @@
+{
+  "attributes": [
+    {
+      "default": "nil",
+      "size": null,
+      "type": "uuid",
+      "source": "id",
+      "references": null,
+      "allow_nil?": false,
+      "primary_key?": true,
+      "generated?": false
+    },
+    {
+      "default": "nil",
+      "size": null,
+      "type": "utc_datetime_usec",
+      "source": "created_at",
+      "references": null,
+      "allow_nil?": false,
+      "primary_key?": false,
+      "generated?": false
+    },
+    {
+      "default": "nil",
+      "size": null,
+      "type": "uuid",
+      "source": "workspace_id",
+      "references": {
+        "name": "workspace_gmail_accounts_workspace_id_fkey",
+        "table": "workspaces",
+        "multitenancy": {
+          "global": null,
+          "attribute": null,
+          "strategy": null
+        },
+        "primary_key?": true,
+        "deferrable": false,
+        "match_tenant?": false,
+        "on_delete": "delete",
+        "on_update": null,
+        "destination_attribute": "id",
+        "destination_attribute_generated": null,
+        "destination_attribute_default": null
+      },
+      "allow_nil?": false,
+      "primary_key?": false,
+      "generated?": false
+    },
+    {
+      "default": "nil",
+      "size": null,
+      "type": "uuid",
+      "source": "account_id",
+      "references": {
+        "name": "workspace_gmail_accounts_account_id_fkey",
+        "table": "gmail_accounts",
+        "multitenancy": {
+          "global": null,
+          "attribute": null,
+          "strategy": null
+        },
+        "primary_key?": true,
+        "deferrable": false,
+        "match_tenant?": false,
+        "on_delete": "delete",
+        "on_update": null,
+        "destination_attribute": "id",
+        "destination_attribute_generated": null,
+        "destination_attribute_default": null
+      },
+      "allow_nil?": false,
+      "primary_key?": false,
+      "generated?": false
+    }
+  ],
+  "table": "workspace_gmail_accounts",
+  "hash": "3BEF5EC7A237801079D30E9A04820132496ED88A07F8CA0D78859E5F7EEB3B5C",
+  "multitenancy": {
+    "global": null,
+    "attribute": null,
+    "strategy": null
+  },
+  "identities": [
+    {
+      "name": "membership",
+      "keys": [
+        "workspace_id",
+        "account_id"
+      ],
+      "nils_distinct?": true,
+      "base_filter": null,
+      "index_name": "workspace_gmail_accounts_membership_index"
+    }
+  ],
+  "repo": "Elixir.Lovelace.Repo",
+  "strict?": false,
+  "custom_indexes": [],
+  "base_filter": null,
+  "custom_statements": [],
+  "has_create_action": true
+}

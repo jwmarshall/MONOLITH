@@ -1,0 +1,62 @@
+defmodule Lovelace.Mail.Operation do
+  @moduledoc "Authorized orchestration actions. Network work never runs in a SQLite transaction."
+  use Ash.Resource, domain: Lovelace.Mail, authorizers: [Ash.Policy.Authorizer]
+
+  actions do
+    action :link, :boolean do
+      argument :workspace_id, :uuid, allow_nil?: false
+      argument :account_id, :uuid, allow_nil?: false
+      run Lovelace.Mail.Operations
+    end
+
+    action :unlink, :boolean do
+      argument :workspace_id, :uuid, allow_nil?: false
+      argument :account_id, :uuid, allow_nil?: false
+      run Lovelace.Mail.Operations
+    end
+
+    action :disconnect, :map do
+      argument :account_id, :uuid, allow_nil?: false
+      run Lovelace.Mail.Operations
+    end
+
+    action :page, :map do
+      argument :workspace_id, :uuid, allow_nil?: false
+      argument :account_id, :uuid, allow_nil?: false
+      argument :query, :string, constraints: [max_length: 1024], sensitive?: true
+      argument :page_token, :string, constraints: [max_length: 2048], sensitive?: true
+      argument :force, :boolean, default: false
+      run Lovelace.Mail.Operations
+    end
+
+    action :thread, :map do
+      argument :workspace_id, :uuid, allow_nil?: false
+      argument :account_id, :uuid, allow_nil?: false
+
+      argument :thread_id, :string,
+        allow_nil?: false,
+        constraints: [match: ~r/\A[a-zA-Z0-9_-]{1,128}\z/]
+
+      argument :force, :boolean, default: false
+      run Lovelace.Mail.Operations
+    end
+
+    action :poll, :map do
+      argument :account_id, :uuid, allow_nil?: false
+      argument :generation, :uuid, allow_nil?: false
+      run Lovelace.Mail.Operations
+    end
+  end
+
+  policies do
+    policy action([:link, :unlink, :disconnect, :page, :thread]) do
+      access_type :strict
+      authorize_if Lovelace.Workspaces.LocalOwner
+    end
+
+    policy action(:poll) do
+      access_type :strict
+      authorize_if actor_attribute_equals(:role, :mail_service)
+    end
+  end
+end

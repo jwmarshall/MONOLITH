@@ -3,6 +3,8 @@ defmodule LovelaceWeb.WorkspacesLiveTest do
 
   import Phoenix.LiveViewTest
 
+  setup %{conn: conn}, do: {:ok, conn: authenticate_owner(conn)}
+
   alias Lovelace.Workspaces
 
   @owner %{role: :local_owner}
@@ -31,7 +33,7 @@ defmodule LovelaceWeb.WorkspacesLiveTest do
     studio = Enum.find(Workspaces.list_workspaces!(actor: @owner), &(&1.name == "Studio"))
     view |> element("#open-#{studio.id}") |> render_click()
     assert has_element?(view, "#directory-heading", "Studio")
-    assert has_element?(view, "#workspace-landing", "not connected")
+    assert has_element?(view, "#workspace-landing", "Gmail")
     refute has_element?(view, "#workspace-list")
 
     view |> element("#rename-current-workspace") |> render_click()

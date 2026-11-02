@@ -3,6 +3,8 @@ defmodule LovelaceWeb.HomeLiveTest do
 
   import Phoenix.LiveViewTest
 
+  setup %{conn: conn}, do: {:ok, conn: authenticate_owner(conn)}
+
   test "renders the LOVELACE shell over HTTP", %{conn: conn} do
     conn = get(conn, ~p"/")
     html = html_response(conn, 200)
@@ -70,7 +72,7 @@ defmodule LovelaceWeb.HomeLiveTest do
     refute has_element?(view, ".workspace-wordmark", "lovelace")
     assert has_element?(view, "#workspace-background[aria-hidden=true]")
     assert has_element?(view, "#main-content[aria-labelledby=workspace-title]")
-    assert has_element?(view, "#workspace-instructions", "not connected yet")
+    assert has_element?(view, "#workspace-instructions", "resume your current view")
     refute has_element?(view, "#accounts-empty, #projects-empty, #sync-status")
     refute has_element?(view, "a", "Private workspace")
     refute has_element?(view, "button", "Send")

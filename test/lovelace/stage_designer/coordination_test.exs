@@ -474,7 +474,7 @@ defmodule Lovelace.StageDesigner.CoordinationTest do
     assert {:ok, ^bytes} = Storage.read(settings, digest)
     assert {:ok, ^bytes} = StageDesigner.image(digest)
     assert StageDesigner.background!().url == Storage.url(digest)
-    conn = Phoenix.ConnTest.build_conn()
+    conn = Phoenix.ConnTest.build_conn(:get, "http://localhost/")
 
     conn =
       LovelaceWeb.Endpoint.call(

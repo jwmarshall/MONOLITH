@@ -31,8 +31,24 @@ defmodule LovelaceWeb.ConnCase do
     end
   end
 
+  alias Lovelace.Owner
+  alias Lovelace.Owner.Actions
+
+  def authenticate_owner(conn) do
+    Owner.configure!("fixture-only local owner password", actor: %{role: :owner_setup})
+    token = Base.url_encode64(:crypto.strong_rand_bytes(32), padding: false)
+
+    Owner.issue_session!(
+      Actions.digest(token),
+      DateTime.add(DateTime.utc_now(), 3600),
+      actor: %{role: :owner_auth_service}
+    )
+
+    Plug.Test.init_test_session(conn, %{owner_session_token: token})
+  end
+
   setup tags do
     Lovelace.DataCase.setup_sandbox(tags)
-    {:ok, conn: Phoenix.ConnTest.build_conn()}
+    {:ok, conn: Phoenix.ConnTest.build_conn(:get, "http://localhost/")}
   end
 end

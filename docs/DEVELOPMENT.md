@@ -29,9 +29,10 @@ checkout folder name are separate from application identifiers and were not chan
 | --- | --- | --- |
 | `ash`, `ash_sqlite`, `ash_phoenix` | Resources/domains/actions/policies, SQLite persistence, Phoenix forms | Runtime |
 | `simple_sat` | Pure-Elixir SAT solver required by the first production Ash policies | Runtime |
-| `ash_authentication`, `ash_authentication_phoenix` | Future LOVELACE authentication | Runtime; no strategy or resources configured |
+| `ash_authentication`, `ash_authentication_phoenix` | Single local owner unlock | AshAuthentication password strategy; terminal-only setup |
 | `req` | HTTP request/response contracts; built-in `Req.Test` stubs/expectations | Runtime; test utilities used in tests |
-| `mint` | Private unpooled Gemini transport, avoiding credential-bearing Finch telemetry | Runtime; promoted from existing locked transitive dependency |
+| `mint` | Private unpooled Gemini and Google transport, avoiding credential-bearing Finch telemetry | Runtime; pinned direct dependency |
+| `oban` | Durable Gmail polling with bundled SQLite Lite engine | Runtime; 2.24.2, concurrency 1, cron/Lifeline/pruning |
 | `exqlite` | Private SQLite coordination handle for cross-BEAM filesystem exclusion | Runtime; already used by AshSqlite, now an explicit direct dependency |
 | `vix` | Strict JPEG pixel decoding through libvips; original provider bytes retained | Runtime; native dependency |
 | `credo`, `ash_credo` | General and Ash-aware static analysis | Dev/test, not started at runtime |
@@ -108,8 +109,10 @@ The workspace UI still runs without dotenvx or an API key when generation is dis
 `Lovelace.Workspaces` owns a SQLite `Workspace` resource with explicit read/create/rename
 and starter-initialization actions. All require the server-supplied `%{role: :local_owner}`
 capability, checked strictly (including missing IDs). This is **not authentication** and
-must not be reused as a multi-user access design. Workspaces contain no account credentials,
-mail, or project associations. Future mail queries still require real account scoping.
+must not be reused as a multi-user access design. The protected UI now mints it only after
+owner-session verification. Workspace/account membership reuses Gmail connections without
+mixing inboxes; credentials remain in Keychain and mail queries require account scoping.
+See [GMAIL.md](GMAIL.md) for activation, native helper, retention and security decisions.
 
 Apply the additive schema before using the updated homepage:
 
@@ -122,7 +125,7 @@ upsert with a fixed ID and no update fields. Reloads, reconnects, and directory 
 never reset its renamed name or timestamps. Disconnected HTTP rendering does not write
 workspace records. Creation and rename use `AshPhoenix.Form`; names are trimmed, nonblank,
 and bounded to 64 characters server-side. There are deliberately no delete/archive actions,
-projects, account connection, or mailbox functionality in this slice.
+or projects. Account connection and read-only mail are implemented separately in `Lovelace.Mail`.
 
 `WorkspaceEntrance` gates server-owned content with `inert` until `BrandReveal` completes,
 then uses sticky LiveView JS attributes to preserve the entrance state through patches.
@@ -244,7 +247,7 @@ The declared minimum SQLite version is 3.38.0, AshSqlite's baseline. The actual 
 library is supplied by Exqlite. Raise the declared minimum intentionally before using
 newer SQLite syntax/features, and verify compatibility in CI.
 
-When the first domain resource is added:
+When adding a domain resource:
 
 1. Use an Ash resource/domain and explicit actions/accepted attributes/policies, not
    a parallel Ecto context implementation for the same behavior.
@@ -265,8 +268,8 @@ version-checked reservation commits before HTTP; SQLite does not support Ash's a
 `expr_error`, so these three updates explicitly use the record path with a SQL version
 filter (`require_atomic? false`, `atomic_upgrade? false`), not an unchecked read/write race.
 Conventional `mix ecto.*` tasks continue to work against the same repo. Do not generate
-auth resources before choosing the owner-login strategy and reviewing SQLite email
-case-insensitive uniqueness behavior.
+additional owner/auth resources without reviewing the existing single-owner password/session
+implementation. Google identities use immutable `sub`, not case-insensitive email uniqueness.
 
 The base Ash installer configured Spark formatting, current recommended compatibility
 settings, dev/test policy diagnostics, signed pagination keysets, and dev protocol
@@ -285,7 +288,8 @@ mix igniter.install package_name --dry-run
 
 Review changes before accepting. In particular, installing `ash_authentication` with
 its full installer may generate resources, strategies, routes, and migrations; those
-are deliberately **not generated** in this foundation pass. Protect `.tool-versions`,
+were deliberately **not generated** in the historical foundation pass. The later owner-unlock
+slice adds its own password strategy/resources without public signup. Protect `.tool-versions`,
 loopback binds, design tokens, and existing project-specific guidance.
 
 UsageRules configuration lives in `mix.exs`. It writes a linked index to
@@ -333,7 +337,25 @@ Deferred until justified:
 - Dialyzer/Dialyxir for a maintained static type-analysis workflow and PLT caching.
 - Dedicated property suites and mutation tests beyond Ash's existing generator support.
 - Mox, ExMachina, ExCoveralls, extra frontend test runners, and documentation generators.
-- Job-engine dependencies and Ash job extensions, pending SQLite compatibility/design.
+- Ash job extensions beyond the currently configured Oban SQLite polling jobs.
 
-Do not add infrastructure just because a package is conventional. Authentication
-strategy, Gmail authorization, and durable jobs are separate future design steps.
+Do not add infrastructure just because a package is conventional. Owner unlock, Gmail
+read-only authorization and Oban jobs now exist; sending/projects/packaging remain deferred.
+
+## Private mail instrumentation
+
+Repo ORM defaults set `log: false, telemetry_event: nil`: SQL telemetry contains both
+bound parameters and returned rows. Do not use raw SQL or override those options for
+mail. LiveView render payloads use bounded ephemeral `Mail.ViewData` references rather
+than body-bearing socket assigns. Provider HTTP bypasses Req/Finch payload instrumentation.
+Tests use fake providers/vaults; native Keychain operations and real Google connectors
+are refused by test builds. Oban runs in manual mode in tests, without queues/plugins.
+
+No external telemetry exporter is configured. The user explicitly accepted stock
+Bandit's in-process HTTP conn metadata after verifying its official documentation;
+request headers/query strings are not stripped before its initial event. Early password/
+OAuth plugs avoid additional Phoenix instrumentation, not Bandit's prior emission.
+Do not claim complete payload-free server telemetry, and do not attach payload loggers/
+exporters without a new review. See `GMAIL.md` for the precise exception and trust boundary.
+Escape/idle only changes scenery; use Lock to revoke the browser session. Development
+Tidewave remains a separate trusted local code/SQL capability, not a sandboxed mail viewer.

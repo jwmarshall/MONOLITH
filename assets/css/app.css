@@ -1,5 +1,6 @@
 @import "tailwindcss" source(none);
 @import "phoenix-colocated/lovelace/colocated.css";
+@import "./mail.css";
 @source "../css";
 @source "../js";
 @source "../../lib/lovelace_web";

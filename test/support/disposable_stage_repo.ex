@@ -65,11 +65,13 @@ defmodule Lovelace.TestSupport.DisposableStageRepo do
 
   def on_repo(repo, fun) do
     previous = Repo.put_dynamic_repo(repo)
+    barrier = Process.put(:lovelace_synthetic_sql_barriers, true)
 
     try do
       fun.()
     after
       Repo.put_dynamic_repo(previous)
+      Process.put(:lovelace_synthetic_sql_barriers, barrier)
     end
   end
 end

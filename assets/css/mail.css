@@ -1,0 +1,48 @@
+/* Read-only mail: sharp working content over LOVELACE's existing glass. */
+.mail-panel { margin-top: 24px; border-top: 1px solid rgb(238 237 229 / 25%); padding-top: 28px; font-size: 14px; line-height: 1.65; }
+.mail-heading, .mail-toolbar, .mail-account-row, .mail-thread-meta { display: flex; justify-content: space-between; gap: 24px; }
+.mail-heading { align-items: flex-start; margin-bottom: 28px; }
+.mail-heading h3 { font-size: clamp(22px, 3vw, 28px); font-weight: 300; letter-spacing: -0.025em; overflow-wrap: anywhere; }
+.mail-eyebrow { color: #e7bc7f; font-size: 10px; text-transform: uppercase; letter-spacing: 0.16em; margin-bottom: 6px; }
+.mail-muted, .mail-status, .mail-thread-meta, .mail-thread-snippet { color: #dedbd0; font-size: 12px; font-weight: 400; }
+.mail-section-title { margin: 28px 0 12px; font-weight: 400; font-size: 15px; }
+.mail-account-row { align-items: center; padding: 20px 0; border-bottom: 1px solid rgb(238 237 229 / 18%); }
+.mail-account-identity { min-width: 0; overflow-wrap: anywhere; }
+.mail-account-open { display: flex; flex-direction: column; align-items: flex-start; text-align: left; cursor: pointer; font-size: 17px; }
+.mail-account-open:hover { color: #e7bc7f; }
+.mail-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 24px; }
+.mail-actions .workspace-action { font-size: 12px; }
+.mail-disconnect { color: #e5b7a9; }
+.mail-connect { padding-top: 24px; max-width: 540px; }
+.mail-notice { margin: 16px 0; padding: 12px 0; border-block: 1px solid rgb(214 170 105 / 35%); color: #f0d2a5; }
+.mail-search { display: flex; align-items: flex-end; gap: 24px; margin: 20px 0; }
+.mail-search > div { flex: 1; margin-bottom: 0; }
+.mail-search .label { color: #dedbd0; font-size: 12px; }
+.mail-search-input { width: 100%; padding: 11px 14px; border: 1px solid rgb(238 237 229 / 35%); background: rgb(12 17 16 / 25%); color: #f3efe4; border-radius: 0; font-size: 16px; }
+.mail-status { margin: 8px 0 20px; }
+.mail-thread { display: block; width: 100%; text-align: left; padding: 20px 0; border-top: 1px solid rgb(238 237 229 / 18%); cursor: pointer; }
+.mail-thread:hover { background: rgb(238 237 229 / 4%); }
+.mail-thread-meta { margin-bottom: 6px; }
+.mail-thread-meta > :first-child { min-width: 0; overflow-wrap: anywhere; }
+.mail-thread-meta > :last-child { flex-shrink: 0; }
+.mail-thread-subject, .mail-thread-snippet { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mail-thread-subject { font-size: 16px; font-weight: 300; }
+.mail-thread-unread .mail-thread-subject { font-weight: 500; color: #f0d2a5; }
+.mail-pagination { display: flex; justify-content: flex-end; }
+.mail-empty { padding: 32px 0; color: #dedbd0; }
+.mail-message { padding: 24px 0; border-top: 1px solid rgb(238 237 229 / 18%); }
+.mail-message h4 { font-size: 19px; font-weight: 300; overflow-wrap: anywhere; }
+.mail-message-meta { display: grid; grid-template-columns: auto 1fr; gap: 4px 16px; margin: 14px 0 24px; font-size: 12px; overflow-wrap: anywhere; }
+.mail-message-meta dt { color: #d2ccbe; }
+.mail-message-text { white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; line-height: 1.85; tab-size: 4; }
+.mail-panel button:disabled { opacity: 0.45; cursor: wait; }
+@media (max-width: 640px) {
+  .mail-account-row { flex-direction: column; align-items: flex-start; gap: 12px; }
+  .mail-heading, .mail-search { gap: 16px; }
+  .mail-thread-meta { flex-direction: column; gap: 2px; }
+  .mail-actions { gap: 8px 18px; }
+}
+@media (forced-colors: active) {
+  .mail-panel, .mail-panel * { color: CanvasText; text-shadow: none; border-color: CanvasText; }
+  .mail-search-input { background: Canvas; }
+}
