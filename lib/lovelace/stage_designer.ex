@@ -12,6 +12,7 @@ defmodule Lovelace.StageDesigner do
       define :select_state_scene, action: :select_scene
     end
 
+    resource Lovelace.StageDesigner.Attempt
     resource Lovelace.StageDesigner.Scene
 
     resource Lovelace.StageDesigner.Direction do
@@ -31,6 +32,9 @@ defmodule Lovelace.StageDesigner do
       define :image, action: :image, args: [:digest]
       define :list_scenes, action: :list_scenes
       define :select_scene, action: :select_scene, args: [:digest]
+      define :prepare_scene_generation, action: :prepare_scene_generation
+      define :acknowledge_scene_attempt, action: :acknowledge_scene_attempt
+      define :check_scene_attempt, action: :check_scene_attempt
       define :request_scene_generation, action: :request_scene_generation
       define :generate_on_startup, action: :startup
       define :retry_failed_startup, action: :retry_failed

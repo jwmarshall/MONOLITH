@@ -8,6 +8,12 @@ defmodule Lovelace.StageDesigner.Diagnostics do
     invalid_settings:
       "image model, size, aspect ratio, prompt length, or timeout configuration is invalid",
     invalid_options: "the provider client received unsupported options",
+    invalid_request: "the Interactions request contains unsupported input or configuration",
+    request_too_large: "the request exceeded the 64 KiB safety limit; reduce the input",
+    invalid_id:
+      "the provider interaction ID is unavailable or invalid; no new generation was submitted",
+    unsupported_image_source:
+      "Google returned a remote image reference; only inline image bytes are accepted",
     client_configuration_error: "the HTTP client rejected its request options",
     timeout: "the request deadline expired; its outcome may be unknown",
     transport_error: "the connection failed before a usable response was received",

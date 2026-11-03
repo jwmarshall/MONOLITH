@@ -32,6 +32,12 @@ defmodule Lovelace.StageDesigner.Designer do
         constraints min: 1
       end
 
+      argument :attempt_page, :integer do
+        allow_nil? false
+        default 1
+        constraints min: 1
+      end
+
       run {Lovelace.StageDesigner.Scenes, operation: :list}
     end
 
@@ -44,13 +50,26 @@ defmodule Lovelace.StageDesigner.Designer do
       run {Lovelace.StageDesigner.Scenes, operation: :select}
     end
 
-    action :request_scene_generation, :atom do
-      argument :expected_prompt, :string do
-        default nil
-        constraints trim?: false, allow_empty?: true
-      end
+    action :prepare_scene_generation, :map do
+      argument :model, :string, allow_nil?: false
+      argument :aspect_ratio, :string, allow_nil?: false
+      argument :image_size, :string, allow_nil?: false
+      run {Lovelace.StageDesigner.Generation, operation: :prepare}
+    end
 
-      run {Lovelace.StageDesigner.Startup, manual?: true}
+    action :acknowledge_scene_attempt, :atom do
+      argument :id, :string, allow_nil?: false
+      run {Lovelace.StageDesigner.Generation, operation: :acknowledge}
+    end
+
+    action :check_scene_attempt, :atom do
+      argument :id, :uuid, allow_nil?: false
+      run {Lovelace.StageDesigner.Generation, operation: :check}
+    end
+
+    action :request_scene_generation, :atom do
+      argument :confirmation, :string, allow_nil?: false, sensitive?: true
+      run {Lovelace.StageDesigner.Generation, operation: :manual}
     end
 
     action :background, :map do
@@ -94,7 +113,10 @@ defmodule Lovelace.StageDesigner.Designer do
              :remove_gemini_key,
              :list_scenes,
              :select_scene,
-             :request_scene_generation
+             :request_scene_generation,
+             :prepare_scene_generation,
+             :acknowledge_scene_attempt,
+             :check_scene_attempt
            ]) do
       access_type :strict
       authorize_if Lovelace.Workspaces.LocalOwner

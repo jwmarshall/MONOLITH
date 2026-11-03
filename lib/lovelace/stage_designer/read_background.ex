@@ -3,7 +3,7 @@ defmodule Lovelace.StageDesigner.ReadBackground do
   use Ash.Resource.Actions.Implementation
 
   alias Lovelace.StageDesigner
-  alias Lovelace.StageDesigner.{Image, Scene, Settings, Storage}
+  alias Lovelace.StageDesigner.{Generation, Image, Scene, Settings, Storage}
 
   @impl true
   def run(_input, _opts, _context) do
@@ -14,14 +14,21 @@ defmodule Lovelace.StageDesigner.ReadBackground do
         active = active_scene(state, settings)
         url = if active, do: active.url
 
-        # A persisted reservation is not proof a task is still alive (possibly in
-        # another BEAM). Never announce active preparation from durable state alone.
-        status =
-          if settings.enabled or state.status in [:failed, :generating],
-            do: public_status(state.status),
-            else: :disabled
+        attempt = Generation.current(state)
 
-        {:ok, %{url: url, status: status}}
+        status =
+          cond do
+            attempt ->
+              Generation.status(attempt)
+
+            settings.enabled or state.status in [:failed, :generating] ->
+              public_status(state.status)
+
+            true ->
+              :disabled
+          end
+
+        {:ok, %{url: url, status: status, attempt: Generation.public(attempt)}}
 
       {:ok, nil} ->
         {:ok, %{url: nil, status: :idle}}

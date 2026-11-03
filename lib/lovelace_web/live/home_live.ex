@@ -96,7 +96,7 @@ defmodule LovelaceWeb.HomeLive do
 
   @impl true
   def handle_async(name, result, socket)
-      when name in [:scene_gallery, :scene_request, :scene_direction],
+      when name in [:scene_gallery, :scene_request, :scene_direction, :scene_prepare],
       do: HomeScenes.handle_async(name, result, socket)
 
   def handle_async(:gemini_status, result, socket), do: HomeGemini.handle_async(result, socket)
@@ -397,12 +397,15 @@ defmodule LovelaceWeb.HomeLive do
     transition(socket, "select_connection", %{"provider" => to_string(provider)})
   end
 
-  defp visit_destination(socket, %{action: :scenes, page: page}) do
+  defp visit_destination(socket, %{action: :scenes, page: page, attempt_page: attempt_page}) do
     socket = if socket.assigns.scenes, do: socket, else: transition(socket, "show_scenes")
 
-    if socket.assigns.scene_page == page,
+    if socket.assigns.scene_page == page && socket.assigns.scene_attempt_page == attempt_page,
       do: socket,
-      else: socket |> assign(:scene_page, page) |> HomeScenes.refresh()
+      else:
+        socket
+        |> assign(scene_page: page, scene_attempt_page: attempt_page)
+        |> HomeScenes.refresh()
   end
 
   defp visit_destination(socket, %{action: action} = destination)
@@ -719,6 +722,7 @@ defmodule LovelaceWeb.HomeLive do
               aria-disabled={if @editor, do: "true"}
             >Scenes</.link>
           </nav>
+          <SceneComponents.activity background={@background} />
         </div>
 
         <section
@@ -918,6 +922,10 @@ defmodule LovelaceWeb.HomeLive do
             confirmation={@scene_confirmation}
             confirmation_prompt={@scene_confirmation_prompt}
             direction={@scene_direction}
+            settings={@scene_settings}
+            preparing={@scene_preparing}
+            prepared={@scene_prepared}
+            acknowledgement={@scene_acknowledgement}
           />
 
           <LovelaceWeb.ConnectionComponents.overview :if={@connections && @connection_view == :index} />

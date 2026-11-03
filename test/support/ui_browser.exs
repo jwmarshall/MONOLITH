@@ -200,6 +200,16 @@ try do
   Application.put_env(:lovelace, :stage_designer, scenery)
   Application.put_env(:lovelace, :workspace_idle_minutes, 3)
 
+  # Exercise the real durable scenery queue against the empty synthetic vault.
+  # No Gmail queue/plugins run; the test-built Gemini transport cannot connect to Google.
+  oban = Application.fetch_env!(:lovelace, Oban)
+
+  Application.put_env(
+    :lovelace,
+    Oban,
+    Keyword.merge(oban, testing: :disabled, queues: [gemini: 1], plugins: [])
+  )
+
   endpoint = Application.fetch_env!(:lovelace, LovelaceWeb.Endpoint)
 
   Application.put_env(

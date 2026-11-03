@@ -5,6 +5,8 @@ defmodule Lovelace.Application do
 
   use Application
 
+  alias Lovelace.StageDesigner.Generation
+
   @impl true
   def start(_type, _args) do
     children = [
@@ -23,14 +25,15 @@ defmodule Lovelace.Application do
       Lovelace.Mail.OAuth,
       Lovelace.Mail.ViewData,
       {Oban, Application.fetch_env!(:lovelace, Oban)},
-      {Task.Supervisor, name: Lovelace.StageDesigner.TaskSupervisor},
-      # One asynchronous attempt per application startup, never restarted/retried.
+      # Recover authorized jobs independently of new-generation startup opt-in.
+      # One asynchronous reservation per application startup; paid work runs in Oban.
       %{
         id: Lovelace.StageDesigner.Startup,
         start:
           {Task, :start_link,
            [
              fn ->
+               Generation.reconcile()
                Lovelace.StageDesigner.generate_on_startup(%{}, actor: %{role: :stage_designer})
              end
            ]},

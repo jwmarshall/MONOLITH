@@ -152,13 +152,21 @@ Verify implementation in code; the coverage map below is not evidence that check
   **Add integration** is a focused panel for reusable connections or connecting Google;
   Gmail and opt-in read-only Google Calendar reuse account identities, not a speculative
   provider catalog. Google Gemini
-  is an **app-wide scenery connection** in global Connections, separate from Gmail accounts;
+  is an **app-wide Gemini connection** in global Connections, currently used by scenery and
+  backed by a reusable text/image client (not a chat UI), separate from Gmail accounts;
   it is never attached to a workspace or included in Gmail health/counts. Its API-key forms
   are ordinary authenticated, CSRF-protected POSTs, not LiveView credential events. Display
   only Keychain availability/key presence, never a returned key or unverified Google health.
   Saving/removing does not generate, probe Google or change the startup opt-in/cooldown.
   Explain possible charges, optional startup generation, explicit Scenes requests and
-  preserved imagery on key removal.
+  preserved imagery on key removal. Scenes captures per-request model/aspect/size in a single-use
+  cost confirmation; these controls never alter startup defaults. A quiet global link signals active
+  rendering or unacknowledged failure/unknown outcomes. Scenes retains paginated attempt history,
+  safe actionable failure details, last-check timestamps and separate remote-cleanup warnings.
+  Never fabricate percentage progress or call a retrieval failure a rendering failure. Unknown
+  submissions require an explicit charge/overlap warning before abandonment; another generation
+  always needs its own cost confirmation. Background Google storage and deletion-after-local-save
+  are disclosed at confirmation. Keep prior scenery visible during work and failures.
 - **Remove from workspace** detaches locally; global **Connections** owns health, reconnect
   and confirmed **Disconnect everywhere**. Global Gmail accounts use compact rows with
   identity/status beside actions on desktop and a wrapping layout on narrow screens.

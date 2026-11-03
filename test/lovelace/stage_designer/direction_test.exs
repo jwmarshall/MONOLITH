@@ -3,11 +3,11 @@ defmodule Lovelace.StageDesigner.DirectionTest do
 
   alias Lovelace.StageDesigner
   alias Lovelace.StageDesigner.{Direction, DirectionOptions, Settings}
-  alias Lovelace.TestSupport.{DisposableStageRepo, PNG}
+  alias Lovelace.TestSupport.{DisposableStageRepo, PNG, SceneGeneration}
 
   @owner %{role: :local_owner}
   @service %{role: :stage_designer}
-  @now ~U[2026-11-03 12:00:00.000000Z]
+  @now DateTime.add(DateTime.utc_now(), 86_400)
   @fallback "  Keep this configured brief exactly.\n"
 
   defmodule VaultSpy do
@@ -131,14 +131,26 @@ defmodule Lovelace.StageDesigner.DirectionTest do
     assert {:ok, ^saved} = StageDesigner.scene_direction(actor: @owner)
   end
 
-  test "manual confirmation checks the effective prompt exactly before any reservation" do
-    for prompt <- ["stale", "", String.trim(@fallback)] do
-      assert {:ok, :direction_changed} = manual(%{expected_prompt: prompt})
+  test "signed manual confirmation checks the exact effective prompt before any reservation" do
+    assert {:error, _} =
+             StageDesigner.request_scene_generation(%{confirmation: ""}, actor: @owner)
+
+    for token <- ["stale", String.trim(@fallback)] do
+      assert {:ok, :invalid_confirmation} =
+               StageDesigner.request_scene_generation(%{confirmation: token}, actor: @owner)
+
       assert {:ok, nil} = StageDesigner.get_state(1, actor: @service)
     end
 
+    assert {:ok, snapshot} = SceneGeneration.prepare()
+    assert snapshot.prompt == @fallback
     assert {:ok, saved} = save(DirectionOptions.defaults())
-    assert {:ok, :direction_changed} = manual(%{expected_prompt: @fallback})
+
+    assert {:ok, :direction_changed} =
+             StageDesigner.request_scene_generation(%{confirmation: snapshot.confirmation},
+               actor: @owner
+             )
+
     assert {:ok, nil} = StageDesigner.get_state(1, actor: @service)
 
     Req.Test.expect(__MODULE__, fn request ->
@@ -146,12 +158,12 @@ defmodule Lovelace.StageDesigner.DirectionTest do
       respond(request)
     end)
 
-    assert {:ok, :started} = manual(%{expected_prompt: saved.prompt})
-    assert_receive {:stage_background, %{status: :disabled, url: url}}, 2_000
+    assert {:ok, :started} = manual()
+    assert %{status: :queued, prompt: prompt} = SceneGeneration.current()
+    assert prompt == saved.prompt
+    assert %{status: :completed} = SceneGeneration.submit(__MODULE__)
+    assert_receive {:stage_background, %{status: :ready, url: url}}, 2_000
     assert is_binary(url)
-    reserved = StageDesigner.get_state!(1, actor: @service)
-    assert {:ok, :direction_changed} = manual(%{expected_prompt: "stale"})
-    assert StageDesigner.get_state!(1, actor: @service).version == reserved.version
     refute_receive :keychain_access
   end
 
@@ -161,8 +173,9 @@ defmodule Lovelace.StageDesigner.DirectionTest do
       respond(request)
     end)
 
-    assert {:ok, :started} = manual(%{expected_prompt: @fallback})
-    assert_receive {:stage_background, %{status: :disabled, url: url}}, 2_000
+    assert {:ok, :started} = manual()
+    assert %{status: :completed} = SceneGeneration.submit(__MODULE__)
+    assert_receive {:stage_background, %{status: :ready, url: url}}, 2_000
     assert is_binary(url)
     enable_startup()
 
@@ -177,29 +190,20 @@ defmodule Lovelace.StageDesigner.DirectionTest do
 
   test "manual captures saved direction and later startup consumes newly saved direction" do
     assert {:ok, saved} = save(%{DirectionOptions.defaults() | subject: "abstract"})
-    parent = self()
 
     Req.Test.expect(__MODULE__, fn request ->
-      send(parent, {:provider_waiting, self()})
-
-      receive do
-        :finish ->
-          assert_prompt(request, saved.prompt)
-          respond(request)
-      after
-        5_000 -> flunk("fake provider was not released")
-      end
+      assert_prompt(request, saved.prompt)
+      respond(request)
     end)
 
-    # Omitted expected_prompt remains compatible, and works with disabled startup.
     assert {:ok, :started} = manual()
-    assert_receive {:provider_waiting, provider}, 2_000
+    assert SceneGeneration.current().prompt == saved.prompt
 
     assert {:ok, next} =
              save(%{DirectionOptions.defaults() | subject: "landscape", light: "dawn"})
 
-    send(provider, :finish)
-    assert_receive {:stage_background, %{status: :disabled, url: url}}, 2_000
+    assert %{status: :completed} = SceneGeneration.submit(__MODULE__)
+    assert_receive {:stage_background, %{status: :ready, url: url}}, 2_000
     assert is_binary(url)
     enable_startup()
 
@@ -218,6 +222,11 @@ defmodule Lovelace.StageDesigner.DirectionTest do
        } do
     pools = DisposableStageRepo.start!(directory)
 
+    DisposableStageRepo.migrate!(pools.first, [
+      {20_261_103_210_745, "20261103210745_tracked_gemini_generations.exs",
+       Lovelace.Repo.Migrations.TrackedGeminiGenerations}
+    ])
+
     on_exit(fn ->
       DisposableStageRepo.stop(pools.first)
       DisposableStageRepo.stop(pools.second)
@@ -226,7 +235,7 @@ defmodule Lovelace.StageDesigner.DirectionTest do
     # This deliberately older disposable schema has stage state but no direction table.
     DisposableStageRepo.on_repo(pools.first, fn ->
       assert {:ok, :disabled} = StageDesigner.generate_on_startup(actor: @service)
-      assert {:ok, :unavailable} = manual()
+      assert {:error, _} = manual()
       enable_startup()
       assert {:ok, :unavailable} = startup(@now)
       assert {:ok, nil} = StageDesigner.get_state(1, actor: @service)
@@ -238,49 +247,27 @@ defmodule Lovelace.StageDesigner.DirectionTest do
 
   defp save(values, actor \\ @owner), do: StageDesigner.save_scene_direction(values, actor: actor)
 
-  defp manual(params \\ %{}) do
-    StageDesigner.request_scene_generation(params, actor: @owner, context: provider_context())
-  end
+  defp manual, do: SceneGeneration.manual()
 
   defp startup(now) do
-    StageDesigner.generate_on_startup(%{now: now}, actor: @service, context: provider_context())
+    StageDesigner.generate_on_startup(%{now: now}, actor: @service)
+    |> SceneGeneration.finish(__MODULE__)
   end
 
   defp enable_startup do
     Application.put_env(:lovelace, :stage_designer, %{Settings.get() | enabled: true})
   end
 
-  defp provider_context do
-    %{now: @now, provider_options: [api_key: "fake-key", plug: {Req.Test, __MODULE__}]}
-  end
-
   defp assert_prompt(request, prompt) do
     {:ok, body, request} = Plug.Conn.read_body(request)
 
-    assert get_in(Jason.decode!(body), ["contents", Access.at(0), "parts", Access.at(0), "text"]) ==
-             prompt
+    assert Jason.decode!(body)["input"] == prompt
 
     request
   end
 
   defp respond(request) do
-    Req.Test.json(request, %{
-      candidates: [
-        %{
-          finishReason: "STOP",
-          content: %{
-            parts: [
-              %{
-                inlineData: %{
-                  mimeType: "image/png",
-                  data: Base.encode64(PNG.image())
-                }
-              }
-            ]
-          }
-        }
-      ]
-    })
+    SceneGeneration.respond(request, PNG.image())
   end
 
   defp observe_queries do

@@ -7,9 +7,12 @@ on application startup when opted in, or through an explicitly confirmed request
 **Scenes**. It never generates from a page load, LiveView reconnect, gallery/status refresh,
 or inactivity event. One locally bundled JPEG remains underneath locally served generated imagery.
 Scenes includes a saved, guided **Scene direction** editor and an expandable exact prompt.
-There is no scheduled worker. Scenes shows the retained local gallery,
-latest attempt status and manual eligibility; unknown legacy image dates are labelled.
-An in-server generation broadcasts updates to connected LiveViews. An operator invocation
+Scenes shows the retained local gallery, permanent paginated generation-attempt history,
+current phase, safe failure details and manual eligibility; unknown legacy image dates are labelled.
+A dedicated Oban SQLite queue submits authorized work, polls saved Google interaction IDs and
+cleans up remote results. A recovery sweep repairs existing work; it never schedules new scenes.
+Generation phase changes broadcast updates to connected LiveViews; a quiet global signal links
+to Scenes for active work or unacknowledged failure/unknown outcomes. An operator invocation
 in a separate BEAM process updates files/SQLite but not the running server's local PubSub;
 refresh the homepage to load that result.
 
@@ -22,19 +25,30 @@ tier, not full desktop-native resolution or a visual-quality guarantee.
 - One asynchronous attempt on an **eligible application-process startup**. Browser
   loads do not start work. Scenes requests require explicit confirmation of possible API
   charges and work independently of the startup-enabled setting. There is no daily timer
-  while the application stays running. Manual requests use a supervised, nonretrying task
-  that survives leaving the view. Confirmed manual requests have no daily cooldown,
-  including after failure/success, but refuse any existing unconfirmed (`generating`)
-  reservation to avoid overlapping requests. An old reservation is not presumed dead
-  merely because time elapsed; there is no automatic recovery or guessed retry.
+  while the application stays running. Manual requests use durable Oban jobs that survive
+  leaving the view. Confirmed manual requests have no daily cooldown, including after
+  failure/success, but refuse existing unresolved reservations to avoid overlap.
+  Submission claims are permanent, not leases: worker rescue never repeats a paid POST.
+  A stranded submission without a saved interaction ID becomes outcome unknown, not permission
+  to resubmit. Scenes offers explicit acknowledgement/abandonment with a charge/overlap warning;
+  another generation requires a separate fresh cost confirmation. Late abandoned results cannot
+  reactivate scenery or overwrite newer attempts.
 - SQLite persists an attempt reservation **before** contacting Gemini. The minimum
   **automatic-startup** interval is 24 hours, including failed, interrupted, and unknown outcomes.
   Every manual reservation also advances that startup cooldown; it does not impose a manual cooldown. A missing
   image does not bypass that cooldown; neither does restarting the server repeatedly.
 - A version-checked Ash update allows only the winning concurrent claimant to contact
-  Google. No database transaction spans HTTP. No automatic HTTP or worker retries.
+  Google. Reservation, permanent attempt and submission-job insertion commit together.
+  No database transaction spans HTTP. A single-use, ten-minute signed confirmation binds the
+  complete effective manual request and current reservation version; duplicate delivery resolves
+  to the same attempt. Intervening generation/abandonment invalidates unused confirmations so
+  an old tab cannot reuse pre-abandonment consent for another paid request.
+  No automatic generation retries or model fallback. Safe retrieval/deletion can retry independently.
 - Previous imagery stays visible while generating and on failure. Successful publication
   updates the manifest and open LiveViews through application-wide PubSub, not mailbox topics.
+  Publication, attempt completion and durable remote-deletion intent commit together; replay cannot
+  override a subsequently selected scene. Google deletion happens only after that commit. Cleanup
+  failures remain separate from successful image generation and can be retried without generating.
 - Keep **all distinct successful images**, with no total count cap or automatic eviction
   of published scenes. The Ash scene catalog is authoritative; gallery reads validate at
   most 20 scenes per page, newest first. Disk use grows with successful generations.
@@ -76,6 +90,10 @@ art direction is accepted, with no free-text private context. The cost dialog al
 the exact prompt for its request. Manual confirmation checks that the saved prompt has not
 changed since review; a mismatch refuses generation before reservation/provider access.
 Already-dispatched work uses its captured prompt even if the default is subsequently edited.
+Scenes also offers per-request model, aspect-ratio and size controls, captured in confirmation and
+history. They never change startup defaults. The curated picker offers Nano Banana 2.1,
+Gemini 3.1 Flash Image and Gemini 3 Pro Image, with 1K/2K output; unsafe or unsupported combinations
+are refused, never silently substituted. Startup still uses its configured settings.
 Saved direction is a default for future images, not a record of past images' prompts.
 
 ## Bundled installation default
@@ -168,8 +186,12 @@ dotenvx run --strict -f .env --no-native --no-armor --no-1password --no-bitwarde
 Plain Mix does not load `.env`. Existing shell variables take precedence over dotenvx;
 avoid stale overrides. Do not `source .env`. Configuration changes require restarting
 the application. Any command starting the OTP application can invoke the startup task;
-force `LOVELACE_STAGE_ENABLED=false` for development/maintenance commands that should
-not generate. Test runtime always disables the real startup task, regardless of the flag.
+force `LOVELACE_STAGE_ENABLED=false` to prevent new automatic startup generations during
+maintenance. This flag does not cancel already authorized durable jobs: starting the full
+application can resume a queued first submission, retrieval or deletion even with startup
+opt-in disabled. Maintenance that must make no provider calls must not start the application’s
+Oban queues; use no-start tooling or explicitly disabled queues. Test runtime disables startup
+generation and real provider transport, regardless of the flag.
 Production still needs `DATABASE_PATH`, `SECRET_KEY_BASE`, `PHX_SERVER=true`, and built
 assets. Packaged releases migrate the schema before starting the generation task.
 
@@ -221,18 +243,18 @@ format conformance. Native decoding adds a maintained parser dependency, not a s
 
 ## Documentation review: output formats and validation
 
-The Gemini Developer API's current [ImageConfig](https://ai.google.dev/api/generate-content#ImageConfig)
-and [public v1beta discovery schema](https://generativelanguage.googleapis.com/$discovery/rest?version=v1beta)
-do not offer a reliable PNG selector in the existing `imageConfig` path. The newer
-`generationConfig.responseFormat.image.mimeType` schema explicitly supports `IMAGE_JPEG`;
-that is not the text-only `generationConfig.responseMimeType`. We retain the existing
-supported aspect-ratio/size request and accept both validated JPEG and PNG output.
-
-Do not copy similarly named Imagen `parameters.outputOptions.mimeType` or Vertex AI
-`imageConfig.imageOutputOptions.mimeType` fields into this Developer API request. The
+Scenery uses the versioned [Interactions REST API](https://ai.google.dev/api/interactions-api),
+with `response_format: {type: "image", aspect_ratio: ..., image_size: ...}` and inline image
+content from model-output steps. The shared client also supports text/chat-turn input without
+adding a chat UI or tools. It never fetches provider-hosted image URLs. The
 [image guide](https://ai.google.dev/gemini-api/docs/image-generation) and examples have
-inconsistent file extensions; the actual MIME and bytes, not a `.png` example filename,
-determine encoding. Do not infer a rejected response's encoding from a filename.
+inconsistent file extensions; actual MIME and validated bytes, not example filenames,
+determine encoding. Both original JPEG and PNG bytes remain supported.
+
+See [background execution](https://ai.google.dev/gemini-api/docs/background-execution) for
+`store=true` requirements and retrieval/deletion semantics. Unsupported model/configuration
+responses are surfaced, not retried against another model. Existing legacy `generateContent`
+client coverage remains as transport/image-validation regression protection, not the scenery job path.
 
 [PNG section 11.2.3](https://www.w3.org/TR/png-3/#11IDAT) instructs decoders to ignore unused
 bytes after the compressed stream in the final IDAT chunk. The validator now uses OTP's
@@ -260,8 +282,14 @@ Unpaid Gemini services generally permit product-improvement use and human review
 regional exceptions apply. Paid terms generally exclude product-improvement use by default,
 but do not promise zero retention or no abuse review. Review project
 [logging/sharing settings](https://ai.google.dev/gemini-api/docs/logs-policy) and leave
-dataset sharing disabled. Requests set `store: false`, but that does not override abuse
-monitoring or contractual retention. Never include email, names, calendars, projects,
+dataset sharing disabled. Scenery requests use the Google Interactions API with `background: true, store: true` so
+saved interaction IDs can be retrieved after restart. Google may continue rendering while
+LOVELACE is closed; local polling/publication only runs while the application runs. Paid-tier
+interaction retention defaults to 55 days (configurable in AI Studio). LOVELACE requests deletion
+after successful local publication; failed deletion and failed/unresolved generations can leave
+remote interactions subject to Google's retention policy. Deletion does not override abuse
+monitoring or contractual retention. The shared text/image Interactions client defaults to
+`store: false`; scenery is an explicit opt-in exception. Never include email, names, calendars, projects,
 or other private context. No search grounding, remote references, or browser Google calls.
 
 Gemini uses a private Req adapter over unpooled Mint, not Finch's credential-bearing
@@ -273,8 +301,11 @@ regressions; `Req.Test` alone is not transport-containment evidence.
 Failures log the failing stage, a safe error category, HTTP status when available, and
 an actionable hint. Only allowlisted Google error/status codes are retained in the error
 result; provider messages, quota metadata, request objects, exception text, prompts, and
-credentials are never printed. The database stores failure state/timestamps, not raw error
-payloads; discarded details from older attempts cannot be recovered retrospectively.
+credentials are never printed. The database stores permanent attempts with generic request snapshots, model/settings,
+phase/timestamps, provider IDs, allowlisted failure descriptions and cleanup state, not raw error
+payloads or credentials. Oban arguments contain identifiers/operation only, and Oban errors are
+sanitized. History reads are bounded to 20 attempts per page; job pruning never deletes this history.
+Discarded details from older attempts cannot be recovered retrospectively.
 
 For example, `provider: HTTP 429 (resource_exhausted)` means Google rejected the request
 for quota/rate limits. Check API billing and this model's quota for the project associated
@@ -286,18 +317,25 @@ mismatches, invalid image contents, and local storage/publication failures.
 The previous image remains active on failure. Do not delete/reset the reservation database
 to bypass a cooldown: a timed-out/interrupted request may have been billed. Fix the issue
 and wait until the next eligible startup, or make a fresh explicitly confirmed Scenes
-request after a failed/successful outcome. Unconfirmed attempts remain blocked from manual
-requests to avoid overlap; do not reset their state just to retry. There is also an **internal operator-only**
+request after a failed/successful outcome. Unconfirmed attempts remain blocked from manual requests to avoid overlap. For an unknown
+submission without a retrievable ID, use the explicit Scenes acknowledgement warning, never
+reset database state. Polling uses bounded retries/backoff and pauses after three retrieval errors
+or 180 observations; a paused tracker is not a failed renderer. **Check status** resumes retrieval
+of the same ID without submitting another generation. An expired/unavailable interaction (HTTP 404)
+becomes an acknowledgeable unknown outcome rather than permanently blocking generation. There is also an **internal operator-only**
 `retry_failed_startup` Ash action for an explicitly authorized single diagnostic attempt;
 it is never called by startup, a timer, or the browser. It only accepts a prior failed
 state, requires the service actor, reserves a fresh timestamp/version before HTTP, and
 leaves the normal cooldown/retry policy intact. It must not be invoked without the user's
 explicit permission for another potentially billable request. It refuses successful or
 still-`generating` attempts, including interrupted ones. A persisted `generating` state after a crash is not
-permission to retry. Public background reads expose that reservation as `uncertain`,
-not proof that preparation is currently active; the UI announces an unconfirmed outcome.
-This also honestly describes an in-progress request before its outcome is known. The
-persisted state/timestamp/version are unchanged. There is no automatic job recovery.
+permission to retry. Legacy public background reads expose a reservation without a tracked attempt as `uncertain`,
+not proof of activity. Explicit acknowledgement preserves a labelled legacy unknown record;
+previous failure reasons and provider IDs cannot be reconstructed. New attempts distinguish
+queued, submitting, provider-reported rendering, paused tracking and terminal states. A
+minute recovery sweep restores authorized tracking/cleanup jobs and marks stranded submissions
+unknown without releasing their reservation or repeating their POST. The 24-hour startup cooldown
+is preserved through failure, abandonment and recovery.
 
 ## Verification
 

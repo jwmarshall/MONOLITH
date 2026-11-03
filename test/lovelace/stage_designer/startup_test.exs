@@ -2,14 +2,15 @@ defmodule Lovelace.StageDesigner.StartupTest do
   use LovelaceWeb.ConnCase, async: false
 
   import Bitwise
-  import ExUnit.CaptureLog
 
   alias Lovelace.StageDesigner
   alias Lovelace.StageDesigner.{Image, ReadBackground, Settings, Storage}
-  alias Lovelace.TestSupport.{JPEG, PNG}
+  alias Lovelace.TestSupport.{JPEG, PNG, SceneGeneration}
 
   @actor %{role: :stage_designer}
-  @now ~U[2026-11-01 12:00:00.000000Z]
+  # Publication uses the actual completion clock, so keep synthetic startup
+  # reservations ahead of it when testing exact daily cooldown boundaries.
+  @now DateTime.add(DateTime.utc_now(), 86_400)
 
   setup {Req.Test, :verify_on_exit!}
 
@@ -42,8 +43,10 @@ defmodule Lovelace.StageDesigner.StartupTest do
       respond(request, bytes)
     end)
 
-    assert {:ok, :generated} = startup(@now)
-    assert_receive {:stage_background, %{url: nil, status: :uncertain}}
+    assert {:ok, :started} = StageDesigner.generate_on_startup(%{now: @now}, actor: @actor)
+    assert SceneGeneration.current().status == :queued
+    assert_receive {:stage_background, %{url: nil, status: :queued}}
+    assert %{status: :completed} = SceneGeneration.submit(__MODULE__)
     assert_receive {:stage_background, %{url: url, status: :ready}}
     assert url =~ ~r|\A/stage/background/[0-9a-f]{64}\.png\z|
     assert {:ok, %{url: ^url, status: :ready}} = StageDesigner.background()
@@ -99,9 +102,9 @@ defmodule Lovelace.StageDesigner.StartupTest do
     assert StageDesigner.background!().url == Storage.url(Enum.at(state.history, 1), :png)
   end
 
-  test "failed and uncertain attempts persist cooldown even without an image" do
+  test "definite failed attempts persist cooldown even without an image" do
     Req.Test.expect(__MODULE__, fn request ->
-      Plug.Conn.send_resp(request, 503, "fake provider failure")
+      Plug.Conn.send_resp(request, 429, "fake provider rejection")
     end)
 
     assert {:ok, :failed} = startup(@now)
@@ -113,8 +116,22 @@ defmodule Lovelace.StageDesigner.StartupTest do
     assert {:ok, :generated} = startup(DateTime.add(@now, 24 * 3600))
   end
 
+  test "unknown submission outcomes block startup, manual and operator overlap beyond cooldown" do
+    Req.Test.expect(__MODULE__, &Plug.Conn.send_resp(&1, 503, "private provider failure"))
+    assert {:ok, :uncertain} = startup(@now)
+    attempt = SceneGeneration.current()
+    assert attempt.status == :unknown
+    refute attempt.failure =~ "private provider failure"
+    later = DateTime.add(@now, 2 * 86_400)
+    assert {:ok, :cached} = startup(later)
+    assert {:ok, :cached} = StageDesigner.retry_failed_startup(%{now: later}, actor: @actor)
+    assert {:ok, :busy} = SceneGeneration.manual()
+    assert SceneGeneration.current().id == attempt.id
+    assert StageDesigner.background!().status == :uncertain
+  end
+
   test "an explicit operator retry reserves one failed attempt without enabling automatic retries" do
-    Req.Test.expect(__MODULE__, &Plug.Conn.send_resp(&1, 503, "fake failure"))
+    Req.Test.expect(__MODULE__, &Plug.Conn.send_resp(&1, 429, "fake rejection"))
     assert {:ok, :failed} = startup(@now)
     later = DateTime.add(@now, 60)
     assert {:ok, :cached} = startup(later)
@@ -125,13 +142,8 @@ defmodule Lovelace.StageDesigner.StartupTest do
       respond(request, PNG.image())
     end)
 
-    assert {:ok, :generated} =
-             StageDesigner.retry_failed_startup(%{now: later},
-               actor: @actor,
-               context: %{
-                 provider_options: [api_key: "fake-stage-key", plug: {Req.Test, __MODULE__}]
-               }
-             )
+    assert {:ok, :started} = StageDesigner.retry_failed_startup(%{now: later}, actor: @actor)
+    assert {:ok, :generated} = SceneGeneration.finish({:ok, :started}, __MODULE__)
 
     # The operator action refuses a successful or still-running prior attempt.
     assert {:ok, :cached} = StageDesigner.retry_failed_startup(%{now: later}, actor: @actor)
@@ -140,13 +152,13 @@ defmodule Lovelace.StageDesigner.StartupTest do
 
   test "operator retry does not create an initial request or retry an uncertain running attempt" do
     assert {:ok, :cached} = StageDesigner.retry_failed_startup(%{now: @now}, actor: @actor)
-    state = StageDesigner.get_state!(1, actor: @actor)
-    assert state.last_attempt_at == nil
+    assert StageDesigner.get_state!(1, actor: @actor) == nil
+    state = StageDesigner.initialize_state!(%{}, actor: @actor)
     StageDesigner.reserve_state!(state, %{last_attempt_at: @now}, actor: @actor)
     assert {:ok, :cached} = StageDesigner.retry_failed_startup(%{now: @now}, actor: @actor)
   end
 
-  test "logs useful safe provider diagnostics without leaking response text or fake credentials" do
+  test "persists useful safe provider diagnostics without leaking response text or fake credentials" do
     private = "fake-provider-private-message-and-key"
 
     Req.Test.expect(__MODULE__, fn request ->
@@ -161,16 +173,16 @@ defmodule Lovelace.StageDesigner.StartupTest do
       })
     end)
 
-    log = capture_log(fn -> assert {:ok, :failed} = startup(@now) end)
-    assert log =~ "provider: HTTP 429 (resource_exhausted)"
-    assert log =~ "check model quota and billing"
-    assert log =~ "no retry"
-    refute log =~ private
-    refute log =~ "fake-stage-key"
+    assert {:ok, :failed} = startup(@now)
+    failure = SceneGeneration.current().failure
+    assert failure =~ "HTTP 429"
+    assert failure =~ "quota"
+    refute failure =~ private
+    refute failure =~ "fake-stage-key"
     assert {:ok, :cached} = startup(DateTime.add(@now, 1))
   end
 
-  test "logs storage failures separately from provider failures", %{directory: directory} do
+  test "persists storage failures separately from provider failures", %{directory: directory} do
     File.mkdir_p!(directory)
     blocked = Path.join(directory, "blocked")
     File.write!(blocked, "not a directory")
@@ -179,10 +191,11 @@ defmodule Lovelace.StageDesigner.StartupTest do
 
     Req.Test.expect(__MODULE__, &respond(&1, PNG.image()))
 
-    log = capture_log(fn -> assert {:ok, :failed} = startup(@now) end)
-    assert log =~ "storage: storage_error"
-    assert log =~ "storage directory and permissions"
-    refute log =~ blocked
+    assert {:ok, :failed} = startup(@now)
+    failure = SceneGeneration.current().failure
+    assert failure =~ "storage"
+    assert failure =~ "permissions"
+    refute failure =~ blocked
   end
 
   test "optimistic reservation rejects a second claimant with the same version" do
@@ -449,29 +462,11 @@ defmodule Lovelace.StageDesigner.StartupTest do
   end
 
   defp startup(now) do
-    StageDesigner.generate_on_startup(%{now: now},
-      actor: @actor,
-      context: %{provider_options: [api_key: "fake-stage-key", plug: {Req.Test, __MODULE__}]}
-    )
+    StageDesigner.generate_on_startup(%{now: now}, actor: @actor)
+    |> SceneGeneration.finish(__MODULE__)
   end
 
   defp respond(request, bytes) do
-    Req.Test.json(request, %{
-      candidates: [
-        %{
-          finishReason: "STOP",
-          content: %{
-            parts: [
-              %{
-                inlineData: %{
-                  mimeType: Image.mime_type(Image.format(bytes)),
-                  data: Base.encode64(bytes)
-                }
-              }
-            ]
-          }
-        }
-      ]
-    })
+    SceneGeneration.respond(request, bytes)
   end
 end

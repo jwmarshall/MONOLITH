@@ -24,8 +24,13 @@ defmodule LovelaceWeb.HomeNavigation do
   def current(%{assigns: %{connections: true} = a}),
     do: connections_path(a.connection_view)
 
-  def current(%{assigns: %{scenes: true, scene_page: page}}),
-    do: query("/scenes", page: if(page > 1, do: page))
+  def current(%{assigns: %{scenes: true, scene_page: page} = assigns}),
+    do:
+      query("/scenes",
+        page: if(page > 1, do: page),
+        attempt_page:
+          if(Map.get(assigns, :scene_attempt_page, 1) > 1, do: assigns.scene_attempt_page)
+      )
 
   def current(%{assigns: %{mail: %{account_id: id} = mail}}) when not is_nil(id),
     do: mail_path(mail)
@@ -56,6 +61,7 @@ defmodule LovelaceWeb.HomeNavigation do
 
     with {:ok, provider} <- provider(params),
          {:ok, page} <- page(params),
+         {:ok, attempt_page} <- attempt_page(params),
          {:ok, query} <- text(params["q"], 1024),
          {:ok, token} <- text(params["page_token"], 2048),
          {:ok, thread} <- thread(params["thread_id"]),
@@ -66,6 +72,7 @@ defmodule LovelaceWeb.HomeNavigation do
          action: action,
          provider: if(action == :connections, do: :index, else: provider),
          page: page,
+         attempt_page: attempt_page,
          workspace_id: workspace,
          account_id: account,
          query: query,
@@ -76,7 +83,7 @@ defmodule LovelaceWeb.HomeNavigation do
   end
 
   defp keys(:connection), do: ["provider"]
-  defp keys(:scenes), do: ["page"]
+  defp keys(:scenes), do: ["page", "attempt_page"]
   defp keys(action) when action in [:workspace, :integration_add], do: ["workspace_id"]
   defp keys(:inbox), do: ["account_id", "q", "page_token"]
   defp keys(:thread), do: ["account_id", "thread_id", "q", "page_token"]
@@ -101,6 +108,9 @@ defmodule LovelaceWeb.HomeNavigation do
 
   defp page(%{"page" => _}), do: :error
   defp page(_), do: {:ok, 1}
+
+  defp attempt_page(%{"attempt_page" => value}), do: page(%{"page" => value})
+  defp attempt_page(_), do: {:ok, 1}
 
   defp thread(nil), do: {:ok, nil}
 

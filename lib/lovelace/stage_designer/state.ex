@@ -24,7 +24,7 @@ defmodule Lovelace.StageDesigner.State do
     update :reserve do
       require_atomic? false
       atomic_upgrade? false
-      accept [:last_attempt_at]
+      accept [:last_attempt_at, :active_attempt_id]
       change set_attribute(:status, :generating)
       change optimistic_lock(:version)
     end
@@ -77,6 +77,7 @@ defmodule Lovelace.StageDesigner.State do
       default :idle
     end
 
+    attribute :active_attempt_id, :uuid
     attribute :last_attempt_at, :utc_datetime_usec
     attribute :generated_at, :utc_datetime_usec
 

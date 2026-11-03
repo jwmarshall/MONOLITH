@@ -222,8 +222,19 @@ async function guidedSceneDirection() {
   await waitFor("!!document.querySelector('#scene-direction-notice') && document.querySelector('#scene-direction-save').disabled && !document.querySelector('#scene-generate').disabled", "keyboard save completes without generating")
   assert.deepEqual(await sceneManifest(), before, "editing and saving never reserves or changes the background")
   await screenshot('scene-direction-desktop')
+  await evaluate(`(() => {
+    const choices = {model: 'gemini-3-pro-image', aspect_ratio: '4:3', image_size: '2K'};
+    for (const [key, value] of Object.entries(choices)) document.querySelector('#scene-generation-' + key).value = value;
+    document.querySelector('#scene-generation-image_size').dispatchEvent(new Event('change', {bubbles: true}));
+  })()`)
   await click('#scene-generate')
   await sceneModal()
+  const confirmedSettings = await evaluate("document.querySelector('#scene-confirmation-settings').textContent")
+  assert.match(confirmedSettings, /gemini-3-pro-image/)
+  assert.match(confirmedSettings, /4:3/)
+  assert.match(confirmedSettings, /2K/)
+  assert.match(await evaluate("document.querySelector('#scene-generation-modal').textContent"), /store=true/)
+  assert.match(await evaluate("document.querySelector('#scene-generation-modal').textContent"), /deletion/)
   assert.equal(await evaluate("document.querySelector('#scene-confirmation-prompt p').textContent"), prompt, "cost confirmation pins exact previewed prompt")
   await key('Escape')
   await waitFor("!document.querySelector('#scene-generation-modal')", "cancel stays free")
@@ -935,7 +946,7 @@ try {
     document.querySelector('#scenes-panel')?.getAttribute('aria-busy') === 'false' &&
     document.querySelector('#scene-generate')?.disabled === false &&
     document.querySelector('#scenes-panel .scene-status time')?.dateTime !== ${JSON.stringify(beforeConfirmedAttempt)} &&
-    document.querySelector('#scenes-panel .scene-status')?.textContent.includes('last generation failed')`, 'confirmed fake-vault failure leaves manual Generate enabled')
+    document.querySelector('#scenes-panel .scene-status')?.textContent.includes('Scene generation failed')`, 'confirmed fake-vault failure leaves manual Generate enabled')
   await screenshot('scenes-after-confirmed-failure')
   await click("#home-link")
   await home()
@@ -1415,8 +1426,12 @@ try {
       }
       if (forced && width === 1440) await screenshot("scenes-forced-colors")
       await evaluate("document.querySelector('#scenes-refresh').focus()")
+      for (const field of ['model', 'aspect_ratio', 'image_size']) {
+        await key("Tab")
+        assert.equal(await evaluate("document.activeElement.id"), `scene-generation-${field}`, "keyboard reaches each generation setting from read-only Refresh")
+      }
       await key("Tab")
-      assert.equal(await evaluate("document.activeElement.id"), "scene-generate", "keyboard reaches generation from read-only Refresh")
+      assert.equal(await evaluate("document.activeElement.id"), "scene-generate", "keyboard reaches generation after its settings")
       if (forced) assert.notEqual(await evaluate("getComputedStyle(document.activeElement).outlineStyle"), "none", "forced-color scene controls retain visible keyboard focus")
       await key("Enter")
       await sceneModal()

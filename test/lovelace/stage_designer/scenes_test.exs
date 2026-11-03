@@ -2,12 +2,12 @@ defmodule Lovelace.StageDesigner.ScenesTest do
   use Lovelace.DataCase, async: false
 
   alias Lovelace.StageDesigner
-  alias Lovelace.StageDesigner.{Image, Scene, Settings, Startup, Storage}
-  alias Lovelace.TestSupport.PNG
+  alias Lovelace.StageDesigner.{Scene, Settings, Startup, Storage}
+  alias Lovelace.TestSupport.{PNG, SceneGeneration}
 
   @service %{role: :stage_designer}
   @owner %{role: :local_owner}
-  @now ~U[2026-11-01 12:00:00.000000Z]
+  @now DateTime.add(DateTime.utc_now(), 86_400)
 
   setup {Req.Test, :verify_on_exit!}
 
@@ -63,90 +63,56 @@ defmodule Lovelace.StageDesigner.ScenesTest do
   test "disabled startup permits manual requests immediately after success, reserved before HTTP" do
     assert {:ok, :disabled} = StageDesigner.generate_on_startup(%{}, actor: @service)
     assert StageDesigner.get_state!(1, actor: @service) == nil
-    parent = self()
 
-    Req.Test.expect(__MODULE__, fn request ->
-      state = StageDesigner.get_state!(1, actor: @service)
-      assert state.last_attempt_at == @now
-      assert state.status == :generating
-      send(parent, {:provider, self()})
-
-      receive do
-        :finish -> respond(request, PNG.image())
-      after
-        5_000 -> flunk("test did not release fake provider")
-      end
-    end)
-
-    # The requesting process can exit without killing supervised work.
-    caller = Task.async(fn -> manual(@now) end)
-    assert Task.await(caller) == {:ok, :started}
-    assert_receive {:provider, provider}, 1_000
-    assert_receive {:stage_background, %{status: :uncertain}}
+    assert {:ok, :started} = manual(@now)
+    assert_receive {:stage_background, %{status: :queued}}
     reserved = StageDesigner.get_state!(1, actor: @service)
+    assert reserved.status == :generating
+    assert SceneGeneration.current().status == :queued
     assert {:ok, :busy} = manual(DateTime.add(@now, 1))
     assert {:ok, :busy} = manual(DateTime.add(@now, 2 * 86_400))
     assert StageDesigner.get_state!(1, actor: @service).version == reserved.version
-    refute gallery(DateTime.add(@now, 2 * 86_400)).eligible
-    assert gallery(@now).status == :uncertain
-    assert gallery(@now).last_attempt_at == @now
+    assert gallery(@now).status == :queued
     refute gallery(@now).eligible
-    assert gallery(@now).next_attempt_at == DateTime.add(@now, 86_400)
-    send(provider, :finish)
-    assert_receive {:stage_background, %{status: :disabled, url: url}}, 1_000
+    assert gallery(@now).last_attempt_at == reserved.last_attempt_at
+    assert gallery(@now).next_attempt_at == DateTime.add(reserved.last_attempt_at, 86_400)
+
+    Req.Test.expect(__MODULE__, &respond(&1, PNG.image()))
+    assert %{status: :completed} = SceneGeneration.submit(__MODULE__)
+    assert_receive {:stage_background, %{status: :ready, url: url}}, 1_000
     assert is_binary(url)
-
-    assert %{status: :ready, scenes: [%{active: true, available: true, generated_at: @now}]} =
-             gallery(@now)
-
+    assert %{status: :ready, scenes: [%{active: true, available: true}]} = gallery(@now)
     assert gallery(@now).eligible
-    later = DateTime.add(@now, 1)
 
-    Req.Test.expect(__MODULE__, fn request ->
-      assert StageDesigner.get_state!(1, actor: @service).last_attempt_at == later
-      respond(request, PNG.image(3, 2))
-    end)
-
-    assert {:ok, :started} = manual(later)
-    assert_receive {:stage_background, %{status: :disabled, url: next_url}}, 1_000
+    assert {:ok, :started} = manual(DateTime.add(@now, 1))
+    Req.Test.expect(__MODULE__, &respond(&1, PNG.image(3, 2)))
+    assert %{status: :completed} = SceneGeneration.submit(__MODULE__)
+    assert_receive {:stage_background, %{status: :ready, url: next_url}}, 1_000
     assert next_url != url
-    assert gallery(later).eligible
-    assert gallery(later).next_attempt_at == DateTime.add(later, 86_400)
+    assert gallery(@now).eligible
   end
 
   test "manual requests immediately after failure are allowed but startup keeps its cooldown" do
-    Req.Test.expect(__MODULE__, &Plug.Conn.send_resp(&1, 503, "fake failure"))
+    Req.Test.expect(__MODULE__, &Plug.Conn.send_resp(&1, 429, "fake rejection"))
     assert {:ok, :started} = manual(@now)
+    assert %{status: :failed} = SceneGeneration.submit(__MODULE__)
     assert_receive {:stage_background, %{status: :failed}}, 1_000
     assert StageDesigner.background!().status == :failed
     assert gallery(@now).status == :failed
     assert gallery(@now).eligible
+    failed_at = StageDesigner.get_state!(1, actor: @service).last_attempt_at
 
     Application.put_env(:lovelace, :stage_designer, %{Settings.get() | enabled: true})
-    assert {:ok, :cached} = startup(DateTime.add(@now, 86_399))
-    later = DateTime.add(@now, 1)
-    parent = self()
-
-    Req.Test.expect(__MODULE__, fn request ->
-      assert StageDesigner.get_state!(1, actor: @service).last_attempt_at == later
-      send(parent, {:provider, self()})
-
-      receive do
-        :finish -> respond(request, PNG.image())
-      after
-        5_000 -> flunk("test did not release fake provider")
-      end
-    end)
-
-    assert {:ok, :started} = manual(later)
-    assert_receive {:provider, provider}, 1_000
-    assert {:ok, :cached} = startup(DateTime.add(later, 86_399))
-    assert gallery(later).next_attempt_at == DateTime.add(later, 86_400)
-    send(provider, :finish)
+    assert {:ok, :cached} = startup(DateTime.add(failed_at, 86_399))
+    assert {:ok, :started} = manual(@now)
+    reserved = StageDesigner.get_state!(1, actor: @service)
+    assert {:ok, :cached} = startup(DateTime.add(reserved.last_attempt_at, 86_399))
+    Req.Test.expect(__MODULE__, &respond(&1, PNG.image()))
+    assert %{status: :completed} = SceneGeneration.submit(__MODULE__)
     assert_receive {:stage_background, %{status: :ready, url: url}}, 1_000
     assert is_binary(url)
-    assert {:ok, :cached} = startup(DateTime.add(later, 86_399))
-    assert gallery(later).eligible
+    assert {:ok, :cached} = startup(DateTime.add(reserved.last_attempt_at, 86_399))
+    assert gallery(@now).eligible
   end
 
   test "interrupted reservations remain busy indefinitely without guessed recovery" do
@@ -203,20 +169,10 @@ defmodule Lovelace.StageDesigner.ScenesTest do
     generate(1)
     [_, older] = StageDesigner.get_state!(1, actor: @service).history
     disable_startup()
-    parent = self()
-
-    Req.Test.expect(__MODULE__, fn request ->
-      send(parent, {:provider, self()})
-
-      receive do
-        :finish -> respond(request, PNG.image(9, 2))
-      after
-        5_000 -> flunk("test did not release fake provider")
-      end
-    end)
-
     assert {:ok, :started} = manual(DateTime.add(@now, 2 * 86_400))
-    assert_receive {:provider, provider}, 1_000
+    Req.Test.expect(__MODULE__, &SceneGeneration.rendering/1)
+    assert %{status: :rendering} = SceneGeneration.submit(__MODULE__)
+    Req.Test.expect(__MODULE__, &respond(&1, PNG.image(9, 2)))
     reserved = StageDesigner.get_state!(1, actor: @service)
     assert {:ok, :selected} = StageDesigner.select_scene(older, actor: @owner)
     selected = StageDesigner.get_state!(1, actor: @service)
@@ -224,8 +180,8 @@ defmodule Lovelace.StageDesigner.ScenesTest do
     assert selected.status == :generating
     assert StageDesigner.background!().url == Storage.url(older)
     flush_backgrounds()
-    send(provider, :finish)
-    assert_receive {:stage_background, %{status: :disabled, url: url}}, 1_000
+    assert %{status: :completed} = SceneGeneration.poll(__MODULE__)
+    assert_receive {:stage_background, %{status: :ready, url: url}}, 1_000
     published = StageDesigner.get_state!(1, actor: @service)
     assert published.status == :ready
     assert published.selected_digest == hd(published.history)
@@ -238,32 +194,22 @@ defmodule Lovelace.StageDesigner.ScenesTest do
     generate(0)
     generate(1)
     [latest, older] = StageDesigner.get_state!(1, actor: @service).history
-    parent = self()
     disable_startup()
-
-    Req.Test.expect(__MODULE__, fn request ->
-      send(parent, {:provider, self()})
-
-      receive do
-        :finish -> respond(request, PNG.image(3, 2))
-      after
-        5_000 -> flunk("test did not release fake provider")
-      end
-    end)
-
     assert {:ok, :started} = manual(DateTime.add(@now, 2 * 86_400))
-    assert_receive {:provider, provider}, 1_000
+    Req.Test.expect(__MODULE__, &SceneGeneration.rendering/1)
+    assert %{status: :rendering} = SceneGeneration.submit(__MODULE__)
+    Req.Test.expect(__MODULE__, &respond(&1, PNG.image(3, 2)))
     assert {:ok, :selected} = StageDesigner.select_scene(older, actor: @owner)
     flush_backgrounds()
-    send(provider, :finish)
-    assert_receive {:stage_background, %{url: url}}, 1_000
+    assert %{status: :completed} = SceneGeneration.poll(__MODULE__)
+    assert_receive {:stage_background, %{status: :ready, url: url}}, 1_000
     state = StageDesigner.get_state!(1, actor: @service)
     assert state.status == :ready
     assert state.history == [latest, older]
     assert state.selected_digest == latest
     assert Ash.count!(Scene, actor: @service) == 2
     assert [%{digest: ^latest, generated_at: date} | _] = gallery(@now).scenes
-    assert date == DateTime.add(@now, 2 * 86_400)
+    assert date == state.generated_at
     assert url == Storage.url(latest)
     assert StageDesigner.background!().url == url
   end
@@ -327,8 +273,7 @@ defmodule Lovelace.StageDesigner.ScenesTest do
       assert map_size(state.scene_dates) == min(day + 1, 7)
       assert MapSet.new(Map.keys(state.scene_dates)) == MapSet.new(state.history)
 
-      assert state.scene_dates[state.selected_digest] ==
-               DateTime.to_iso8601(DateTime.add(@now, day * 86_400))
+      assert state.scene_dates[state.selected_digest] == DateTime.to_iso8601(state.generated_at)
 
       assert {:ok, :selected} =
                StageDesigner.select_scene(List.last(state.history), actor: @owner)
@@ -384,15 +329,11 @@ defmodule Lovelace.StageDesigner.ScenesTest do
 
   defp gallery(now), do: StageDesigner.list_scenes!(actor: @owner, context: %{now: now})
 
-  defp manual(now) do
-    StageDesigner.request_scene_generation(actor: @owner, context: provider_context(now))
-  end
+  defp manual(_now), do: SceneGeneration.manual()
 
   defp startup(now) do
-    StageDesigner.generate_on_startup(%{now: now},
-      actor: @service,
-      context: provider_context(now)
-    )
+    StageDesigner.generate_on_startup(%{now: now}, actor: @service)
+    |> SceneGeneration.finish(__MODULE__)
   end
 
   defp generate(day) do
@@ -402,18 +343,12 @@ defmodule Lovelace.StageDesigner.ScenesTest do
     now = DateTime.add(@now, day * 86_400)
 
     assert {:ok, :generated} =
-             StageDesigner.generate_on_startup(%{now: now},
-               actor: @service,
-               context: provider_context(now)
-             )
+             StageDesigner.generate_on_startup(%{now: now}, actor: @service)
+             |> SceneGeneration.finish(__MODULE__)
   end
 
   defp disable_startup do
     Application.put_env(:lovelace, :stage_designer, %{Settings.get() | enabled: false})
-  end
-
-  defp provider_context(now) do
-    %{now: now, provider_options: [api_key: "fake-stage-key", plug: {Req.Test, __MODULE__}]}
   end
 
   defp flush_backgrounds do
@@ -425,22 +360,6 @@ defmodule Lovelace.StageDesigner.ScenesTest do
   end
 
   defp respond(request, bytes) do
-    Req.Test.json(request, %{
-      candidates: [
-        %{
-          finishReason: "STOP",
-          content: %{
-            parts: [
-              %{
-                inlineData: %{
-                  mimeType: Image.mime_type(Image.format(bytes)),
-                  data: Base.encode64(bytes)
-                }
-              }
-            ]
-          }
-        }
-      ]
-    })
+    SceneGeneration.respond(request, bytes)
   end
 end

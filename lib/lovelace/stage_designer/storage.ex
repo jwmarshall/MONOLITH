@@ -4,7 +4,7 @@ defmodule Lovelace.StageDesigner.Storage do
   require Logger
   alias Lovelace.Repo
   alias Lovelace.StageDesigner
-  alias Lovelace.StageDesigner.{Coordination, Image, Scene}
+  alias Lovelace.StageDesigner.{Attempt, Coordination, Image, Scene}
 
   @actor %{role: :stage_designer}
 
@@ -100,6 +100,45 @@ defmodule Lovelace.StageDesigner.Storage do
       {:ok, published} -> {:ok, published}
       {:error, {stage, reason}} -> {:error, {stage, reason}}
       {:error, _} -> {:error, {:storage, :storage_error}}
+    end
+  end
+
+  def store_and_publish_attempt(settings, bytes, attempt, now) do
+    result =
+      Coordination.with_lock(settings, fn ->
+        Repo.transaction(fn -> publish_attempt_transaction(settings, bytes, attempt, now) end)
+      end)
+
+    case result do
+      {:ok, completed} -> {:ok, completed}
+      {:error, :stale_attempt} -> {:error, :stale_attempt}
+      {:error, {stage, reason}} -> {:error, {stage, reason}}
+      _ -> {:error, {:storage, :storage_error}}
+    end
+  end
+
+  defp publish_attempt_transaction(settings, bytes, attempt, now) do
+    with {:ok, %Attempt{} = fresh} <- Attempt.get(attempt.id),
+         true <- fresh.status == :rendering,
+         {:ok, current} when not is_nil(current) <- StageDesigner.get_state(1, actor: @actor),
+         true <-
+           current.active_attempt_id == fresh.id and
+             current.version == fresh.reservation_version and current.status == :generating,
+         {:ok, published} <- publish_locked(settings, bytes, current, now),
+         {:ok, completed} <-
+           Attempt.record(fresh, %{
+             status: :completed,
+             completed_at: now,
+             last_checked_at: now,
+             digest: published.selected_digest,
+             cleanup: :pending,
+             failure: nil
+           }) do
+      completed
+    else
+      false -> Repo.rollback(:stale_attempt)
+      {:error, {stage, reason}} -> Repo.rollback({stage, reason})
+      _ -> Repo.rollback({:publication, :publication_error})
     end
   end
 

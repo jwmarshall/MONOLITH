@@ -84,9 +84,13 @@ config :lovelace, LovelaceWeb.Endpoint,
 config :lovelace, Oban,
   repo: Lovelace.Repo,
   engine: Oban.Engines.Lite,
-  queues: [gmail: 1],
+  queues: [gmail: 1, gemini: 1],
   plugins: [
-    {Oban.Plugins.Cron, crontab: [{"* * * * *", Lovelace.Mail.SweepWorker}]},
+    {Oban.Plugins.Cron,
+     crontab: [
+       {"* * * * *", Lovelace.Mail.SweepWorker},
+       {"* * * * *", Lovelace.StageDesigner.RecoveryWorker}
+     ]},
     {Oban.Plugins.Lifeline, rescue_after: :timer.minutes(5)},
     {Oban.Plugins.Pruner, max_age: 86_400}
   ]

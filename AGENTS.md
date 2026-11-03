@@ -65,10 +65,16 @@ Stack: Phoenix LiveView, Ash/AshSqlite over Ecto/SQLite, and Tailwind.
 - Scenery is app-wide, not account-owned. Gemini generation is opt-in and potentially billable;
   allow opted-in startup or explicitly confirmed Scenes requests. The persisted 24-hour
   cooldown applies to automatic startup only; manual requests need fresh cost confirmation
-  and refuse overlapping/unconfirmed attempts. Never retry automatically.
+  and refuse overlapping/unconfirmed attempts. Paid submissions are one-shot, fenced by durable
+  claims even under Oban rescue. Google background interactions explicitly allow provider storage;
+  resume only retrieval of known IDs, and delete remote results after committed local publication.
+  Unknown submissions require explicit charge/overlap acknowledgement before fresh confirmation;
+  safe polling/cleanup retries never authorize another generation. Keep permanent attempt history.
   Gemini keys are managed in Connections and stored separately in macOS Keychain;
   no environment-key fallback or provider probe/generation on credential saves.
-  Force `LOVELACE_STAGE_ENABLED=false` for maintenance; see docs/STAGE_DESIGNER.md.
+  Force `LOVELACE_STAGE_ENABLED=false` for maintenance; it blocks new startup generations,
+  not already authorized jobs. No-provider maintenance must also avoid starting Oban queues;
+  see docs/STAGE_DESIGNER.md.
 - Clearly label placeholders; do not imply disconnected integrations are operational.
 - SQLite sandbox/database tests must be synchronous. Use fake provider responses,
   not live Google calls. Keep `mix.lock` with dependency changes.

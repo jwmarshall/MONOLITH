@@ -38,7 +38,11 @@ defmodule Lovelace.StageDesigner.SceneCatalogMigrationTest do
         end
       end)
 
-      DisposableStageRepo.migrate!(repos.first, [@selection, @catalog])
+      DisposableStageRepo.migrate!(repos.first, [
+        @selection,
+        @catalog,
+        DisposableStageRepo.tracking_migration()
+      ])
 
       DisposableStageRepo.on_repo(repos.second, fn ->
         {:ok, scenes, false} = Scene.page(1)

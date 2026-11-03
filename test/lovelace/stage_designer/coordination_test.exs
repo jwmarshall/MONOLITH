@@ -5,8 +5,8 @@ defmodule Lovelace.StageDesigner.CoordinationTest do
 
   alias Lovelace.Repo
   alias Lovelace.StageDesigner
-  alias Lovelace.StageDesigner.{Coordination, Scene, Settings, Startup, Storage}
-  alias Lovelace.TestSupport.{DisposableStageRepo, PNG}
+  alias Lovelace.StageDesigner.{Coordination, Generation, Scene, Settings, Startup, Storage}
+  alias Lovelace.TestSupport.{DisposableStageRepo, PNG, SceneGeneration}
 
   @actor %{role: :stage_designer}
   @now ~U[2026-11-01 12:00:00.000000Z]
@@ -17,7 +17,11 @@ defmodule Lovelace.StageDesigner.CoordinationTest do
 
     DisposableStageRepo.migrate!(first, [
       {20_261_103_184_507, "20261103184507_add_scene_direction.exs",
-       Lovelace.Repo.Migrations.AddSceneDirection}
+       Lovelace.Repo.Migrations.AddSceneDirection},
+      {20_261_103_210_745, "20261103210745_tracked_gemini_generations.exs",
+       Lovelace.Repo.Migrations.TrackedGeminiGenerations},
+      {20_261_102_060_000, "20261102060000_add_gmail_jobs.exs",
+       Lovelace.Repo.Migrations.AddGmailJobs}
     ])
 
     settings = %Settings{
@@ -287,7 +291,7 @@ defmodule Lovelace.StageDesigner.CoordinationTest do
     assert length(image_files(settings)) == 4
   end
 
-  test "substantive cleanup errors are returned and startup warns without undoing publication", %{
+  test "substantive cleanup errors do not undo publication or permit another startup", %{
     settings: settings
   } do
     published = publish!(settings, PNG.image(2, 2), @now)
@@ -296,9 +300,7 @@ defmodule Lovelace.StageDesigner.CoordinationTest do
     broken = %{settings | storage_dir: blocked}
     assert {:error, :coordination_error} = Storage.prune(broken, published.history)
     Application.put_env(:lovelace, :stage_designer, broken)
-    log = capture_log(fn -> assert {:ok, :cached} = startup(@now) end)
-    assert log =~ "storage cleanup incomplete"
-    refute log =~ blocked
+    assert {:ok, :cached} = startup(@now)
     assert StageDesigner.get_state!(1, actor: @actor).history == published.history
   end
 
@@ -497,7 +499,15 @@ defmodule Lovelace.StageDesigner.CoordinationTest do
       receive do: (:respond -> respond(request, bytes))
     end
 
-    task = worker(first, fn -> startup(@now, plug) end)
+    assert {:ok, :started} = on_repo(first, fn -> startup(@now) end)
+    attempt = SceneGeneration.current()
+    assert attempt.status == :queued
+
+    task =
+      worker(first, fn ->
+        Generation.perform(attempt.id, :submit, api_key: "fake-stage-key", plug: plug)
+      end)
+
     assert_receive {:http_boundary, http_pid, state}, 2_000
     assert state.status == :generating
     assert state.last_attempt_at == @now
@@ -508,7 +518,8 @@ defmodule Lovelace.StageDesigner.CoordinationTest do
     # This probes the sidecar, not a main-database writer transaction.
     assert :ok = on_repo(second, fn -> Coordination.with_lock(settings, fn -> :ok end) end)
     send(http_pid, :respond)
-    assert {:ok, :generated} = Task.await(task, 2_000)
+    assert :ok = Task.await(task, 2_000)
+    assert SceneGeneration.current().status == :completed
     assert_image(settings, hash(bytes), bytes)
   end
 
@@ -592,26 +603,9 @@ defmodule Lovelace.StageDesigner.CoordinationTest do
   defp on_repo(repo, fun), do: DisposableStageRepo.on_repo(repo, fun)
   defp worker(repo, fun), do: Task.async(fn -> on_repo(repo, fun) end)
 
-  defp startup(now, plug \\ nil) do
-    # A cooldown regression must fail locally, never fall through to Google or
-    # resolve an operator's environment key from an explicitly enabled test.
-    plug = plug || fn _request -> flunk("unexpected provider call during cached startup") end
-    options = [api_key: "synthetic-key", plug: plug]
-
-    StageDesigner.generate_on_startup(%{now: now},
-      actor: @actor,
-      context: %{provider_options: options}
-    )
-  end
+  defp startup(now), do: StageDesigner.generate_on_startup(%{now: now}, actor: @actor)
 
   defp respond(request, bytes) do
-    Req.Test.json(request, %{
-      candidates: [
-        %{
-          finishReason: "STOP",
-          content: %{parts: [%{inlineData: %{mimeType: "image/png", data: Base.encode64(bytes)}}]}
-        }
-      ]
-    })
+    SceneGeneration.respond(request, bytes)
   end
 end

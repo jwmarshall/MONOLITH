@@ -32,7 +32,7 @@ checkout folder name are separate from application identifiers and were not chan
 | `ash_authentication`, `ash_authentication_phoenix` | Single local owner unlock | AshAuthentication password strategy; terminal-only setup |
 | `req` | HTTP request/response contracts; built-in `Req.Test` stubs/expectations | Runtime; test utilities used in tests |
 | `mint` | Private unpooled Gemini and Google transport, avoiding credential-bearing Finch telemetry | Runtime; pinned direct dependency |
-| `oban` | Durable Gmail polling with bundled SQLite Lite engine | Runtime; 2.24.2, concurrency 1, cron/Lifeline/pruning |
+| `oban` | Durable Gmail/Calendar polling and tracked Gemini scenery with bundled SQLite Lite engine | Runtime; 2.24.2, concurrency 1, cron/Lifeline/pruning |
 | `exqlite` | Private SQLite coordination handle for cross-BEAM filesystem exclusion | Runtime; already used by AshSqlite, now an explicit direct dependency |
 | `vix` | Strict JPEG pixel decoding through libvips; original provider bytes retained | Runtime; native dependency |
 | `credo`, `ash_credo` | General and Ash-aware static analysis | Dev/test, not started at runtime |
@@ -96,7 +96,12 @@ Ash domain; provider work never runs in LiveView callbacks. `LOVELACE_WORKSPACE_
 controls the client-only screensaver (default three minutes). Scenes exposes the saved
 catalog through bounded 20-image pages, persistent background selection, and confirmed potentially billable manual
 requests without a manual daily cooldown. Automatic startup alone uses the persisted
-24-hour cooldown; manual work refuses another unconfirmed reservation. Scenes also saves
+24-hour cooldown; manual work refuses another unresolved reservation. A dedicated Gemini Oban queue handles one-shot
+paid submissions, resumable retrieval by provider ID and deletion after successful local publication.
+Ash retains all attempt metadata independently of job pruning, with bounded history pages. Scenes
+has per-manual-request model/aspect/size controls (startup defaults are unchanged), explicit unknown
+outcome acknowledgement and safe failure/cleanup details. See STAGE_DESIGNER.md for recovery and
+Google storage policy. Scenes also saves
 app-wide guided scene direction (subject, setting, light, palette), with an exact prompt
 preview. Saving is local-only and never generates or changes startup opt-in. The saved
 direction overrides the configured prompt for future manual/startup attempts; apply the
