@@ -6,6 +6,7 @@ defmodule LovelaceWeb.CalendarComponents do
   attr :window, :map, default: nil
   attr :refresh, :integer, default: 0
   attr :id, :string, default: "calendar-agenda"
+  attr :home, :boolean, default: false
 
   def agenda(assigns) do
     # Render-local only: never retain event/provider content in the LiveView socket.
@@ -17,15 +18,17 @@ defmodule LovelaceWeb.CalendarComponents do
         <h3 id={"#{@id}-heading"} class="home-eyebrow">Today · Calendar</h3>
         <span class="calendar-muted">{timezone(@window)}</span>
       </header>
-      <p class="calendar-muted">
-        Local agenda · background polling while LOVELACE is running, not live updates.
-      </p>
-      <button
-        :if={@accounts == []}
-        type="button"
-        class="workspace-action"
-        phx-click="show_connections"
-      >Enable Calendar in Connections →</button>
+      <div :if={@accounts == []} class="calendar-empty">
+        <p class="calendar-message">Calendar not enabled.</p>
+        <button
+          type="button"
+          class="workspace-action"
+          phx-click={
+            JS.push("show_connections")
+            |> JS.push("select_connection", value: %{provider: "calendar"})
+          }
+        >Set up Calendar</button>
+      </div>
       <section
         :for={{account, snapshot} <- @readouts}
         id={"#{@id}-account-#{account.id}"}
@@ -36,7 +39,7 @@ defmodule LovelaceWeb.CalendarComponents do
         <header class="calendar-account-heading">
           <h4 id={"#{@id}-identity-#{account.id}"} class="calendar-identity">{account.email}</h4>
           <button
-            :if={snapshot.enabled && @window}
+            :if={!@home && snapshot.enabled && @window}
             type="button"
             class="workspace-action"
             phx-click="calendar:refresh"
@@ -52,7 +55,7 @@ defmodule LovelaceWeb.CalendarComponents do
           </button>
         </div>
         <div :if={snapshot.enabled}>
-          <.status snapshot={snapshot} id={"#{@id}-status-#{account.id}"} />
+          <.status snapshot={snapshot} id={"#{@id}-status-#{account.id}"} warnings_only={@home} />
           <button
             :if={snapshot.error == :reconnect}
             type="button"
@@ -72,6 +75,10 @@ defmodule LovelaceWeb.CalendarComponents do
               :for={{event, index} <- Enum.with_index(snapshot.events)}
               class="calendar-event"
             >
+              <div class="calendar-event-content">
+                <p class="calendar-event-title">{present(event.title, "(Untitled event)")}</p>
+                <p class="calendar-muted">{present(event.calendar_name, "Calendar")}</p>
+              </div>
               <span
                 id={"#{@id}-time-#{account.id}-#{index}"}
                 class="calendar-event-time"
@@ -86,10 +93,6 @@ defmodule LovelaceWeb.CalendarComponents do
                   phx-update="ignore"
                 >{if event.all_day, do: "All day", else: "Local time loading…"}</span>
               </span>
-              <div class="calendar-event-content">
-                <p class="calendar-event-title">{present(event.title, "(Untitled event)")}</p>
-                <p class="calendar-muted">{present(event.calendar_name, "Calendar")}</p>
-              </div>
               <a
                 :if={safe_google_url(event.url)}
                 href={safe_google_url(event.url)}
@@ -245,6 +248,7 @@ defmodule LovelaceWeb.CalendarComponents do
 
   attr :snapshot, :map, required: true
   attr :id, :string, required: true
+  attr :warnings_only, :boolean, default: false
 
   defp status(assigns) do
     ~H"""
@@ -269,8 +273,9 @@ defmodule LovelaceWeb.CalendarComponents do
         phx-hook="ObservationTime"
         phx-update="ignore"
         data-observed-at={iso(@snapshot.fetched_at)}
+        data-warnings-only={to_string(@warnings_only)}
         data-failed={to_string(not is_nil(@snapshot.error) || @snapshot.truncated || @snapshot.stale)}
-      >Last checked · {iso(@snapshot.fetched_at)}</span>
+      >{if !@warnings_only, do: "Last checked · #{iso(@snapshot.fetched_at)}"}</span>
       <p :if={!@snapshot.loading && !@snapshot.pending && !@snapshot.error && !@snapshot.fetched_at}>
         No successful Calendar update yet.
       </p>

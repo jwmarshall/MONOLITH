@@ -70,9 +70,9 @@ defmodule LovelaceWeb.HomeComponents do
           <span class="home-unread-number">{if is_integer(@account.inbox_unread_count),
             do: @account.inbox_unread_count,
             else: "—"}</span>
-          <span class="home-unread-label">{if is_integer(@account.inbox_unread_count),
-            do: "unread",
-            else: "Unread total unavailable"}</span>
+          <span class="home-unread-label">
+            unread<span :if={!is_integer(@account.inbox_unread_count)} class="sr-only"> total unavailable</span>
+          </span>
         </span>
         <.icon name="hero-arrow-up-right" class="home-account-arrow size-4" />
       </button>
@@ -95,7 +95,6 @@ defmodule LovelaceWeb.HomeComponents do
 
   def freshness(assigns) do
     ~H"""
-    <span :if={!@account.inbox_unread_at} class="home-freshness">Awaiting an unread count update</span>
     <span
       :if={@account.inbox_unread_at}
       id={"home-freshness-#{@account.id}"}
@@ -103,6 +102,7 @@ defmodule LovelaceWeb.HomeComponents do
       phx-hook="ObservationTime"
       phx-update="ignore"
       data-observed-at={DateTime.to_iso8601(@account.inbox_unread_at)}
+      data-warnings-only="true"
       data-failed={
         to_string(
           @account.status != :ready || !is_nil(@account.inbox_unread_error) ||
@@ -110,7 +110,8 @@ defmodule LovelaceWeb.HomeComponents do
         )
       }
     >
-      Last checked · {Calendar.strftime(@account.inbox_unread_at, "%Y-%m-%d %H:%M UTC")}
+      {if @account.status != :ready || @account.inbox_unread_error || @account.last_error,
+        do: "Stale unread count"}
     </span>
     """
   end
@@ -120,11 +121,11 @@ defmodule LovelaceWeb.HomeComponents do
 
   defp health_message(account) do
     case account.inbox_unread_error || account.last_error do
-      :rate_limited -> "Gmail is rate limiting updates; waiting to retry"
+      :rate_limited -> "Gmail rate limit · waiting to retry"
       :reconnect -> "Reconnect required"
       :keychain -> "Credential store unavailable"
       nil -> nil
-      _ -> "Update unavailable; retrying through background polling"
+      _ -> "Update failed · retrying"
     end
   end
 end

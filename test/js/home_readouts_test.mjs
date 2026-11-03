@@ -25,6 +25,15 @@ test("observations age independently of page activity and preserve known failure
   assert.equal(observationText("invalid", false, now), "Unread count update unavailable")
 })
 
+test("Home observations omit checked statuses but retain stale warnings", () => {
+  const at = "2026-11-02T09:00:00Z"
+  const now = Date.parse(at)
+  assert.equal(observationText(at, false, now, true), "")
+  assert.equal(observationText(at, false, now + 179_000, true), "")
+  assert.equal(observationText(at, false, now + 180_000, true), "Stale · 3 min ago")
+  assert.equal(observationText(at, true, now, true), "Stale · just now")
+})
+
 function timers(t) {
   const oldSet = globalThis.setInterval
   const oldClear = globalThis.clearInterval
@@ -62,6 +71,33 @@ test("daily hook refreshes on resume and removes its timer and listener", t => {
   doc.listeners.get("visibilitychange")()
   assert.notEqual(date.textContent, "old")
   assert.equal(callbacks.size, 1)
+  hook.destroyed()
+  assert.equal(callbacks.size, 0)
+  assert.equal(doc.listeners.size, 0)
+})
+
+test("quiet Home observations age on timers/resume and recover without checked copy", t => {
+  const callbacks = timers(t)
+  const doc = document()
+  const realNow = Date.now
+  let now = Date.parse("2026-11-02T09:00:00Z")
+  Date.now = () => now
+  t.after(() => { Date.now = realNow })
+  const hook = {...ObservationTime, el: {ownerDocument: doc, dataset: {observedAt: new Date(now).toISOString(), failed: "false", warningsOnly: "true"}}}
+  hook.mounted()
+  assert.equal(hook.el.textContent, "")
+  now += 180_000
+  callbacks.values().next().value()
+  assert.equal(hook.el.textContent, "Stale · 3 min ago")
+  hook.el.dataset.observedAt = new Date(now).toISOString()
+  hook.updated()
+  assert.equal(hook.el.textContent, "")
+  hook.el.dataset.failed = "true"
+  doc.listeners.get("visibilitychange")()
+  assert.equal(hook.el.textContent, "Stale · just now")
+  hook.el.dataset.warningsOnly = "false"
+  hook.updated()
+  assert.equal(hook.el.textContent, "Stale · last checked just now")
   hook.destroyed()
   assert.equal(callbacks.size, 0)
   assert.equal(doc.listeners.size, 0)

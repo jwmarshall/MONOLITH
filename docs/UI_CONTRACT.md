@@ -86,9 +86,18 @@ Verify implementation in code; the coverage map below is not evidence that check
   account totals are labeled simply **unread**. No clock, message previews, total across
   accounts or speculative widgets. The separately approved read-only Calendar agenda
   below complements Gmail's daily orientation.
+- Home pairs compact Gmail rows with today's Calendar agenda in two open columns on desktop,
+  aligned at their section headings. Stack Gmail above Calendar when either column would become
+  cramped; retain the shared directory width, not separate cards or a narrower dashboard shell.
+  Keep the greeting/date on one restrained line where space permits. Home omits routine checked
+  statuses (including “not checked yet”) and Calendar Refresh controls. Keep loading, error and
+  locally aging stale warnings visible; workspace/Connections timestamps and refresh remain unchanged.
+  Unknown unread totals use a dash with an accessible unavailable label, never a fabricated zero.
+  Calendar setup is a compact empty state linking directly to Connections → Calendar.
 - Gmail readouts use quiet horizontal rows: one per non-disconnected connection, including
   connections with no workspace membership. Each shows identity, workspace names, actual
-  unread inbox conversation total and independently timestamped count freshness/health.
+  unread inbox conversation total and independent count health. Home shows stale warnings rather
+  than routine successful-check timestamps; the underlying observation still ages locally.
   Clicking a row opens only that account's read-only inbox without attaching it anywhere.
 - Unknown counts are not zero. Failed updates retain known counts as stale; elapsed time
   marks observations stale after three minutes, independent of unrelated mail-page success.
@@ -96,8 +105,9 @@ Verify implementation in code; the coverage map below is not evidence that check
   Empty/loading/error/reconnect states remain explicit, with recovery through Connections.
 
 - Calendar shows account-separated browser-local today's agendas on Home and workspace
-  detail, without a unified timeline. Display time/title/calendar, all-day/ongoing labels
-  and explicit Google Calendar links, never descriptions, attendees or remote content.
+  detail, without a unified timeline. Event titles, calendar names and Google Calendar links align
+  to the left edge of each item; time/all-day/ongoing labels sit at the top-right, including on narrow
+  screens. Never display descriptions, attendees or remote content.
   Connections → Calendar owns optional consent and local calendar selection (Google-selected
   defaults, shared calendars included). Unknown/loading/failure are not an empty agenda;
   partial results are labeled. Observations age locally, stale/error states retain their
@@ -296,6 +306,9 @@ historical results do not certify a new change.
   keyboard switching with focus retained, mutually exclusive provider interfaces, scenery
   wake preserving selection and credential POSTs returning to Gemini;
   Gemini's ordinary credential POST to a fake vault, empty return form and truthful key state;
+  compact side-by-side Home readouts at desktop/laptop widths, stacked tablet/narrow readouts,
+  no routine checked statuses or Home Calendar Refresh, retained stale warnings and workspace controls,
+  unknown unread labels, compact empty Home and direct Calendar setup;
   optional Calendar Home/workspace agendas with safe explicit links, Google-selected and
   shared-calendar selection, exclusive Calendar Connections and ordinary consent POSTs,
   desktop/narrow/forced-color Calendar layouts and fixture screenshots;

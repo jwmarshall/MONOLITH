@@ -62,6 +62,8 @@ defmodule LovelaceWeb.HomeOverviewLiveTest do
            )
 
     assert has_element?(view, "#daily-heading[phx-hook=DailyOrientation][phx-update=ignore]")
+    assert has_element?(view, ".workspace-directory-home #home-readouts > #home-overview")
+    assert has_element?(view, "#home-readouts > #calendar-agenda")
 
     assert has_element?(
              view,
@@ -75,7 +77,11 @@ defmodule LovelaceWeb.HomeOverviewLiveTest do
     refute has_element?(view, "#daily-heading p")
     refute has_element?(view, ".home-section-heading p, .home-footnote")
     assert has_element?(view, "#home-count-#{second.id}", "0")
-    assert has_element?(view, "#home-count-#{orphan.id}", "Unread total unavailable")
+    assert has_element?(view, "#home-count-#{orphan.id} .home-unread-number", "—")
+    assert has_element?(view, "#home-count-#{orphan.id} .sr-only", "total unavailable")
+    refute has_element?(view, "#home-health-#{orphan.id}", "Not checked yet")
+    refute has_element?(view, "#home-overview", "Last checked")
+    assert has_element?(view, "#home-freshness-#{first.id}[data-warnings-only=true]")
     assert has_element?(view, "#home-account-#{orphan.id}", "Not in a workspace")
 
     assert view
@@ -127,7 +133,7 @@ defmodule LovelaceWeb.HomeOverviewLiveTest do
 
     Operations.broadcast(first.id)
     assert has_element?(view, "#home-count-#{first.id}", "8")
-    assert has_element?(view, "#home-health-#{first.id}", "rate limiting")
+    assert has_element?(view, "#home-health-#{first.id}", "Gmail rate limit")
     assert has_element?(view, "#home-freshness-#{first.id}[data-failed=true]")
     assert has_element?(view, "#home-count-#{second.id}", "19")
     refute_receive {:home_fetch, _}
@@ -166,7 +172,8 @@ defmodule LovelaceWeb.HomeOverviewLiveTest do
 
     {:ok, view, _html} = live(conn, ~p"/")
     assert has_element?(view, "#home-health-#{account.id}", "Reconnect required")
-    assert has_element?(view, "#home-count-#{account.id}", "Unread total unavailable")
+    assert has_element?(view, "#home-count-#{account.id} .sr-only", "total unavailable")
+    assert has_element?(view, "#home-health-#{account.id} .home-recovery", "Connections")
 
     render_click(view, "open_home_account", %{"id" => Ash.UUID.generate()})
     refute has_element?(view, "#mail-account-view")
@@ -196,6 +203,9 @@ defmodule LovelaceWeb.HomeOverviewLiveTest do
     assert has_element?(view, "#home-empty p", "No Gmail accounts connected.")
     assert has_element?(view, "#home-empty button", "Connect Gmail")
     refute has_element?(view, "#daily-heading p, .home-section-heading p, .home-footnote")
+    assert has_element?(view, "#calendar-agenda .calendar-empty", "Calendar not enabled.")
+    assert has_element?(view, "#calendar-agenda .calendar-empty button", "Set up Calendar")
+    refute render(view) =~ "background polling while LOVELACE is running"
 
     view |> element("#show-connections") |> render_click()
     refute has_element?(view, "#back-from-connections")
@@ -213,6 +223,23 @@ defmodule LovelaceWeb.HomeOverviewLiveTest do
     {:ok, reloaded, _html} = live(conn, ~p"/")
     assert has_element?(reloaded, "#home-overview")
     refute has_element?(reloaded, "#workspace-list")
+  end
+
+  test "reconnect retains its last known unread count and observation", %{conn: conn} do
+    account = account("stale-reconnect", 9)
+
+    Mail.update_account!(
+      account,
+      %{expected_generation: account.generation, status: :reconnect, last_error: :reconnect},
+      actor: @owner
+    )
+
+    {:ok, view, _html} = live(conn, ~p"/")
+    assert has_element?(view, "#home-count-#{account.id} .home-unread-number", "9")
+    assert has_element?(view, "#home-freshness-#{account.id}[data-failed=true]")
+    assert has_element?(view, "#home-health-#{account.id}", "Reconnect required")
+    assert has_element?(view, "#home-health-#{account.id} button", "Connections")
+    refute_receive {:home_fetch, _}
   end
 
   defp account(name, count) do

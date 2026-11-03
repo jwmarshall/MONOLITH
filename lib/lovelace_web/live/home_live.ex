@@ -598,7 +598,10 @@ defmodule LovelaceWeb.HomeLive do
           </.form>
         </div>
 
-        <section class="workspace-directory" aria-labelledby="directory-heading">
+        <section
+          class={["workspace-directory", @home && "workspace-directory-home"]}
+          aria-labelledby="directory-heading"
+        >
           <button
             :if={@selected && !@connections}
             id="back-to-workspaces"
@@ -746,19 +749,20 @@ defmodule LovelaceWeb.HomeLive do
             />
           </div>
 
-          <HomeComponents.overview
-            :if={@home}
-            accounts={@home_accounts}
-            loading={@loading}
-            error={@home_error}
-          />
+          <div :if={@home} id="home-readouts" class="home-readouts">
+            <HomeComponents.overview
+              accounts={@home_accounts}
+              loading={@loading}
+              error={@home_error}
+            />
 
-          <CalendarComponents.agenda
-            :if={@home}
-            accounts={Enum.filter(@calendar_accounts, & &1.calendar_enabled)}
-            window={@calendar_window}
-            refresh={@calendar_revision}
-          />
+            <CalendarComponents.agenda
+              home
+              accounts={Enum.filter(@calendar_accounts, & &1.calendar_enabled)}
+              window={@calendar_window}
+              refresh={@calendar_revision}
+            />
+          </div>
 
           <div
             :if={!@home && !@connections && @mail.scope == :home}

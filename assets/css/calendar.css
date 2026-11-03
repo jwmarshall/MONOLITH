@@ -13,12 +13,12 @@
 .calendar-message { margin-block: 14px; font-size: 14px; line-height: 1.8; color: var(--color-secondary); }
 .calendar-message p { margin: 0; }
 .calendar-events { list-style: none; padding: 0; margin: 12px 0 0; }
-.calendar-event { display: grid; grid-template-columns: minmax(140px, 0.7fr) minmax(0, 2fr) auto; gap: 8px 24px; align-items: baseline; padding-block: 16px; border-top: 1px solid rgb(233 239 236 / 12%); }
-.calendar-event-time { font-size: 13px; line-height: 1.8; font-variant-numeric: tabular-nums; color: var(--color-secondary); overflow-wrap: anywhere; }
+.calendar-event { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px 16px; align-items: start; padding-block: 16px; border-top: 1px solid rgb(233 239 236 / 12%); }
+.calendar-event-time { justify-self: end; max-width: 140px; text-align: right; font-size: 13px; line-height: 1.8; font-variant-numeric: tabular-nums; color: var(--color-secondary); overflow-wrap: anywhere; }
 .calendar-event-time[data-ongoing="true"] { color: var(--color-primary); }
 .calendar-event-content { min-width: 0; }
 .calendar-event-title { font-size: 16px; line-height: 1.7; overflow-wrap: anywhere; white-space: pre-line; }
-.calendar-event-link { display: inline-flex; align-items: center; min-height: 44px; font-size: 12px; line-height: 1.7; color: var(--color-primary); text-underline-offset: 4px; }
+.calendar-event-link { grid-column: 1; justify-self: start; display: inline-flex; align-items: center; min-height: 44px; font-size: 12px; line-height: 1.7; color: var(--color-primary); text-underline-offset: 4px; }
 .calendar-event-link:hover { text-decoration: underline; }
 .calendar-authorize { display: flex; flex-wrap: wrap; align-items: end; gap: 12px 20px; margin-block: 16px; }
 .calendar-authorize > div { min-width: min(100%, 220px); }
@@ -33,10 +33,26 @@
 .calendar-disconnect-help { margin-top: 18px; }
 .calendar-agenda :focus-visible, .calendar-connections :focus-visible { outline: 2px solid var(--color-primary); outline-offset: 4px; }
 @media (max-width: 640px) {
-  .calendar-event { grid-template-columns: minmax(0, 1fr); gap: 6px; }
-  .calendar-event-link { justify-self: start; }
+  .calendar-event { gap: 4px 12px; }
+  .calendar-event-time { max-width: 88px; text-wrap: balance; }
   .calendar-account-heading { flex-wrap: wrap; }
   .calendar-authorize { align-items: stretch; flex-direction: column; }
+}
+/* Home keeps Gmail and today's agenda on the same quiet reading plane. */
+.home-readouts .calendar-agenda { margin: 0; }
+.home-readouts .calendar-heading { min-height: 38px; gap: 4px 12px; padding-bottom: 16px; }
+.home-readouts .calendar-account { padding-block: 12px; }
+.home-readouts .calendar-account-heading { align-items: center; gap: 8px; margin-bottom: 8px; }
+.home-readouts .calendar-status { margin: 0; }
+.home-readouts .calendar-status:has(> :not(:empty)) { margin-block: 4px 12px; }
+.home-readouts .calendar-status > :empty { display: none; }
+.home-readouts .calendar-events { margin-top: 0; }
+.home-readouts .calendar-event { gap: 4px 16px; padding-block: 12px; }
+.home-readouts .calendar-event-link { grid-column: 1; justify-self: start; }
+.calendar-empty { display: flex; flex-direction: column; align-items: flex-start; gap: 12px; padding-block: 20px; border-top: 1px solid rgb(233 239 236 / 24%); }
+.calendar-empty .calendar-message { margin: 0; color: var(--color-base-content); }
+@media (max-width: 640px) {
+  .home-readouts .calendar-event { gap: 4px 12px; }
 }
 /* No Calendar animation; minute updates also remain static under reduced motion. */
 @media (prefers-reduced-motion: reduce) {
@@ -45,7 +61,7 @@
 @media (forced-colors: active) {
   .calendar-agenda, .calendar-connections { color: CanvasText; background: Canvas; text-shadow: none; }
   .calendar-agenda *, .calendar-connections * { color: CanvasText; text-shadow: none; }
-  .calendar-account, .calendar-event { border-color: CanvasText; }
+  .calendar-account, .calendar-event, .calendar-empty { border-color: CanvasText; }
   .calendar-event-link { color: LinkText; text-decoration: underline; }
   .calendar-selection fieldset:disabled { opacity: 1; color: GrayText; }
   .calendar-agenda :focus-visible, .calendar-connections :focus-visible { outline-color: Highlight; }

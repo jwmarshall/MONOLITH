@@ -134,6 +134,15 @@ async function verifyEmptyInstallation() {
   await focused()
   assert.equal(await bundledBackground('#workspace-background'), initial, 'static and live default choices agree')
   assert.equal(await evaluate("!!document.querySelector('#workspace-background img')"), false)
+  await screenshot('home-empty-desktop')
+  await click('#calendar-agenda .calendar-empty button')
+  await waitFor("!!document.querySelector('#calendar-connections') && document.querySelector('#connections-calendar')?.getAttribute('aria-current') === 'page'", 'Calendar setup goes directly to its Connections provider')
+  await click('#home-link')
+  await waitFor("!!document.querySelector('#home-readouts')", 'empty Home after Calendar setup')
+  await send('Emulation.setDeviceMetricsOverride', {width: 390, height: 844, deviceScaleFactor: 1, mobile: false})
+  assert.equal(await evaluate("document.documentElement.scrollWidth <= innerWidth && document.querySelector('#home-readouts').scrollWidth <= document.querySelector('#home-readouts').clientWidth"), true, 'empty Home has no narrow overflow')
+  await screenshot('home-empty-narrow')
+  await send('Emulation.setDeviceMetricsOverride', {width: 1440, height: 1000, deviceScaleFactor: 1, mobile: false})
   await key('Escape')
   await landscape()
   await screenshot('bundled-default-scenery')
@@ -339,6 +348,48 @@ async function readerLayout(width, forced) {
   assert.equal(dimensions.forced, forced)
 }
 
+async function calendarItemLayout() {
+  const events = await evaluate(`Array.from(document.querySelectorAll('#calendar-agenda .calendar-event'), item => {
+    const card = item.getBoundingClientRect();
+    const text = item.querySelector('.calendar-event-content').getBoundingClientRect();
+    const time = item.querySelector('.calendar-event-time').getBoundingClientRect();
+    const link = item.querySelector('.calendar-event-link')?.getBoundingClientRect();
+    return {leftAligned: Math.abs(text.left - card.left) < 1,
+      timeTopRight: Math.abs(time.top - text.top) < 1 && Math.abs(time.right - card.right) < 1,
+      separated: text.right <= time.left,
+      linkLeftAligned: !link || Math.abs(link.left - text.left) < 1,
+      noOverflow: item.scrollWidth <= item.clientWidth};
+  })`)
+  assert.ok(events.length > 0, 'Calendar layout checks cover populated event items')
+  assert.ok(events.every(event => event.leftAligned && event.timeTopRight && event.separated && event.linkLeftAligned && event.noOverflow),
+    `Calendar event text stays left and time stays top-right: ${JSON.stringify(events)}`)
+}
+
+async function homeLayout(width, forced = false) {
+  await evaluate("document.querySelector('#workspace-content').scrollTop = 0")
+  const layout = await evaluate(`(() => {
+    const mail = document.querySelector('#home-overview').getBoundingClientRect();
+    const agenda = document.querySelector('#calendar-agenda').getBoundingClientRect();
+    const readouts = document.querySelector('#home-readouts');
+    const pane = document.querySelector('#workspace-content');
+    const rows = Array.from(document.querySelectorAll('#home-accounts > li'), row => row.getBoundingClientRect());
+    return {sideBySide: agenda.left >= mail.right && Math.abs(agenda.top - mail.top) < 1,
+      stacked: agenda.top >= mail.bottom && Math.abs(agenda.left - mail.left) < 1,
+      overflow: document.documentElement.scrollWidth > innerWidth || pane.scrollWidth > pane.clientWidth + 1 || readouts.scrollWidth > readouts.clientWidth + 1,
+      rowsVisible: rows.every(row => row.bottom <= innerHeight),
+      compactRows: rows.every(row => row.height <= 120),
+      calendarHeadingVisible: agenda.top >= 0 && agenda.top < innerHeight,
+      forced: matchMedia('(forced-colors: active)').matches};
+  })()`)
+  assert.equal(layout.overflow, false, `Home stays within ${width}px (forced colors: ${forced})`)
+  assert.equal(width > 1000 ? layout.sideBySide : layout.stacked, true, `Home composition at ${width}px: ${JSON.stringify(layout)}`)
+  if (width >= 1280) {
+    assert.equal(layout.rowsVisible && layout.calendarHeadingVisible && layout.compactRows, true, `five Gmail accounts and Calendar visible together: ${JSON.stringify(layout)}`)
+  }
+  assert.equal(layout.forced, forced)
+  await calendarItemLayout()
+}
+
 let homeVisits = 0
 async function home() {
   await waitFor(`!!document.querySelector('#home-overview') &&
@@ -465,7 +516,7 @@ try {
     assert.equal(await evaluate(`document.querySelectorAll('#home-account-${id}').length`), 1)
     assert.equal(await evaluate(`document.querySelector('#home-count-${id} .home-unread-number').textContent.trim()`), count)
     assert.equal(await evaluate(`document.querySelector('#home-count-${id} .home-unread-label').textContent.trim()`), "unread")
-    await waitFor(`document.querySelector('#home-freshness-${id}')?.textContent.includes('Checked')`, "local count observation time")
+    await waitFor(`document.querySelector('#home-freshness-${id}')?.dataset.warningsOnly === 'true' && document.querySelector('#home-freshness-${id}').textContent.trim() === ''`, "Home omits routine checked statuses")
   }
   const memberships = await evaluate(`document.querySelector('#home-account-${accountId} .home-account-workspaces').textContent`)
   assert.match(memberships, /Browser studio/)
@@ -474,11 +525,22 @@ try {
 
   await waitFor("document.querySelector('#calendar-agenda')?.textContent.includes('Synthetic focus time')", "browser-local Calendar cache renders")
   assert.equal(await evaluate("document.querySelectorAll('#calendar-agenda .calendar-account').length"), 1, "Calendar remains opt-in per account")
+  assert.equal(await evaluate("!!document.querySelector('#calendar-agenda button[phx-click=\"calendar:refresh\"]')"), false, 'Home Calendar has no Refresh button')
+  assert.equal(await evaluate("/\\bchecked\\b/i.test(document.querySelector('#home-readouts').textContent)"), false, 'Home has no checked status copy')
+  assert.equal(await evaluate("document.querySelector('#calendar-agenda .calendar-status').getBoundingClientRect().height"), 0, 'healthy Calendar does not reserve a checked-status line')
   assert.match(await evaluate("document.querySelector('#calendar-agenda').textContent"), /All day/)
   assert.equal(await evaluate("document.querySelector('#calendar-agenda a').hostname"), "calendar.google.com")
   assert.equal(await evaluate("document.querySelector('#calendar-agenda a').rel"), "noopener noreferrer")
-  await evaluate("document.querySelector('#calendar-agenda').scrollIntoView({block:'center'})")
+  assert.equal(await evaluate("document.querySelector('#calendar-agenda').textContent.includes('background polling while LOVELACE is running')"), false)
+  await homeLayout(1440)
   await screenshot("calendar-home-desktop")
+  for (const width of [1280, 1100, 1000]) {
+    await send('Emulation.setDeviceMetricsOverride', {width, height: 800, deviceScaleFactor: 1, mobile: false})
+    await homeLayout(width)
+    if (width === 1280) await screenshot('home-laptop')
+    if (width === 1000) await screenshot('home-stacked-tablet')
+  }
+  await send('Emulation.setDeviceMetricsOverride', {width: 1440, height: 1000, deviceScaleFactor: 1, mobile: false})
   await click("#show-connections")
   await waitFor("!!document.querySelector('#connections-calendar')", "Calendar provider navigation mounted")
   await click("#connections-calendar")
@@ -921,6 +983,8 @@ try {
   await waitFor("!!document.querySelector('#mail-accounts') && document.activeElement.id === 'directory-heading'", "workspace navigation focus")
   await waitFor(`document.querySelector('#workspace-landing #calendar-agenda-account-${accountId}')?.textContent.includes('Synthetic focus time')`, "workspace shows attached account Calendar")
   assert.equal(await evaluate(`!!document.querySelector('#workspace-landing #calendar-agenda-account-${unattachedId}')`), false, "workspace Calendar excludes unattached Google accounts")
+  assert.equal(await evaluate("!!document.querySelector('#workspace-landing #calendar-agenda button[phx-click=\"calendar:refresh\"]')"), true, 'workspace Calendar keeps its Refresh button')
+  await calendarItemLayout()
   await click("#add-integration")
   await waitFor("!!document.querySelector('#integration-add-panel')", "Add integration panel")
   await click("#close-add-integration")
@@ -976,13 +1040,15 @@ try {
       const homeDimensions = await evaluate(`(() => {
         const row = document.querySelector('#open-home-account-${accountId}').getBoundingClientRect();
         const button = document.querySelector('#home-link').getBoundingClientRect();
-        const content = document.querySelector('#home-overview').getBoundingClientRect();
+        const content = document.querySelector('#home-readouts').getBoundingClientRect();
         return {rowWidth: row.width, rowHeight: row.height, homeWidth: button.width, homeHeight: button.height, contentWidth: content.width, contentLeft: content.left};
       })()`)
       assert.ok(homeDimensions.rowWidth > 200 && homeDimensions.rowHeight >= 44 && homeDimensions.homeWidth >= 44 && homeDimensions.homeHeight >= 44,
         `usable Home targets at ${width}px (forced colors: ${forced}): ${JSON.stringify(homeDimensions)}`)
       await waitFor("document.querySelector('#calendar-agenda')?.textContent.includes('Synthetic focus time')", "Calendar remains available after navigation")
-      await evaluate("document.querySelector('#calendar-agenda').scrollIntoView({block:'center'})")
+      await homeLayout(width, forced)
+      if (width === 390 && !forced) await screenshot('home-narrow')
+      if (width === 390) await evaluate("document.querySelector('#calendar-agenda').scrollIntoView({block:'center'})")
       assert.equal(await evaluate("document.querySelector('#calendar-agenda').scrollWidth <= document.querySelector('#calendar-agenda').clientWidth"), true, "Calendar agenda has no horizontal overflow")
       if (width === 390 && !forced) await screenshot("calendar-home-narrow")
       if (width === 1440 && forced) await screenshot("calendar-home-forced-colors")
