@@ -88,6 +88,51 @@ defmodule Lovelace.Mail.Connections do
   defp restore(id, {:present, value}), do: Operations.vault().put(id, value)
   defp restore(id, :absent), do: Operations.vault().delete(id)
 
+  @doc false
+  def check_credentials(id, generation) do
+    if diagnostic_current?(id, generation) do
+      status = credential_status(id)
+      if diagnostic_current?(id, generation), do: status, else: :changed
+    else
+      :changed
+    end
+  end
+
+  defp diagnostic_current?(id, generation) do
+    case Mail.get_account(id, actor: @owner) do
+      {:ok, %{generation: ^generation, status: status}} when status != :disconnected -> true
+      _ -> false
+    end
+  end
+
+  # Only safe categories leave this boundary. Never return the token or an
+  # exception/provider value to Ash, LiveView, diagnostics or task crash reports.
+  # No refresh, rotation, permission prompt or persistence is performed here.
+  defp credential_status(id) do
+    case Operations.vault().get(id) do
+      {:ok, token} when is_binary(token) and byte_size(token) > 0 ->
+        :accessible
+
+      {:error, reason}
+      when reason in [
+             :not_found,
+             :locked,
+             :timeout,
+             :unavailable,
+             :invalid_account,
+             :invalid_value
+           ] ->
+        reason
+
+      _ ->
+        :unavailable
+    end
+  rescue
+    _ -> :unavailable
+  catch
+    _, _ -> :unavailable
+  end
+
   def access_token(account) do
     serial(account.id, fn ->
       actor = %{role: :mail_service, account_id: account.id}

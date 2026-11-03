@@ -1,6 +1,7 @@
 defmodule Lovelace.StageDesigner.Gemini do
   @moduledoc "One bounded Gemini image request; credentials and provider errors never leave this boundary."
 
+  alias Lovelace.Integrations.Gemini.Credentials
   alias Lovelace.StageDesigner.{GeminiTransport, Image, Settings}
 
   @host "https://generativelanguage.googleapis.com/v1beta/models/"
@@ -70,16 +71,15 @@ defmodule Lovelace.StageDesigner.Gemini do
   defp validate_settings(_), do: {:error, :invalid_settings}
 
   defp api_key(opts) do
-    key =
-      case Keyword.fetch(opts, :api_key) do
-        {:ok, key} -> key
-        :error -> System.get_env("GEMINI_API_KEY")
-      end
+    case Keyword.fetch(opts, :api_key) do
+      {:ok, key} ->
+        if Credentials.validate_key(key) == :ok,
+          do: {:ok, key},
+          else: {:error, :missing_api_key}
 
-    if is_binary(key) and byte_size(key) in 1..4096 and String.trim(key) != "" and
-         not String.contains?(key, ["\r", "\n"]),
-       do: {:ok, key},
-       else: {:error, :missing_api_key}
+      :error ->
+        Credentials.read_key()
+    end
   end
 
   defp bounded_request(settings, key, opts, test_port) do

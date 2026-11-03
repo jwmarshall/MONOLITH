@@ -3,8 +3,10 @@ defmodule LovelaceWeb.ConnectionsLiveTest do
 
   import Phoenix.LiveViewTest
 
+  alias Ash.Resource.Info
   alias Lovelace.Mail
-  alias Lovelace.Mail.ViewData
+  alias Lovelace.Mail.{Account, ViewData}
+  alias Lovelace.TestSupport.GeminiVault
   alias Lovelace.Workspaces
   alias LovelaceWeb.HomeLive
 
@@ -14,7 +16,9 @@ defmodule LovelaceWeb.ConnectionsLiveTest do
     @moduledoc false
 
     def start_link(owner) do
-      Agent.start_link(fn -> %{owner: owner, calls: [], blocked: []} end, name: __MODULE__)
+      Agent.start_link(fn -> %{owner: owner, calls: [], blocked: [], get_results: %{}} end,
+        name: __MODULE__
+      )
     end
 
     def child_spec(owner), do: %{id: __MODULE__, start: {__MODULE__, :start_link, [owner]}}
@@ -23,7 +27,20 @@ defmodule LovelaceWeb.ConnectionsLiveTest do
     def block(operation), do: Agent.update(__MODULE__, &%{&1 | blocked: [operation]})
     def unblock, do: Agent.update(__MODULE__, &%{&1 | blocked: []})
 
-    def get(id), do: record({:get, id}, {:ok, "refresh:" <> id})
+    def get_result(id, result),
+      do: Agent.update(__MODULE__, &put_in(&1, [:get_results, id], result))
+
+    def get(id) do
+      result = Agent.get(__MODULE__, &Map.get(&1.get_results, id, {:ok, "refresh:" <> id}))
+      result = record({:get, id}, result)
+
+      case result do
+        {:raise, message} -> raise message
+        {:throw, value} -> throw(value)
+        _ -> result
+      end
+    end
+
     def put(id, _token), do: record({:put, id}, :ok)
     def delete(id), do: record({:delete, id}, :ok)
 
@@ -80,6 +97,7 @@ defmodule LovelaceWeb.ConnectionsLiveTest do
 
   setup %{conn: conn} do
     start_supervised!({FakeIO, self()})
+    fake_gemini_vault()
     previous_provider = Application.fetch_env(:lovelace, :gmail_provider)
     previous_vault = Application.fetch_env(:lovelace, :gmail_vault)
     Application.put_env(:lovelace, :gmail_provider, FakeIO)
@@ -154,7 +172,7 @@ defmodule LovelaceWeb.ConnectionsLiveTest do
     assert FakeIO.calls() == []
 
     view |> element("#rename-#{ctx.workspace.id}") |> render_click()
-    assert has_element?(view, "#workspace-form", "Rename workspace")
+    assert has_element?(view, "#workspace-modal-title", "Rename workspace")
     refute has_element?(view, "#workspace-landing")
     assert socket(view).assigns.selected == nil
   end
@@ -359,6 +377,16 @@ defmodule LovelaceWeb.ConnectionsLiveTest do
     {:ok, view, _} = live(ctx.conn, ~p"/")
     open_workspace(view, ctx.workspace)
     view |> element("#show-connections") |> render_click()
+    refute has_element?(view, "#mail-connect-new")
+    view |> element("#new-gmail-connection") |> render_click()
+
+    assert has_element?(
+             view,
+             "dialog#gmail-connection-modal[phx-hook=NativeModal][data-cancel-event='mail:close_connection'][data-return-focus='#new-gmail-connection']"
+           )
+
+    assert has_element?(view, "#gmail-connection-modal-title", "Add Gmail account")
+    assert has_element?(view, "#gmail-connection-modal #mail-connect-new")
 
     for suffix <- ["new", ctx.reconnect.id] do
       form = "#mail-connect-#{suffix}"
@@ -385,6 +413,38 @@ defmodule LovelaceWeb.ConnectionsLiveTest do
            )
 
     assert FakeIO.calls() == []
+  end
+
+  test "new Gmail modal closes locally, survives metadata updates, and cannot open outside Connections",
+       ctx do
+    {:ok, view, _} = live(ctx.conn, ~p"/")
+    render_click(view, "mail:new_connection")
+    refute socket(view).assigns.mail.connecting
+    open_workspace(view, ctx.workspace)
+    render_click(view, "mail:new_connection")
+    refute socket(view).assigns.mail.connecting
+
+    view |> element("#show-connections") |> render_click()
+    view |> element("#new-gmail-connection") |> render_click()
+    status(ctx.healthy, %{last_error: :provider})
+    broadcast(ctx.healthy.id)
+    assert has_element?(view, "#gmail-connection-modal #mail-workspace-new")
+
+    assert has_element?(
+             view,
+             "#connection-account-#{ctx.healthy.id}",
+             "Last check could not reach Gmail"
+           )
+
+    view |> element("#gmail-connection-modal button[type=button]") |> render_click()
+    refute has_element?(view, "#gmail-connection-modal, #mail-connect-new")
+    assert socket(view).assigns.mail.scope == :connections
+    assert FakeIO.calls() == []
+
+    view |> element("#new-gmail-connection") |> render_click()
+    view |> element("#home-link") |> render_click()
+    view |> element("#show-connections") |> render_click()
+    refute has_element?(view, "#gmail-connection-modal")
   end
 
   test "center nav returns Home and contextual back returns the workspace without inbox content",
@@ -489,6 +549,33 @@ defmodule LovelaceWeb.ConnectionsLiveTest do
     assert_late_view_ignored(view, old_task)
   end
 
+  test "switching providers preserves an in-flight Gmail disconnect without showing Gmail on Gemini",
+       ctx do
+    {:ok, view, _} = live(ctx.conn, ~p"/")
+    view |> element("#show-connections") |> render_click()
+    FakeIO.block(:revoke)
+    disconnect(view, ctx.healthy)
+    assert_receive {:fake_blocked, worker, {:revoke, id}}, 2_000
+    assert id == ctx.healthy.id
+    command = socket(view).assigns.mail.command
+    view |> element("#connections-gemini") |> render_click()
+    assert socket(view).assigns.mail.command == command
+    refute has_element?(view, "#connections-panel")
+    send(worker, :release)
+    render_async(view)
+    assert has_element?(view, "#gemini-connection")
+    assert socket(view).assigns.mail.command == nil
+    view |> element("#connections-gmail") |> render_click()
+    refute has_element?(view, "#connection-account-#{ctx.healthy.id}")
+    assert has_element?(view, "#connection-account-#{ctx.available.id}")
+
+    assert has_element?(
+             view,
+             "#mail-notice",
+             "Disconnected everywhere"
+           )
+  end
+
   test "a late disconnect result is ignored after leaving and reentering global Connections",
        ctx do
     {:ok, view, _} = live(ctx.conn, ~p"/")
@@ -501,8 +588,10 @@ defmodule LovelaceWeb.ConnectionsLiveTest do
     {account_id, generation} = socket(view).assigns.mail.command
     name = {:mail, :disconnect, nil, account_id, generation}
 
-    assert has_element?(view, "#mail-connect-new select[disabled]")
-    assert has_element?(view, "#mail-connect-new button[disabled]")
+    assert has_element?(view, "#new-gmail-connection[disabled]")
+    refute has_element?(view, "#gmail-connection-modal, #mail-connect-new")
+    render_click(view, "mail:new_connection")
+    refute has_element?(view, "#gmail-connection-modal")
     view |> element("#back-from-connections") |> render_click()
     assert has_element?(view, "#directory-heading", ctx.workspace.name)
     current = socket(view)
@@ -512,7 +601,10 @@ defmodule LovelaceWeb.ConnectionsLiveTest do
     view |> element("#show-connections") |> render_click()
     assert socket(view).assigns.mail.generation != generation
     assert socket(view).assigns.mail.command == nil
-    assert has_element?(view, "#mail-connect-new select:not([disabled])")
+    assert has_element?(view, "#new-gmail-connection:not([disabled])")
+    view |> element("#new-gmail-connection") |> render_click()
+    assert has_element?(view, "#gmail-connection-modal #mail-connect-new select:not([disabled])")
+    view |> element("#gmail-connection-modal button[type=button]") |> render_click()
     send(worker, :release)
     render_async(view)
 
@@ -528,6 +620,307 @@ defmodule LovelaceWeb.ConnectionsLiveTest do
              {:delete, ctx.healthy.id},
              {:revoke, ctx.healthy.id}
            ]
+  end
+
+  test "local credential checks expose distinct safe observations without changing sync state",
+       ctx do
+    {:ok, view, _} = live(ctx.conn, ~p"/")
+    view |> element("#show-connections") |> render_click()
+    before = account_state()
+    private = "synthetic-private-refresh-token"
+
+    for connection <- [ctx.healthy, ctx.reconnect, ctx.limited, ctx.available] do
+      assert has_element?(
+               view,
+               "#check-credentials-#{connection.id}[phx-click='mail:check_credentials']" <>
+                 "[phx-value-id='#{connection.id}']:not([disabled])"
+             )
+    end
+
+    cases = [
+      {{:ok, private}, :accessible, "readable"},
+      {{:error, :locked}, :locked, "locked"},
+      {{:error, :timeout}, :timeout, "timeout"},
+      {{:error, :not_found}, :not_found, "not found"},
+      {{:error, :unavailable}, :unavailable, "unavailable"},
+      {{:error, :invalid_account}, :invalid_account, "invalid"},
+      {{:error, :invalid_value}, :invalid_value, "invalid"}
+    ]
+
+    for {response, expected, label} <- cases do
+      FakeIO.get_result(ctx.reconnect.id, response)
+      check_credentials(view, ctx.reconnect)
+      html = render_async(view)
+      result = socket(view).assigns.mail.credential_checks[ctx.reconnect.id]
+      assert result.generation == ctx.reconnect.generation
+      assert result.status == expected
+      assert %DateTime{} = result.checked_at
+      assert socket(view).assigns.mail.credential_check == nil
+      selector = "#credential-check-#{ctx.reconnect.id}[role=status]"
+      assert has_element?(view, selector, label)
+
+      assert has_element?(
+               view,
+               "#{selector} time[datetime='#{DateTime.to_iso8601(result.checked_at)}']"
+             )
+
+      assert render(element(view, selector)) =~ ~r/\d{2}:\d{2}/
+      refute has_element?(view, "#credential-check-#{ctx.healthy.id}")
+      refute html =~ private
+      refute inspect(socket(view).assigns) =~ private
+      assert account_state() == before
+    end
+
+    FakeIO.get_result(ctx.healthy.id, {:ok, private})
+    check_credentials(view, ctx.healthy)
+    render_async(view)
+    assert socket(view).assigns.mail.credential_checks[ctx.healthy.id].status == :accessible
+    assert socket(view).assigns.mail.credential_checks[ctx.reconnect.id].status == :invalid_value
+
+    assert Map.keys(socket(view).assigns.mail.credential_checks) |> Enum.sort() ==
+             Enum.sort([ctx.healthy.id, ctx.reconnect.id])
+
+    assert FakeIO.calls() ==
+             List.duplicate({:get, ctx.reconnect.id}, length(cases)) ++ [{:get, ctx.healthy.id}]
+  end
+
+  test "credential diagnostic failures never expose raw vault errors or task exceptions", ctx do
+    {:ok, view, _} = live(ctx.conn, ~p"/")
+    view |> element("#show-connections") |> render_click()
+    private = "synthetic-private-vault-error"
+    before = account_state()
+    responses = [{:error, %{private: private}}, {:raise, private}, {:throw, private}]
+
+    log =
+      ExUnit.CaptureLog.capture_log(fn ->
+        for response <- responses do
+          FakeIO.get_result(ctx.healthy.id, response)
+          check_credentials(view, ctx.healthy)
+          html = render_async(view)
+
+          assert has_element?(
+                   view,
+                   "#credential-check-#{ctx.healthy.id}[role=status]",
+                   "unavailable"
+                 )
+
+          assert socket(view).assigns.mail.credential_checks[ctx.healthy.id].status ==
+                   :unavailable
+
+          refute html =~ private
+          refute inspect(socket(view).assigns) =~ private
+        end
+      end)
+
+    refute log =~ private
+    assert account_state() == before
+    assert FakeIO.calls() == List.duplicate({:get, ctx.healthy.id}, length(responses))
+  end
+
+  test "credential checks reject forged scope, provider, missing and disconnected account events",
+       ctx do
+    {:ok, view, _} = live(ctx.conn, ~p"/")
+    render_click(view, "mail:check_credentials", %{"id" => ctx.healthy.id})
+    refute has_element?(view, "[id^='check-credentials-']")
+    open_workspace(view, ctx.workspace)
+    render_click(view, "mail:check_credentials", %{"id" => ctx.healthy.id})
+    assert FakeIO.calls() == []
+
+    status(ctx.available, %{status: :disconnected})
+    view |> element("#show-connections") |> render_click()
+
+    for params <- [
+          %{"id" => Ash.UUID.generate()},
+          %{"id" => "not-an-account"},
+          %{"id" => ctx.available.id},
+          %{}
+        ] do
+      render_click(view, "mail:check_credentials", params)
+    end
+
+    refute has_element?(view, "#check-credentials-#{ctx.available.id}")
+    view |> element("#connections-gemini") |> render_click()
+    render_async(view)
+    refute has_element?(view, "[id^='check-credentials-']")
+    render_click(view, "mail:check_credentials", %{"id" => ctx.healthy.id})
+    assert socket(view).assigns.mail.credential_check == nil
+    assert socket(view).assigns.mail.credential_checks == %{}
+    assert FakeIO.calls() == []
+    assert Mail.get_account!(ctx.healthy.id, actor: @owner).status == :ready
+  end
+
+  test "one active check disables every account and fences mismatched requests and task errors",
+       ctx do
+    {:ok, view, _} = live(ctx.conn, ~p"/")
+    view |> element("#show-connections") |> render_click()
+    FakeIO.block(:get)
+    check_credentials(view, ctx.healthy)
+    assert_receive {:fake_blocked, worker, {:get, id}}, 2_000
+    assert id == ctx.healthy.id
+    {account_id, generation, request_id} = active = socket(view).assigns.mail.credential_check
+    assert generation == ctx.healthy.generation
+    name = {:mail, :credential_check, account_id, generation, request_id}
+
+    for connection <- [ctx.healthy, ctx.reconnect, ctx.limited, ctx.available] do
+      assert has_element?(view, "#check-credentials-#{connection.id}[disabled]")
+    end
+
+    assert has_element?(view, "#credential-check-#{ctx.healthy.id}[role=status]", "Checking")
+    render_click(view, "mail:check_credentials", %{"id" => ctx.limited.id})
+    render_click(view, "mail:check_credentials", %{"id" => ctx.healthy.id})
+    assert socket(view).assigns.mail.credential_check == active
+    assert FakeIO.calls() == [{:get, ctx.healthy.id}]
+
+    for stale_name <- [
+          {:mail, :credential_check, ctx.limited.id, generation, request_id},
+          {:mail, :credential_check, account_id, Ash.UUID.generate(), request_id},
+          {:mail, :credential_check, account_id, generation, request_id + 1}
+        ] do
+      assert_credential_completion_ignored(view, stale_name)
+    end
+
+    current = socket(view)
+    private = "synthetic-private-task-error"
+
+    for failure <- [
+          {:exit, private},
+          {:ok, {:error, %{private: private}}},
+          {:ok, {:ok, %{status: {:unknown, private}}}}
+        ] do
+      assert {:noreply, failed} = HomeLive.handle_async(name, failure, current)
+      assert failed.assigns.mail.credential_check == nil
+      assert failed.assigns.mail.credential_checks[account_id].status == :unavailable
+      refute inspect(failed.assigns) =~ private
+    end
+
+    send(worker, :release)
+    render_async(view)
+    assert socket(view).assigns.mail.credential_checks[ctx.healthy.id].status == :accessible
+    assert socket(view).assigns.mail.credential_check == nil
+    assert has_element?(view, "#check-credentials-#{ctx.limited.id}:not([disabled])")
+    assert FakeIO.calls() == [{:get, ctx.healthy.id}]
+  end
+
+  test "leaving and reentering Connections rejects a pending completion even during a new check",
+       ctx do
+    {:ok, view, _} = live(ctx.conn, ~p"/")
+    view |> element("#show-connections") |> render_click()
+    FakeIO.block(:get)
+    check_credentials(view, ctx.healthy)
+    assert_receive {:fake_blocked, worker, {:get, id}}, 2_000
+    assert id == ctx.healthy.id
+    {account_id, generation, request_id} = socket(view).assigns.mail.credential_check
+    old_name = {:mail, :credential_check, account_id, generation, request_id}
+    monitor = Process.monitor(worker)
+    view |> element("#home-link") |> render_click()
+    assert_receive {:DOWN, ^monitor, :process, ^worker, _}, 2_000
+    assert_credential_completion_ignored(view, old_name)
+
+    view |> element("#show-connections") |> render_click()
+    assert socket(view).assigns.mail.credential_checks == %{}
+    assert socket(view).assigns.mail.credential_check == nil
+    assert_credential_completion_ignored(view, old_name)
+    check_credentials(view, ctx.healthy)
+    assert_receive {:fake_blocked, next_worker, {:get, ^id}}, 2_000
+
+    assert {^account_id, ^generation, next_request_id} =
+             socket(view).assigns.mail.credential_check
+
+    refute next_request_id == request_id
+    assert_credential_completion_ignored(view, old_name)
+    send(next_worker, :release)
+    render_async(view)
+    assert socket(view).assigns.mail.credential_checks[ctx.healthy.id].status == :accessible
+    assert FakeIO.calls() == [{:get, id}, {:get, id}]
+  end
+
+  test "reconnect during a pending check discards the old generation result", ctx do
+    {:ok, view, _} = live(ctx.conn, ~p"/")
+    view |> element("#show-connections") |> render_click()
+    FakeIO.block(:get)
+    check_credentials(view, ctx.healthy)
+    assert_receive {:fake_blocked, worker, {:get, id}}, 2_000
+    assert id == ctx.healthy.id
+    {account_id, generation, request_id} = socket(view).assigns.mail.credential_check
+    old_name = {:mail, :credential_check, account_id, generation, request_id}
+    reconnected = reconnect_generation(ctx.healthy)
+    broadcast(id)
+    render(view)
+    current = socket(view)
+
+    assert {:noreply, completed} =
+             HomeLive.handle_async(old_name, {:ok, {:ok, %{status: :accessible}}}, current)
+
+    refute Map.has_key?(completed.assigns.mail.credential_checks, id)
+    send(worker, :release)
+    render_async(view)
+    refute has_element?(view, "#credential-check-#{id}")
+    refute Map.has_key?(socket(view).assigns.mail.credential_checks, id)
+    assert socket(view).assigns.mail.credential_check == nil
+
+    FakeIO.unblock()
+    check_credentials(view, reconnected)
+    render_async(view)
+    assert socket(view).assigns.mail.credential_checks[id].generation == reconnected.generation
+    assert socket(view).assigns.mail.credential_checks[id].status == :accessible
+    assert FakeIO.calls() == [{:get, id}, {:get, id}]
+  end
+
+  test "metadata changes invalidate only the changed account's credential observation", ctx do
+    {:ok, view, _} = live(ctx.conn, ~p"/")
+    view |> element("#show-connections") |> render_click()
+    check_credentials(view, ctx.healthy)
+    render_async(view)
+    FakeIO.get_result(ctx.limited.id, {:error, :locked})
+    check_credentials(view, ctx.limited)
+    render_async(view)
+    limited_check = socket(view).assigns.mail.credential_checks[ctx.limited.id]
+    reconnect_generation(ctx.healthy)
+    broadcast(ctx.healthy.id)
+    refute has_element?(view, "#credential-check-#{ctx.healthy.id}")
+    assert socket(view).assigns.mail.credential_checks[ctx.limited.id] == limited_check
+    assert has_element?(view, "#credential-check-#{ctx.limited.id}", "locked")
+
+    status(ctx.limited, %{status: :disconnected})
+    broadcast(ctx.limited.id)
+    refute has_element?(view, "#credential-check-#{ctx.limited.id}")
+    assert socket(view).assigns.mail.credential_checks == %{}
+    assert FakeIO.calls() == [{:get, ctx.healthy.id}, {:get, ctx.limited.id}]
+  end
+
+  defp check_credentials(view, account) do
+    view |> element("#check-credentials-#{account.id}") |> render_click()
+  end
+
+  defp assert_credential_completion_ignored(view, name) do
+    current = socket(view)
+    result = {:ok, {:ok, %{status: :accessible}}}
+    assert {:noreply, ^current} = HomeLive.handle_async(name, result, current)
+  end
+
+  defp account_state do
+    Enum.map(Mail.list_accounts!(actor: @owner), fn account ->
+      Map.take(account, Enum.map(Info.attributes(Account), & &1.name))
+    end)
+  end
+
+  defp reconnect_generation(account) do
+    Mail.save_connection!(
+      %{
+        id: account.id,
+        subject: account.subject,
+        email: account.email,
+        generation: Ash.UUID.generate()
+      },
+      actor: @owner
+    )
+  end
+
+  defp fake_gemini_vault do
+    start_supervised!(GeminiVault)
+    previous = Application.fetch_env(:lovelace, :gemini_vault)
+    Application.put_env(:lovelace, :gemini_vault, GeminiVault)
+    on_exit(fn -> restore(:gemini_vault, previous) end)
   end
 
   defp assert_late_view_ignored(view, name) do

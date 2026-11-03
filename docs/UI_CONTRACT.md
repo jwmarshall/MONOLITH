@@ -97,12 +97,42 @@ replace old requirements rather than accumulating a chronology.
 - Workspaces represent areas of life. **Quiet sea-glass cards supersede the earlier
   typographic/no-card directory**. Use generous native button surfaces and separate native
   management disclosures for rename; opening and management are siblings, never nested controls.
+  Create/rename use native modal dialogs with trapped focus, labelled headings and inline
+  validation. Cancel/Escape closes only the dialog, restoring focus without entering scenery
+  mode. Unrelated patches preserve the draft; invalid submissions keep the dialog open.
+  The visual idle timer pauses while a modal is open and resumes on dismissal;
+  this is not an authentication or privacy change.
+- Connections has a **Gemini / Gmail** provider subnav on the same row as its title,
+  with only the selected provider's interface mounted. Native navigation buttons identify
+  the current provider with `aria-current`; switching keeps focus on the chosen control.
+  Opening Connections defaults to Gmail; Gemini credential POSTs return to Gemini.
+  Escape/idle preserves the selected provider and contextual workspace return remains intact.
+  Re-selecting the active provider does not discard forms. Selection has no URL/history or
+  reload persistence; provider changes remove the previous provider's unsaved form content.
 - Workspace detail prioritizes separate integration/account tiles, never an aggregate inbox.
   **Add integration** is a focused panel for reusable connections or connecting Google;
-  Gmail is the only implemented integration, not a speculative provider catalog.
+  Gmail is the only workspace integration, not a speculative provider catalog. Google Gemini
+  is an **app-wide scenery connection** in global Connections, separate from Gmail accounts;
+  it is never attached to a workspace or included in Gmail health/counts. Its API-key forms
+  are ordinary authenticated, CSRF-protected POSTs, not LiveView credential events. Display
+  only Keychain availability/key presence, never a returned key or unverified Google health.
+  Saving/removing does not generate, probe Google or change the startup opt-in/cooldown.
+  Explain possible charges, startup-only generation and preserved imagery on key removal.
 - **Remove from workspace** detaches locally; global **Connections** owns health, reconnect
-  and confirmed **Disconnect everywhere**. Global connect/reconnect forms explicitly select
-  the receiving workspace, preserving identity and membership context.
+  and confirmed **Disconnect everywhere**. Global Gmail accounts use compact rows with
+  identity/status beside actions on desktop and a wrapping layout on narrow screens.
+  **Add Gmail account** opens a native modal; the new-connection form is absent until opened.
+  Cancel/Escape dismisses only the dialog and restores the Add button. Unrelated metadata
+  patches preserve its receiving-workspace choice. Global connect/reconnect forms explicitly
+  select the receiving workspace, preserving identity and membership context.
+- Gmail Connections offers an explicit per-account **Check Keychain**, separate from
+  Google reconnect/disconnect. Run it asynchronously, one at a time, with announced
+  safe error categories and an observation timestamp; never expose the token. Explain
+  that an unlocked keychain can still deny item access and a readable token does not
+  verify Google. Checks do not change permissions, contact Google, refresh mail or
+  clear persisted health/freshness. Fence delayed results across connection generations
+  and leaving/reentering Connections. Keep recovery guidance in a native disclosure;
+  no automatic permission prompts or helper rebuilds.
 - Card health is last-known metadata, not a fresh provider check. Entering/rendering cards
   or management does not fetch mail or provider health. Account updates cannot refresh a
   different selected inbox. Never infer unread totals from a bounded cached page: Home
@@ -174,7 +204,9 @@ actual executed evidence.
 - `test/js/ui_browser_runner_test.mjs`: early normal/signal Chrome exit must fail promptly,
   not hang on an already-fired event or report success; no real browser/app is launched.
 - `test/js/workspace_idle_test.mjs`: elapsed-time/activity/wake rules, patches/hidden tabs,
-  timer cleanup and shared static/live image-load observer.
+  modal idle suspension/resume, timer cleanup and shared static/live image-load observer.
+- `test/js/native_modal_test.mjs`: opening/focus, sticky open state, Escape isolation,
+  server-owned dismissal, listener cleanup and focus restoration.
 - `test/js/home_readouts_test.mjs`: local greeting/date, timestamp aging, patched failure
   metadata, resume updates and timer/listener teardown.
 - `test/js/mail_reader_test.mjs`: async reader focus/latest-reply handoff, exact return
@@ -185,18 +217,34 @@ actual executed evidence.
 - `test/lovelace_web/live/home_live_test.exs`: shell, client commands, accessible/decorative
   branding, Lock POST/token structure, image URL allowlist and stage updates.
 - `test/lovelace_web/live/workspaces_live_test.exs`: persistence, validation and unsaved-form
-  preservation; navigation/save/cancel emit heading-focus events, rejected saves do not.
+  preservation in dialogs; navigation emits heading-focus events while modal dismissal
+  leaves trigger focus restoration to its hook; rejected saves keep the modal open.
+- `test/lovelace_web/live/gemini_connection_live_test.exs` and
+  `test/lovelace_web/controllers/gemini_credentials_test.exs`: safe presence/failure states,
+  ordinary POST forms, auth/revocation/CSRF, bounded input and secret-free Phoenix telemetry.
+  Backend credential tests cover owner-only actions, validation, exception containment,
+  separate Keychain framing and refusal by an outdated helper; tests use fake vaults only.
 - `test/lovelace_web/live/mail_live_test.exs` and `connections_live_test.exs`: workspace/account
   navigation, management effects, explicit OAuth context and stale async/PubSub isolation;
   single-title reader/native disclosures, escaped bodies/metadata, result-context resets
   and retention of search/page on return without provider payloads in socket assigns.
+  Credential-check tests cover local-only safe results, account/generation fences,
+  denied actors, native error sanitization and unchanged persisted sync metadata.
 - `test/lovelace_web/controllers/owner_controller_test.exs`: static unlock/setup, session
   revocation and real CSRF enforcement on Lock (missing/invalid denial, valid token acceptance).
   Asset tests pin local vendor/font files and retained licenses.
 - `test/browser/ui_contract.mjs`, launched by `test/support/ui_browser.exs`: actual browser
   entrance/directional exit/gate and focus; corner/Lock computed visibility/focusability; static
   stage with/without JS; static/live image success/failure; native menus; workspace/account/
-  Connections navigation; unsaved first-key wake, first-click activation and scroll preservation;
+  Connections navigation; workspace modal focus/inertness, Escape-only cancellation,
+  idle draft preservation, save/cancel focus restoration, first-click activation and scroll preservation;
+  keyboard local credential checks, timestamped unverified-Google results and Keychain
+  help without credential disclosure or horizontal overflow; five compact Gmail rows
+  and the new-connection modal's required workspace choice,
+  Cancel/Escape focus and desktop/narrow/forced-color layout; title-row provider subnav,
+  keyboard switching with focus retained, mutually exclusive provider interfaces, scenery
+  wake preserving selection and credential POSTs returning to Gemini;
+  Gemini's ordinary credential POST to a fake vault, empty return form and truthful key state;
   scheduled idle expiration with a shortened disposable DOM timer; mid-reveal reduced motion;
   forced colors; desktop/narrow inbox/reader layouts; long-token wrapping and body type;
   native message/metadata disclosures and refresh preservation; reader Escape/wake;

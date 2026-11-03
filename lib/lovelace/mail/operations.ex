@@ -39,6 +39,10 @@ defmodule Lovelace.Mail.Operations do
     {:ok, true}
   end
 
+  defp execute(:check_credentials, args, %{role: :local_owner}) do
+    {:ok, %{status: Connections.check_credentials(args.account_id, args.generation)}}
+  end
+
   defp execute(:disconnect, args, actor) do
     with {:ok, account} <- Mail.get_account(args.account_id, actor: actor) do
       Connections.serial(account.id, fn ->

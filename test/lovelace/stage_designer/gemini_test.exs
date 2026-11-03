@@ -9,7 +9,72 @@ defmodule Lovelace.StageDesigner.GeminiTest do
   @key "fake-stage-key-never-a-real-credential"
   @limit 16 * 1024 * 1024
 
+  defmodule Vault do
+    @behaviour Lovelace.Integrations.Google.Keychain
+    @impl true
+    def get(account) do
+      send(self(), {:gemini_vault_read, account})
+      Process.get({__MODULE__, :result}, {:error, :not_found})
+    end
+
+    @impl true
+    def put(_, _), do: raise("generation must not write credentials")
+    @impl true
+    def delete(_), do: raise("generation must not delete credentials")
+  end
+
   setup {Req.Test, :verify_on_exit!}
+
+  setup do
+    previous = Application.fetch_env(:lovelace, :gemini_vault)
+    Application.put_env(:lovelace, :gemini_vault, Vault)
+
+    on_exit(fn ->
+      case previous do
+        {:ok, value} -> Application.put_env(:lovelace, :gemini_vault, value)
+        :error -> Application.delete_env(:lovelace, :gemini_vault)
+      end
+    end)
+  end
+
+  test "default authentication reads the Gemini singleton only at generation's HTTP boundary" do
+    bytes = PNG.image()
+    account = Lovelace.Integrations.Gemini.Keychain.account()
+    Process.put({Vault, :result}, {:ok, @key})
+
+    Req.Test.expect(__MODULE__, fn conn ->
+      assert Plug.Conn.get_req_header(conn, "x-goog-api-key") == [@key]
+      Req.Test.json(conn, response([image_part(bytes)]))
+    end)
+
+    assert {:ok, ^bytes} = Gemini.generate(%Settings{}, plug: {Req.Test, __MODULE__})
+    assert_received {:gemini_vault_read, ^account}
+    refute_received {:gemini_vault_read, _}
+  end
+
+  test "missing, invalid and inaccessible stored keys fail before HTTP, with no environment fallback" do
+    Req.Test.stub(__MODULE__, fn _ -> flunk("must not request with an inaccessible key") end)
+
+    for {result, expected} <- [
+          {{:error, :not_found}, :missing_api_key},
+          {{:ok, "invalid key"}, :missing_api_key},
+          {{:error, :locked}, :keychain_unavailable},
+          {{:error, :unavailable}, :keychain_unavailable},
+          {{:error, :timeout}, :keychain_unavailable}
+        ] do
+      Process.put({Vault, :result}, result)
+      assert {:error, ^expected} = Gemini.generate(%Settings{}, plug: {Req.Test, __MODULE__})
+    end
+  end
+
+  test "explicit test API key bypasses the configured vault and does not fall back when invalid" do
+    bytes = PNG.image()
+    stub(response([image_part(bytes)]))
+    Process.put({Vault, :result}, {:error, :locked})
+    assert {:ok, ^bytes} = generate()
+    assert {:error, :missing_api_key} = Gemini.generate(%Settings{}, api_key: nil)
+    refute_received {:gemini_vault_read, _}
+  end
 
   test "sends the fixed HTTPS REST contract with header-only auth and returns unchanged PNG bytes" do
     bytes = PNG.image()
@@ -261,7 +326,7 @@ defmodule Lovelace.StageDesigner.GeminiTest do
       assert {:error, :invalid_settings} = generate(settings)
     end
 
-    for key <- [nil, "", "   ", "fake\r\nheader", 42] do
+    for key <- [nil, "", "   ", "fake\r\nheader", "a b", "a\tb", <<255>>, 42] do
       assert {:error, :missing_api_key} =
                Gemini.generate(%Settings{}, api_key: key, plug: {Req.Test, __MODULE__})
     end

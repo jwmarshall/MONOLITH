@@ -6,7 +6,15 @@ defmodule LovelaceWeb.HomeLive do
   alias Lovelace.Mail.ConnectionDiagnostics
   alias Lovelace.Workspaces
   alias Lovelace.Workspaces.Workspace
-  alias LovelaceWeb.{HomeComponents, HomeMail, MailComponents, WorkspaceComponents}
+
+  alias LovelaceWeb.{
+    GeminiComponents,
+    HomeComponents,
+    HomeGemini,
+    HomeMail,
+    MailComponents,
+    WorkspaceComponents
+  }
 
   # Capability minted only behind the HTTP and LiveView owner-session boundaries.
   @owner %{role: :local_owner}
@@ -31,6 +39,7 @@ defmodule LovelaceWeb.HomeLive do
         background: background,
         selected: nil,
         connections: false,
+        connection_view: :gmail,
         workspace_options: [],
         workspace_health: %{},
         directory_subscriptions: [],
@@ -43,6 +52,7 @@ defmodule LovelaceWeb.HomeLive do
       )
       |> stream(:workspaces, [])
       |> HomeMail.init()
+      |> HomeGemini.init()
 
     socket = if connected?(socket), do: load_workspaces(socket), else: socket
     socket = resume_connection(socket, params)
@@ -65,6 +75,7 @@ defmodule LovelaceWeb.HomeLive do
   def handle_info(_message, socket), do: {:noreply, socket}
 
   @impl true
+  def handle_async(:gemini_status, result, socket), do: HomeGemini.handle_async(result, socket)
   def handle_async(name, result, socket), do: HomeMail.handle_async(name, result, socket)
 
   @impl true
@@ -112,11 +123,48 @@ defmodule LovelaceWeb.HomeLive do
     end
   end
 
+  def handle_event(
+        "gemini:check",
+        _params,
+        %{assigns: %{connections: true, connection_view: :gemini}} = socket
+      ),
+      do: {:noreply, HomeGemini.open(socket)}
+
+  def handle_event("gemini:check", _params, socket), do: {:noreply, socket}
+
+  def handle_event(
+        "select_connection",
+        %{"provider" => provider},
+        %{assigns: %{connections: true}} = socket
+      )
+      when provider in ["gemini", "gmail"] do
+    view = if provider == "gemini", do: :gemini, else: :gmail
+
+    if view == socket.assigns.connection_view do
+      {:noreply, socket}
+    else
+      socket = socket |> HomeMail.close_connection() |> assign(:connection_view, view)
+      {:noreply, if(view == :gemini, do: HomeGemini.open(socket), else: socket)}
+    end
+  end
+
+  def handle_event("select_connection", _params, socket), do: {:noreply, socket}
+
+  def handle_event("show_connections", _params, %{assigns: %{connections: true}} = socket),
+    do: {:noreply, socket}
+
   def handle_event("show_connections", _params, socket) do
     {:noreply,
      socket
      |> directory_subscriptions([])
-     |> assign(home: false, connections: true, editor: nil, form: nil, page_title: "Connections")
+     |> assign(
+       home: false,
+       connections: true,
+       connection_view: :gmail,
+       editor: nil,
+       form: nil,
+       page_title: "Connections"
+     )
      |> HomeMail.open_connections()
      |> focus_heading()}
   end
@@ -165,7 +213,7 @@ defmodule LovelaceWeb.HomeLive do
   end
 
   def handle_event("cancel_workspace", _params, socket) do
-    {:noreply, socket |> assign(editor: nil, form: nil) |> focus_heading()}
+    {:noreply, assign(socket, editor: nil, form: nil)}
   end
 
   def handle_event("validate_workspace", %{"workspace" => params}, socket) do
@@ -238,8 +286,7 @@ defmodule LovelaceWeb.HomeLive do
            page_title: if(selected, do: selected.name, else: "Workspaces"),
            save_status: "Workspace saved."
          )
-         |> load_workspaces()
-         |> focus_heading()}
+         |> load_workspaces()}
 
       {:error, form} ->
         {:noreply, assign(socket, form: to_form(form), form_failed: true)}
@@ -358,6 +405,38 @@ defmodule LovelaceWeb.HomeLive do
           socket
       end
 
+    socket
+    |> resume_workspace(params)
+    |> resume_gemini(params)
+  end
+
+  defp resume_gemini(socket, params) do
+    if connected?(socket) && params["connections"] == "gemini" do
+      message =
+        case params["gemini"] do
+          "saved" ->
+            {:info, "Gemini API key saved in Keychain. No generation was started."}
+
+          "removed" ->
+            {:info, "Gemini API key removed. Existing scenery is unchanged."}
+
+          "failed" ->
+            {:error,
+             "Gemini key could not be updated. Check the key format and Keychain access, then try again."}
+
+          _ ->
+            nil
+        end
+
+      socket = if message, do: put_flash(socket, elem(message, 0), elem(message, 1)), else: socket
+      {:noreply, socket} = handle_event("show_connections", %{}, socket)
+      socket |> assign(:connection_view, :gemini) |> HomeGemini.open()
+    else
+      socket
+    end
+  end
+
+  defp resume_workspace(socket, params) do
     if connected?(socket) && is_binary(params["workspace"]) do
       case Workspaces.get_workspace(params["workspace"], actor: @owner) do
         {:ok, workspace} ->
@@ -472,6 +551,29 @@ defmodule LovelaceWeb.HomeLive do
                 end}
               </h2>
             </div>
+            <nav
+              :if={@connections}
+              id="connections-subnav"
+              class="connections-subnav"
+              aria-label="Connection providers"
+            >
+              <button
+                id="connections-gemini"
+                type="button"
+                class="workspace-nav-link"
+                phx-click="select_connection"
+                phx-value-provider="gemini"
+                aria-current={if @connection_view == :gemini, do: "page"}
+              >Gemini</button>
+              <button
+                id="connections-gmail"
+                type="button"
+                class="workspace-nav-link"
+                phx-click="select_connection"
+                phx-value-provider="gmail"
+                aria-current={if @connection_view == :gmail, do: "page"}
+              >Gmail</button>
+            </nav>
             <button
               :if={!@selected && !@connections && @mail.scope != :home && !@editor}
               id="new-workspace"
@@ -489,45 +591,55 @@ defmodule LovelaceWeb.HomeLive do
             />
           </div>
 
-          <.form
+          <LovelaceWeb.ModalComponents.modal
             :if={@editor}
-            for={@form}
-            id="workspace-form"
-            class="workspace-editor"
-            phx-change="validate_workspace"
-            phx-submit="save_workspace"
+            id="workspace-modal"
+            title={if @editor == :new, do: "New workspace", else: "Rename workspace"}
+            on_cancel="cancel_workspace"
+            initial_focus="#workspace-name"
+            return_focus={
+              if @editor == :new,
+                do: "#new-workspace",
+                else: "#workspace-menu-#{@form.source.data.id} summary"
+            }
           >
-            <h3 class="workspace-editor-title">
-              {if @editor == :new, do: "New workspace", else: "Rename workspace"}
-            </h3>
-            <.input
-              field={@form[:name]}
-              id="workspace-name"
-              label="Name"
-              class="workspace-name-input"
-              maxlength="64"
-              required
-              autocomplete="off"
-              aria-invalid={if @form[:name].errors != [], do: "true", else: "false"}
-              aria-describedby="workspace-name-hint workspace-form-feedback"
-              phx-mounted={JS.focus()}
-            />
-            <p id="workspace-name-hint" class="workspace-form-hint">Use a name of 1–64 characters.</p>
-            <p id="workspace-form-feedback" class="workspace-form-feedback" role="alert">
-              {if @form_failed,
-                do: "The workspace couldn’t be saved. Check the name and try again."}
-            </p>
-            <div class="workspace-editor-actions">
-              <button
-                type="submit"
-                class="workspace-action workspace-action-primary"
-                phx-disable-with="Saving…"
-              >
-                {if @editor == :new, do: "Create workspace", else: "Save name"}
-              </button>
-              <button type="button" class="workspace-action" phx-click="cancel_workspace">Cancel</button>
-            </div>
-          </.form>
+            <.form
+              for={@form}
+              id="workspace-form"
+              class="workspace-modal-form"
+              phx-change="validate_workspace"
+              phx-submit="save_workspace"
+            >
+              <.input
+                field={@form[:name]}
+                id="workspace-name"
+                label="Name"
+                class="workspace-name-input"
+                maxlength="64"
+                required
+                autocomplete="off"
+                aria-invalid={if @form[:name].errors != [], do: "true", else: "false"}
+                aria-describedby="workspace-name-hint workspace-form-feedback"
+              />
+              <p id="workspace-name-hint" class="workspace-form-hint">
+                Use a name of 1–64 characters.
+              </p>
+              <p id="workspace-form-feedback" class="workspace-form-feedback" role="alert">
+                {if @form_failed,
+                  do: "The workspace couldn’t be saved. Check the name and try again."}
+              </p>
+              <div class="workspace-editor-actions">
+                <button
+                  type="submit"
+                  class="workspace-action workspace-action-primary"
+                  phx-disable-with="Saving…"
+                >
+                  {if @editor == :new, do: "Create workspace", else: "Save name"}
+                </button>
+                <button type="button" class="workspace-action" phx-click="cancel_workspace">Cancel</button>
+              </div>
+            </.form>
+          </LovelaceWeb.ModalComponents.modal>
 
           <div
             :if={!@home && !@selected && !@connections && @mail.scope != :home}
@@ -571,8 +683,13 @@ defmodule LovelaceWeb.HomeLive do
             <button type="button" class="workspace-action" phx-click="retry_workspaces">Try again</button>
           </div>
 
+          <GeminiComponents.connection
+            :if={@connections && @connection_view == :gemini}
+            status={@gemini_status}
+          />
+
           <MailComponents.connections
-            :if={@connections}
+            :if={@connections && @connection_view == :gmail}
             mail={@mail}
             workspace_options={@workspace_options}
           />

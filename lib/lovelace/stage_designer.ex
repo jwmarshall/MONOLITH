@@ -16,6 +16,9 @@ defmodule Lovelace.StageDesigner do
       define :image, action: :image, args: [:digest]
       define :generate_on_startup, action: :startup
       define :retry_failed_startup, action: :retry_failed
+      define :gemini_connection_status, action: :gemini_connection_status
+      define :save_gemini_key, action: :save_gemini_key, args: [:api_key]
+      define :remove_gemini_key, action: :remove_gemini_key
     end
   end
 end

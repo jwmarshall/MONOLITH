@@ -94,7 +94,8 @@ config :phoenix, :filter_parameters, [
   "verifier",
   "query",
   "refresh_token",
-  "access_token"
+  "access_token",
+  "api_key"
 ]
 
 # Configure LiveView

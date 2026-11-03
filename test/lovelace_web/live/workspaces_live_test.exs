@@ -33,6 +33,14 @@ defmodule LovelaceWeb.WorkspacesLiveTest do
     view |> element("#show-workspaces") |> render_click()
     view |> element("#new-workspace") |> render_click()
     assert has_element?(view, "#workspace-name[required][maxlength='64']")
+
+    assert has_element?(
+             view,
+             "dialog#workspace-modal[phx-hook=NativeModal][aria-labelledby=workspace-modal-title][data-cancel-event=cancel_workspace][data-return-focus='#new-workspace']"
+           )
+
+    assert has_element?(view, "#workspace-modal-title", "New workspace")
+    assert has_element?(view, "#workspace-modal #workspace-form")
     view |> form("#workspace-form", workspace: %{name: "  Studio  "}) |> render_submit()
     refute has_element?(view, "#workspace-form")
 
@@ -105,7 +113,7 @@ defmodule LovelaceWeb.WorkspacesLiveTest do
     end
   end
 
-  test "navigation, save and cancel request heading focus but validation leaves input in place",
+  test "navigation requests heading focus but modal save, cancel and validation leave restoration to the hook",
        %{
          conn: conn
        } do
@@ -121,12 +129,20 @@ defmodule LovelaceWeb.WorkspacesLiveTest do
     assert_push_event(view, "workspace:focus-heading", %{})
 
     view |> element("#rename-current-workspace") |> render_click()
+    assert has_element?(view, "#workspace-modal-title", "Rename workspace")
+
+    assert has_element?(
+             view,
+             "#workspace-modal[data-return-focus='#workspace-menu-#{@personal_id} summary']"
+           )
+
     view |> form("#workspace-form", workspace: %{name: "   "}) |> render_submit()
     assert has_element?(view, "#workspace-name[aria-invalid=true]")
     refute_push_event(view, "workspace:focus-heading", %{})
 
     view |> form("#workspace-form", workspace: %{name: "Renamed"}) |> render_submit()
-    assert_push_event(view, "workspace:focus-heading", %{})
+    refute has_element?(view, "#workspace-modal")
+    refute_push_event(view, "workspace:focus-heading", %{})
 
     assert has_element?(
              view,
@@ -136,7 +152,7 @@ defmodule LovelaceWeb.WorkspacesLiveTest do
 
     view |> element("#rename-current-workspace") |> render_click()
     view |> element("#workspace-form button[type=button]") |> render_click()
-    assert_push_event(view, "workspace:focus-heading", %{})
+    refute_push_event(view, "workspace:focus-heading", %{})
     refute has_element?(view, "#workspace-form")
 
     view |> element("#back-to-workspaces") |> render_click()
@@ -151,6 +167,30 @@ defmodule LovelaceWeb.WorkspacesLiveTest do
     view |> element("#show-workspaces") |> render_click()
     assert_push_event(view, "workspace:focus-heading", %{})
     assert has_element?(view, "#workspace-list")
+  end
+
+  test "unrelated directory updates preserve modal drafts and validation errors", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/")
+    view |> element("#show-workspaces") |> render_click()
+    assert_push_event(view, "workspace:focus-heading", %{})
+    view |> element("#new-workspace") |> render_click()
+    view |> form("#workspace-form", workspace: %{name: "Not saved yet"}) |> render_change()
+    render_click(view, "retry_workspaces")
+    assert has_element?(view, "#workspace-modal #workspace-name[value='Not saved yet']")
+
+    invalid_name = String.duplicate("x", 65)
+    view |> form("#workspace-form", workspace: %{name: invalid_name}) |> render_change()
+    view |> form("#workspace-form", workspace: %{name: invalid_name}) |> render_submit()
+    render_click(view, "retry_workspaces")
+
+    assert has_element?(
+             view,
+             "#workspace-modal #workspace-name[aria-invalid=true][value='#{invalid_name}']"
+           )
+
+    assert has_element?(view, "#workspace-form-feedback[role=alert]", "couldn’t be saved")
+    refute_push_event(view, "workspace:focus-heading", %{})
+    assert length(Workspaces.list_workspaces!(actor: @owner)) == 1
   end
 
   test "background updates preserve the current workspace and unsaved form", %{conn: conn} do

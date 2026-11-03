@@ -12,7 +12,8 @@ defmodule Lovelace.StageDesigner.DiagnosticsTest do
 
     assert Diagnostics.describe(:provider, {:http_error, 404, nil}) =~ "configured model"
     assert Diagnostics.describe(:provider, {:http_error, 400, nil}) =~ "request configuration"
-    assert Diagnostics.describe(:provider, :missing_api_key) =~ "dotenvx injection"
+    assert Diagnostics.describe(:provider, :missing_api_key) =~ "connect Gemini in Settings"
+    assert Diagnostics.describe(:provider, :keychain_unavailable) =~ "macOS Keychain access"
     assert Diagnostics.describe(:provider, {:transport_error, :nxdomain}) =~ "DNS lookup failed"
     assert Diagnostics.describe(:provider, {:transport_error, :tls_error}) =~ "TLS negotiation"
     assert Diagnostics.describe(:storage, :storage_error) =~ "storage: storage_error"

@@ -119,7 +119,9 @@ are required for tests. Dependency downloads and the online audit require networ
   plain Mix does not load dotenv files. Generation is opt-in, server-side, and asynchronous:
   once per eligible app startup with a persistent 24-hour attempt cooldown, no retries,
   seven retained local PNG/JPEG images, and previous-image/SVG fallback. No API key is needed when
-  disabled. The API key never goes to the browser; see the guide for activation/costs.
+  disabled. Enter the Gemini API key in Connections; it is stored in the macOS Keychain
+  and is never returned to the browser. `GEMINI_API_KEY` is no longer read. See the guide
+  for activation/costs and migration from the former environment setup.
 - `.env*` (except `.env.example`), `secrets/`, generated `data/stage-designer/` content,
   databases, dependencies, and build outputs are ignored. Keep dotenvx private keys
   separately backed up; never commit credentials, real email, or token-containing fixtures.

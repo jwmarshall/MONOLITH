@@ -3,6 +3,7 @@
 @import "./mail.css";
 @import "./workspaces.css";
 @import "./home.css";
+@import "./modals.css";
 @source "../css";
 @source "../js";
 @source "../../lib/lovelace_web";

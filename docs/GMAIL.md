@@ -10,8 +10,8 @@ Projects, sending, drafts, archive/read/label changes and attachment downloads a
 Reading a conversation does **not** mark it as read in Gmail.
 
 This is a macOS-first integration. Automated tests use synthetic providers and vaults;
-the agent has not performed a real-account connection or Keychain credential operation.
-The user confirmed a working connection after the native-helper stdin correction.
+the agent has not inspected credential values or performed a real-account connection.
+The user confirmed a working connection and recovery from the partition-ACL issue below.
 Follow the manual steps below to activate a new installation yourself.
 
 ## 1. Local preparation
@@ -116,8 +116,9 @@ or requests consent automatically.
 
 1. Open `http://localhost:4000`, unlock to **Home**, choose **Workspaces**, enter a workspace,
    choose **Add integration**, then
-   **Connect Google account**. Alternatively, open global **Connections** and explicitly
-   choose the workspace to receive the new connection.
+   **Connect Google account**. Alternatively, open global **Connections → Gmail → Add Gmail account**
+   and explicitly choose the receiving workspace in the modal, then **Connect Google account**.
+   Cancel/Escape dismisses the modal without starting OAuth.
 2. Choose the intended Google account and grant read-only mail access.
 3. LOVELACE binds the verified UserInfo `sub` to the connection. Email is a display
    attribute, not its stable identity. Reconnect cannot silently select another account.
@@ -140,8 +141,9 @@ page count). Unknown remains unavailable, not zero. The count has its own observ
 and failure state; stale counts remain visible and labeled. Unrelated page reads cannot
 make an old count appear fresh. Rows open that account directly, even if unattached to a
 workspace, without adding membership. Home never merges inboxes or shows message previews.
-Global **Connections** lists reusable accounts and their last known health, with reconnect
-and confirmed disconnect-everywhere controls. Reconnecting globally explicitly selects a
+Global **Connections** lists reusable accounts in compact rows with last known health,
+reconnect and confirmed disconnect-everywhere controls. New Gmail connections start from
+an **Add Gmail account** button/modal rather than a permanently expanded form. Reconnecting globally explicitly selects a
 workspace and also adds the account there; workspace-local reconnect retains its workspace.
 
 Authorization uses system-browser code flow, S256 PKCE, offline access, single-use
@@ -150,6 +152,45 @@ Restarting during consent cancels the in-memory attempt safely; start again.
 A denied or expired grant produces a reconnect state, not endless credential retries.
 
 ## Connection troubleshooting
+
+For existing accounts, **Connections → Gmail → Check Keychain** performs an explicit,
+local-only read for that account. The result contains only an allowlisted category
+and observation time, never the credential. It does not contact Google, change
+permissions, refresh mail or clear persisted sync errors/freshness. A readable token
+is **not** proof that Google still accepts it. Checks are asynchronous, one at a time
+per view, and discarded across connection-generation changes or leaving Connections.
+
+- `locked`: the native helper reports authentication failure or interaction denied.
+  The login keychain can be unlocked while an individual item still rejects access.
+- `timeout`: the helper did not complete within its existing bounded deadline.
+- `not_found`: no credential was found for that account; reconnect Google.
+- `unavailable`: helper/credential access could not be established; this does not
+  prove that the item is absent or that Google is offline.
+- `invalid_account` / `invalid_value`: the adapter rejected the identifier/value.
+
+Review **About Keychain access** in Connections before changing anything. An existing
+Access Control entry showing `lovelace-keychain` does not establish that a rebuilt
+executable still matches the trusted security identity. Do not delete credentials,
+grant all applications access, or repeatedly rebuild as an attempted access repair.
+The diagnostic uses the existing helper unchanged; it does not repair signing/ACLs
+or expose raw macOS OSStatus values. Exact native denial/signing recovery remains a
+manual investigation, not a confirmed diagnosis from these categories alone.
+
+macOS also maintains a separate **partition ACL**, which can still contain an old
+ad-hoc helper cdhash after the visible allowed-application entry is replaced. A
+metadata-only comparison of Gmail and Gemini rules confirmed this failure locally.
+Updating the visible application list alone did not repair it. An authenticated
+operator repair must target only the affected service/keychain and the verified
+current helper cdhash, preserving credentials and other permission rules. The native
+`security set-generic-password-partition-list` command supports a password prompt
+when `-k` is omitted (as documented by local `security help`); never put a Keychain
+password in argv, environment variables, files or chat. Do not substitute broad
+`apple:`, `apple-tool:` or all-application grants. The user confirmed recovery using
+that native command, scoped to `LOVELACE Gmail`, the login keychain and only the verified
+current helper cdhash. This is manual recovery evidence, not an automated permission test.
+Do not rebuild the helper afterward: its ad-hoc signature changes with the executable.
+Remaining verification limits are in `HANDOFF.md`; a stable signing/update strategy is
+still needed to prevent the next helper rebuild repeating this.
 
 `userinfo.email` is the canonical console scope for the OAuth alias `email`; both
 forms are already supported. If consent completes but LOVELACE rejects the connection,

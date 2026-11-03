@@ -59,6 +59,8 @@ Stack: Phoenix LiveView, Ash/AshSqlite over Ecto/SQLite, and Tailwind.
   user-accepted local exception; never add payload logging/export without privacy review.
 - Scenery is app-wide, not account-owned. Gemini generation is opt-in and potentially billable;
   preserve startup-only attempts, persisted 24-hour cooldown and no automatic retries.
+  Gemini keys are managed in Connections and stored separately in macOS Keychain;
+  no environment-key fallback or provider probe/generation on credential saves.
   Force `LOVELACE_STAGE_ENABLED=false` for maintenance; see docs/STAGE_DESIGNER.md.
 - Clearly label placeholders; do not imply disconnected integrations are operational.
 - SQLite sandbox/database tests must be synchronous. Use fake provider responses,

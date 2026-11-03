@@ -341,7 +341,7 @@ defmodule LovelaceWeb.MailComponents do
         <div>
           <h4 id="integration-add-heading" tabindex="-1" phx-mounted={JS.focus()}>Add integration</h4>
           <p class="mail-muted">
-            Reuse a connection or connect another Google account. Gmail is currently the only integration.
+            Reuse a connection or connect another Google account for read-only Gmail. Manage app-wide Gemini scenery in Connections.
           </p>
         </div>
         <button
@@ -403,9 +403,25 @@ defmodule LovelaceWeb.MailComponents do
 
   def connections(assigns) do
     ~H"""
-    <section id="connections-panel" class="connections-panel" aria-label="Google connections">
+    <section
+      id="connections-panel"
+      class="connections-panel"
+      aria-labelledby="gmail-connections-heading"
+    >
+      <div class="connections-heading">
+        <h3 id="gmail-connections-heading" class="mail-section-title">Gmail accounts</h3>
+        <button
+          id="new-gmail-connection"
+          type="button"
+          class="workspace-action workspace-action-primary"
+          phx-click="mail:new_connection"
+          disabled={!!@mail.command || @mail.directory_error}
+        >
+          <.icon name="hero-plus" class="size-4" /> Add Gmail account
+        </button>
+      </div>
       <p class="mail-muted">
-        Reusable Google connections · read-only Gmail. Each inbox stays separate.
+        Reusable Google accounts · read-only Gmail. Each inbox stays separate.
       </p>
       <p :if={@mail.notice} id="mail-notice" class="mail-notice" role="status">{@mail.notice}</p>
       <div :if={@mail.directory_error} class="mail-notice" role="alert">
@@ -413,45 +429,159 @@ defmodule LovelaceWeb.MailComponents do
         <button type="button" class="workspace-action" phx-click="mail:reload_accounts">Try again</button>
       </div>
       <p :if={!@mail.directory_error && @mail.accounts == []} class="integration-empty">
-        No Google connections yet.
+        No Gmail accounts connected yet.
       </p>
-      <article
-        :for={account <- @mail.accounts}
-        id={"connection-account-#{account.id}"}
-        class="connection-card"
-      >
-        <div class="connection-identity">
-          <.icon name="hero-envelope" class="integration-icon size-6" />
-          <div class="mail-account-identity">
-            <h3>{account.email}</h3>
-            <p class={["mail-muted", needs_attention?(account) && "connection-warning"]}>
-              {account_status(account)}
-            </p>
+      <div class="gmail-connection-list">
+        <article
+          :for={account <- @mail.accounts}
+          id={"connection-account-#{account.id}"}
+          class="connection-card gmail-connection-card"
+          aria-labelledby={"connection-email-#{account.id}"}
+        >
+          <div class="connection-identity">
+            <.icon name="hero-envelope" class="integration-icon size-5" />
+            <div class="mail-account-identity">
+              <h4 id={"connection-email-#{account.id}"}>{account.email}</h4>
+              <p class={["mail-muted", needs_attention?(account) && "connection-warning"]}>
+                {account_status(account)}
+              </p>
+            </div>
           </div>
-        </div>
-        <div class="mail-actions">
-          <.connect
-            :if={account.status == :reconnect}
-            account={account}
-            workspace_options={@workspace_options}
-            busy={!!@mail.command}
-          />
-          <.disconnect account={account} busy={!!@mail.command} />
-        </div>
-      </article>
-      <div :if={!@mail.directory_error} class="connection-new">
-        <h3>Add Google connection</h3>
-        <p class="mail-muted">
-          Choose the workspace to receive this connection. You can reuse it elsewhere later.
+          <div class="mail-actions">
+            <button
+              :if={account.status != :disconnected}
+              id={"check-credentials-#{account.id}"}
+              type="button"
+              class="workspace-action"
+              phx-click="mail:check_credentials"
+              phx-value-id={account.id}
+              aria-label={"Check Keychain access for #{account.email}"}
+              disabled={!!@mail.command || !!@mail.credential_check}
+            >Check Keychain</button>
+            <.connect
+              :if={account.status == :reconnect}
+              account={account}
+              workspace_options={@workspace_options}
+              busy={!!@mail.command || !!@mail.credential_check}
+            />
+            <.disconnect account={account} busy={!!@mail.command || !!@mail.credential_check} />
+          </div>
+          <.credential_check account={account} check={credential_check_result(@mail, account)} />
+        </article>
+      </div>
+      <LovelaceWeb.ModalComponents.modal
+        :if={@mail.connecting}
+        id="gmail-connection-modal"
+        title="Add Gmail account"
+        on_cancel="mail:close_connection"
+        return_focus="#new-gmail-connection"
+        initial_focus="#mail-workspace-new"
+      >
+        <p id="gmail-connection-hint" class="mail-muted">
+          Choose the workspace to receive this read-only Gmail connection. You can reuse it elsewhere later.
         </p>
         <.connect workspace_options={@workspace_options} busy={!!@mail.command} />
-      </div>
+        <button
+          type="button"
+          class="workspace-action gmail-connection-cancel"
+          phx-click="mail:close_connection"
+        >Cancel</button>
+      </LovelaceWeb.ModalComponents.modal>
+      <details
+        id="gmail-keychain-help"
+        class="mail-muted connection-explanation"
+        phx-mounted={JS.ignore_attributes("open")}
+      >
+        <summary>About Keychain access</summary>
+        <p>
+          Check Keychain reads only this account’s local credential. It does not contact Google,
+          change permissions, or refresh mail. A readable credential does not verify Google access.
+        </p>
+        <p>
+          An unlocked login keychain can still deny an individual item. In macOS Keychain Access,
+          review the LOVELACE Gmail item’s access for the current lovelace-keychain helper.
+          A rebuilt helper can have a different security identity even when the displayed name is unchanged.
+        </p>
+        <p>
+          Do not delete credentials or allow all applications. Rebuilding again is not an access
+          repair. Reconnect Google only for a missing credential or expired Google authorization.
+        </p>
+      </details>
       <p class="mail-muted connection-explanation">
         Remove from workspace only removes that workspace link. Disconnect everywhere removes all workspace links, local cached mail and credentials, and attempts Google revocation. Your Gmail mailbox is not changed.
       </p>
     </section>
     """
   end
+
+  attr :account, :map, required: true
+  attr :check, :map, default: nil
+
+  defp credential_check(assigns) do
+    ~H"""
+    <div
+      :if={@check}
+      id={"credential-check-#{@account.id}"}
+      class="credential-check mail-muted"
+      role="status"
+      aria-live="polite"
+      aria-atomic="true"
+    >
+      <p class={@check.status not in [:accessible, :checking] && "connection-warning"}>
+        {credential_check_text(@check.status)}
+      </p>
+      <p :if={@check.status == :locked}>
+        An unlocked keychain can still deny this item. Review helper access in Keychain Access;
+        see About Keychain access below. No permissions were changed.
+      </p>
+      <p :if={@check.status == :timeout}>
+        The local helper did not respond in time. This does not establish a Google failure.
+      </p>
+      <p :if={@check.status == :unavailable}>
+        The helper could not complete the read. Credential presence and access are unknown.
+      </p>
+      <p :if={@check.status == :not_found}>
+        No stored credential was found for this account. Reconnect Google to restore access.
+      </p>
+      <p :if={@check[:checked_at]}>
+        Local check ·
+        <time datetime={DateTime.to_iso8601(@check.checked_at)}>{Calendar.strftime(
+          @check.checked_at,
+          "%Y-%m-%d %H:%M:%S UTC"
+        )}</time>
+        · Mail sync status is unchanged.
+      </p>
+    </div>
+    """
+  end
+
+  defp credential_check_result(mail, account) do
+    case mail.credential_check do
+      {id, generation, _} when id == account.id and generation == account.generation ->
+        %{status: :checking}
+
+      _ ->
+        Map.get(mail.credential_checks, account.id)
+    end
+  end
+
+  defp credential_check_text(:checking), do: "Checking local Keychain access…"
+  defp credential_check_text(:accessible), do: "Credential readable · Google access not checked."
+
+  defp credential_check_text(:locked),
+    do: "Keychain access denied or interaction required (locked)."
+
+  defp credential_check_text(:not_found), do: "Credential not found (not_found)."
+  defp credential_check_text(:timeout), do: "Keychain helper timed out (timeout)."
+
+  defp credential_check_text(:invalid_account),
+    do: "Invalid local account identifier (invalid_account)."
+
+  defp credential_check_text(:invalid_value),
+    do: "Invalid stored credential format (invalid_value)."
+
+  defp credential_check_text(:changed), do: "Connection changed. Check again."
+  defp credential_check_text(_), do: "Keychain unavailable (unavailable)."
 
   attr :workspace, :map, default: nil
   attr :workspace_options, :list, default: []
@@ -555,6 +685,9 @@ defmodule LovelaceWeb.MailComponents do
 
   defp account_status(%{status: :reconnect}), do: "Google access needs reconnecting."
 
+  defp account_status(%{last_error: :keychain}),
+    do: "Local Keychain access unavailable. Check credentials in Connections."
+
   defp account_status(%{last_error: :rate_limited}),
     do: "Google rate limit reached. Background checks will wait."
 
@@ -573,7 +706,8 @@ defmodule LovelaceWeb.MailComponents do
     do: "Google rate limit reached. Wait before trying Refresh again."
 
   defp error_text(:keychain),
-    do: "Local credentials are unavailable. Unlock the system keychain and try again."
+    do:
+      "Local credentials are unavailable. Check Keychain access in Connections; an unlocked keychain can still deny access."
 
   defp error_text(:provider), do: "Gmail is temporarily unavailable. Try Refresh later."
 

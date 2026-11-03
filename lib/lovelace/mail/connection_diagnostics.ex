@@ -99,7 +99,8 @@ defmodule Lovelace.Mail.ConnectionDiagnostics do
     do: "Google did not provide reusable offline access. Start a new consent flow."
 
   defp hint(:keychain),
-    do: "Build the Keychain helper, unlock the macOS login keychain, and retry."
+    do:
+      "Check the macOS login keychain and item access. Helper rebuilds can invalidate partition approvals; see docs/GMAIL.md before rebuilding or reconnecting."
 
   defp hint(:connection),
     do: "The local account could not be saved. Check migrations and local storage availability."

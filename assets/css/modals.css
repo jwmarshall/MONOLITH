@@ -1,0 +1,28 @@
+/* Native top-layer dialogs keep working content inert without a second trap. */
+.lovelace-modal {
+  width: min(480px, calc(100vw - 32px));
+  max-height: calc(100dvh - 48px);
+  margin: auto;
+  padding: clamp(24px, 5vw, 36px);
+  overflow-y: auto;
+  border: 1px solid var(--color-base-300);
+  border-radius: 4px;
+  background: var(--color-base-100);
+  color: var(--color-base-content);
+  box-shadow: 0 24px 80px rgb(0 0 0 / 35%);
+  text-shadow: none;
+}
+.lovelace-modal::backdrop { background: rgb(10 15 14 / 65%); }
+.lovelace-modal-title { margin-bottom: 24px; font-size: 22px; font-weight: 400; }
+.lovelace-modal .label { color: var(--color-secondary); }
+.lovelace-modal .workspace-name-input { color: var(--color-base-content); background: var(--color-base-200); border-color: var(--color-base-300); }
+.lovelace-modal .workspace-form-hint { color: var(--color-secondary); }
+.lovelace-modal .workspace-form-feedback { color: var(--color-error); }
+.lovelace-modal .workspace-editor-actions { flex-wrap: wrap; gap: 12px; }
+@media (forced-colors: active) {
+  .lovelace-modal { background: Canvas; color: CanvasText; border-color: CanvasText; box-shadow: none; }
+  .lovelace-modal::backdrop { background: Canvas; opacity: 0.8; }
+  .lovelace-modal .label, .lovelace-modal .workspace-form-hint,
+  .lovelace-modal .workspace-form-feedback { color: CanvasText; }
+  .lovelace-modal .workspace-name-input { color: FieldText; background: Field; border-color: FieldText; }
+}

@@ -20,6 +20,12 @@ defmodule Lovelace.Mail.Operation do
       run Lovelace.Mail.Operations
     end
 
+    action :check_credentials, :map do
+      argument :account_id, :uuid, allow_nil?: false
+      argument :generation, :uuid, allow_nil?: false
+      run Lovelace.Mail.Operations
+    end
+
     action :page, :map do
       argument :workspace_id, :uuid, allow_nil?: false
       argument :account_id, :uuid, allow_nil?: false
@@ -68,7 +74,16 @@ defmodule Lovelace.Mail.Operation do
   end
 
   policies do
-    policy action([:link, :unlink, :disconnect, :page, :thread, :account_page, :account_thread]) do
+    policy action([
+             :link,
+             :unlink,
+             :disconnect,
+             :check_credentials,
+             :page,
+             :thread,
+             :account_page,
+             :account_thread
+           ]) do
       access_type :strict
       authorize_if Lovelace.Workspaces.LocalOwner
     end

@@ -10,6 +10,7 @@ import {hooks as colocatedHooks} from "phoenix-colocated/lovelace"
 import topbar from "../vendor/topbar"
 import BrandReveal from "./hooks/brand_reveal"
 import WorkspaceIdle from "./hooks/workspace_idle"
+import NativeModal from "./hooks/native_modal"
 import WorkspaceEntrance from "./hooks/workspace_entrance"
 import DailyOrientation from "./hooks/daily_orientation"
 import ObservationTime from "./hooks/observation_time"
@@ -27,7 +28,7 @@ const csrfToken = document.querySelector("meta[name='csrf-token']").getAttribute
 const liveSocket = new LiveSocket("/live", Socket, {
   longPollFallbackMs: 2500,
   params: {_csrf_token: csrfToken},
-  hooks: {...colocatedHooks, BrandReveal, WorkspaceIdle, WorkspaceEntrance, StageBackground, DailyOrientation, ObservationTime, MailReader, MailDate, MailFreshness},
+  hooks: {...colocatedHooks, BrandReveal, WorkspaceIdle, NativeModal, WorkspaceEntrance, StageBackground, DailyOrientation, ObservationTime, MailReader, MailDate, MailFreshness},
 })
 
 // Show progress bar on live navigation and form submits

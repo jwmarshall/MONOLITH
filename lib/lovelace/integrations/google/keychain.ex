@@ -1,6 +1,8 @@
 defmodule Lovelace.Integrations.Google.Keychain do
   @moduledoc """
-  Local macOS Keychain vault, fixed service `LOVELACE Gmail`, keyed by account UUID.
+  Local macOS Keychain vault, default service `LOVELACE Gmail`, keyed by account UUID.
+  Only the separate `LOVELACE Gemini` service is additionally allowlisted; the default
+  Gmail JSON envelope remains unchanged.
   `get/1` returns `{:ok, value}`; `put/2` and idempotent `delete/1` return `:ok`.
   Errors are safe atoms; no plaintext fallback. The caller may inject a fake
   module implementing this behaviour instead of calling this native boundary.
@@ -15,29 +17,34 @@ defmodule Lovelace.Integrations.Google.Keychain do
   @callback put(binary(), binary()) :: :ok | {:error, atom()}
   @callback delete(binary()) :: :ok | {:error, atom()}
 
+  @gmail_service "LOVELACE Gmail"
+  @services [@gmail_service, "LOVELACE Gemini"]
   @max_value 16 * 1024
   @max_output 128 * 1024
   @timeout 5_000
   @errors [:not_found, :locked, :unavailable, :timeout, :invalid_account, :invalid_value]
 
-  def get(account), do: operation("get", account, nil)
-  def put(account, value), do: operation("put", account, value)
-  def delete(account), do: operation("delete", account, nil)
+  def get(account, service \\ @gmail_service), do: operation("get", account, nil, service)
 
-  defp operation(op, account, value), do: guarded(op, account, value, &native/1)
+  def put(account, value, service \\ @gmail_service),
+    do: operation("put", account, value, service)
+
+  def delete(account, service \\ @gmail_service), do: operation("delete", account, nil, service)
+
+  defp operation(op, account, value, service), do: guarded(op, account, value, &native/1, service)
 
   if Mix.env() == :test do
     @doc false
-    def with_test_runner(op, account, value, runner) when is_function(runner, 1),
-      do: guarded(op, account, value, runner)
+    def with_test_runner(op, account, value, runner, service \\ @gmail_service)
+        when is_function(runner, 1),
+        do: guarded(op, account, value, runner, service)
   end
 
-  defp guarded(op, account, value, runner) do
-    with :ok <- validate_account(account),
+  defp guarded(op, account, value, runner, service) do
+    with :ok <- validate_service(service),
+         :ok <- validate_account(account),
          :ok <- validate_value(op, value) do
-      payload = %{operation: op, account: String.downcase(account)}
-      payload = if op == "put", do: Map.put(payload, :value, value), else: payload
-      input = Jason.encode!(payload) <> "\n"
+      input = encode_request(op, account, value, service)
 
       # Catch inside the worker, preventing Task crash reports containing tokens.
       task =
@@ -74,6 +81,19 @@ defmodule Lovelace.Integrations.Google.Keychain do
   catch
     _, _ -> {:error, :unavailable}
   end
+
+  defp encode_request(op, account, value, service) do
+    # An old helper ignores unknown service fields. Namespace Gemini operations
+    # so that helper rejects them before any Keychain read/write, until rebuilt.
+    wire_op = if service == "LOVELACE Gemini", do: "gemini_" <> op, else: op
+    payload = %{operation: wire_op, account: String.downcase(account)}
+    payload = if service == @gmail_service, do: payload, else: Map.put(payload, :service, service)
+    payload = if op == "put", do: Map.put(payload, :value, value), else: payload
+    Jason.encode!(payload) <> "\n"
+  end
+
+  defp validate_service(service) when service in @services, do: :ok
+  defp validate_service(_), do: {:error, :unavailable}
 
   defp validate_account(account) when is_binary(account) do
     if Regex.match?(

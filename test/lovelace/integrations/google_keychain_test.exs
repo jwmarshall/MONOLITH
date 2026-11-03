@@ -52,6 +52,68 @@ defmodule Lovelace.Integrations.Google.KeychainTest do
     assert :ok = Keychain.with_test_runner("delete", @account, nil, runner)
   end
 
+  test "Gemini service is allowlisted and isolated without changing the legacy Gmail envelope" do
+    owner = self()
+
+    runner = fn input ->
+      send(owner, {:input, Jason.decode!(input)})
+      {:ok, "{\"ok\":true}\n"}
+    end
+
+    for service <- ["LOVELACE Gmail", "LOVELACE Gemini"] do
+      assert :ok = Keychain.with_test_runner("put", @account, "fake-key", runner, service)
+      assert_receive {:input, payload}
+      assert payload["account"] == String.downcase(@account)
+      assert payload["value"] == "fake-key"
+
+      if service == "LOVELACE Gmail" do
+        refute Map.has_key?(payload, "service")
+        assert payload["operation"] == "put"
+      else
+        assert payload["service"] == "LOVELACE Gemini"
+        assert payload["operation"] == "gemini_put"
+      end
+    end
+
+    for service <- [nil, "", "arbitrary service", "LOVELACE Gemini\n", :gemini] do
+      assert {:error, :unavailable} =
+               Keychain.with_test_runner("put", @account, "fake-key", runner, service)
+    end
+
+    refute_received {:input, _}
+
+    assert {:error, :invalid_account} =
+             Keychain.with_test_runner("get", "not-a-uuid", nil, runner, "LOVELACE Gemini")
+  end
+
+  test "all Gemini operations fail closed on legacy helpers before touching Gmail" do
+    owner = self()
+
+    legacy_runner = fn input ->
+      request = Jason.decode!(input)
+
+      if request["operation"] in ["get", "put", "delete"] do
+        send(owner, :gmail_touched)
+        {:ok, "{\"ok\":true}\n"}
+      else
+        {:ok, "{\"error\":\"unavailable\"}\n"}
+      end
+    end
+
+    for {operation, value} <- [{"get", nil}, {"put", "fake-key"}, {"delete", nil}] do
+      assert {:error, :unavailable} =
+               Keychain.with_test_runner(
+                 operation,
+                 @account,
+                 value,
+                 legacy_runner,
+                 "LOVELACE Gemini"
+               )
+    end
+
+    refute_received :gmail_touched
+  end
+
   test "invalid account and value fail before runner is invoked" do
     runner = fn _ -> flunk("runner invoked for invalid input") end
 

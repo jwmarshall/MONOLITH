@@ -46,13 +46,15 @@ entrance, static/live image-load, accessibility and preference behavior. The idl
 is listed below; scenery mode is visual only, not authentication. No idle/wake/page event
 starts generation.
 
-## Encrypted local setup
+## Gemini connection and local setup
 
 The external **dotenvx 2.38.2** CLI was used; no npm dotenv package or Elixir dotenv loader
 was added. Install a reviewed version of the [official CLI](https://github.com/dotenvx/dotenvx)
-on another machine. The private local `.env` contains encrypted settings, including the
-API key. Its plaintext decryption key is in private `.env.keys`; both are ignored and
-mode `0600`. `.env.example` is deliberately readable, credential-free, and disabled by default.
+on another machine. The private local `.env` contains encrypted non-Gemini credentials and startup settings.
+The Gemini API key is now entered in **Connections → Gemini** and stored in the
+macOS Keychain under the separate `LOVELACE Gemini` service, never alongside Gmail tokens.
+`GEMINI_API_KEY` is no longer read and has no fallback. The dotenvx decryption key is in
+private `.env.keys`; both environment files are ignored and mode `0600`. `.env.example` is deliberately readable, credential-free, and disabled by default.
 
 Historical setup: local settings enabled startup generation, seven retained images,
 and a three-minute idle timer without restarting the then-running server. A later
@@ -76,11 +78,25 @@ test ! -e .env && test ! -e .env.keys && (
 ```
 
 Create an API key in [Google AI Studio](https://aistudio.google.com/api-keys), in a project
-with appropriate billing/quotas. Enter it in **your own terminal** using the hidden prompt
-(omit the value argument):
+with appropriate billing/quotas. Build the native helper explicitly with
+`LOVELACE_STAGE_ENABLED=false mix lovelace.keychain.build`, unlock LOVELACE, and enter the
+key in **Connections → Gemini → Add API key**. Replace/remove it there too. Keys
+travel through an authenticated, CSRF-protected ordinary POST before Phoenix request
+instrumentation, not LiveView events/assigns. The documented stock Bandit in-process conn
+metadata exception still applies. The stored key is never rendered back to the browser.
+Keychain access is local-only, nonsynchronizing, and fails closed if unavailable/locked.
+Saving checks format/storage only, not provider access, billing, quota or generation.
+It does not trigger a request, change opt-in settings, or bypass cooldowns. Removing a key
+keeps scenery/cooldowns and cannot cancel a request that already acquired the key.
+
+**Migrating an existing setup:** manually re-enter your key in Connections. No automatic
+import or inspection of private environment files is performed. Remove the obsolete
+`GEMINI_API_KEY` setting from your private encrypted setup using your own dotenvx workflow;
+it is ignored even if still injected. Existing imagery and reservations are unchanged.
+Rebuild the helper after updating its source (the previous Gmail-only helper will safely
+refuse Gemini operations).
 
 ```sh
-dotenvx set GEMINI_API_KEY -f .env --no-native --no-armor --no-1password --no-bitwarden
 # Explicit opt-in to paid startup generation:
 dotenvx set LOVELACE_STAGE_ENABLED true -f .env --no-native --no-armor --no-1password --no-bitwarden
 chmod 600 .env .env.keys
@@ -108,13 +124,14 @@ dumps. Keep `.env.keys` in a separately protected backup; losing it loses access
 ciphertext. Do not commit either private file, even ciphertext. Encryption does **not**
 protect the plaintext private-key file, process environment, database, or image files
 from processes running as the same user (including development tooling such as Tidewave).
-Only generic art direction is persisted; no key is stored in Ash, configuration, or LiveView.
+Only generic art direction is persisted; the key is a sensitive transient Ash action
+argument at save time, never database state, application configuration, or a LiveView assign.
 
 ## Configuration
 
 | Variable | Default / constraint |
 | --- | --- |
-| `GEMINI_API_KEY` | Empty in example; resolved only at the server HTTP boundary |
+| Gemini API key | Connections UI → macOS Keychain; resolved only at the server HTTP boundary. `GEMINI_API_KEY` is ignored |
 | `LOVELACE_STAGE_ENABLED` | `false` by default; exact `true`/`false` |
 | `LOVELACE_STAGE_MODEL` | `gemini-nano-banana-2.1`; explicit safe model ID |
 | `LOVELACE_STAGE_ASPECT_RATIO` | `16:9`; also `21:9`, `4:3`, `3:2`, `1:1` |

@@ -21,6 +21,7 @@ defmodule LovelaceWeb.HomeMail do
   @owner %{role: :local_owner}
 
   def init(socket), do: assign(socket, :mail, initial())
+  def close_connection(socket), do: put(socket, %{connecting: false})
 
   def open_workspace(socket, %{id: id}) do
     socket
@@ -47,7 +48,7 @@ defmodule LovelaceWeb.HomeMail do
   end
 
   def leave_workspace(socket) do
-    socket = cancel_view(socket)
+    socket = socket |> cancel_view() |> cancel_credential_check()
     Enum.each(socket.assigns.mail.subscriptions, &unsubscribe/1)
     ViewData.clear()
     assign(socket, :mail, initial())
@@ -98,6 +99,30 @@ defmodule LovelaceWeb.HomeMail do
     end
   end
 
+  def handle_async({:mail, :credential_check, id, generation, request_id}, result, socket) do
+    mail = socket.assigns.mail
+
+    if mail.scope == :connections && mail.credential_check == {id, generation, request_id} do
+      socket = load_accounts(socket)
+      current = Enum.find(socket.assigns.mail.accounts, &(&1.id == id))
+
+      checks =
+        if current && current.generation == generation && current.status != :disconnected do
+          Map.put(socket.assigns.mail.credential_checks, id, %{
+            generation: generation,
+            status: credential_result(result),
+            checked_at: DateTime.utc_now()
+          })
+        else
+          Map.delete(socket.assigns.mail.credential_checks, id)
+        end
+
+      {:noreply, put(socket, %{credential_check: nil, credential_checks: checks})}
+    else
+      {:noreply, socket}
+    end
+  end
+
   def handle_async(_, _, socket), do: {:noreply, socket}
 
   defp initial do
@@ -106,6 +131,7 @@ defmodule LovelaceWeb.HomeMail do
       scope: :workspace,
       subscriptions: [],
       adding: false,
+      connecting: false,
       account_id: nil,
       accounts: [],
       memberships: [],
@@ -113,6 +139,8 @@ defmodule LovelaceWeb.HomeMail do
       generation: System.unique_integer([:positive, :monotonic]),
       task: nil,
       command: nil,
+      credential_check: nil,
+      credential_checks: %{},
       loading: false,
       query: nil,
       page_token: nil,
@@ -144,6 +172,16 @@ defmodule LovelaceWeb.HomeMail do
     do: socket |> put(%{adding: true}) |> load_accounts()
 
   defp event("mail:close_add", _, socket), do: put(socket, %{adding: false})
+
+  defp event("mail:new_connection", _, socket) do
+    mail = socket.assigns.mail
+
+    if mail.scope == :connections && !mail.command && !mail.directory_error,
+      do: put(socket, %{connecting: true}),
+      else: socket
+  end
+
+  defp event("mail:close_connection", _, socket), do: close_connection(socket)
 
   defp event("mail:accounts", _, socket), do: socket |> clear_view(nil) |> load_accounts()
 
@@ -273,11 +311,30 @@ defmodule LovelaceWeb.HomeMail do
     end
   end
 
+  defp event("mail:check_credentials", %{"id" => id}, socket) do
+    socket = load_accounts(socket)
+    mail = socket.assigns.mail
+    account = Enum.find(mail.accounts, &(&1.id == id && &1.status != :disconnected))
+
+    if mail.scope == :connections && socket.assigns.connection_view == :gmail &&
+         !mail.command && !mail.credential_check && account && connected?(socket) do
+      generation = account.generation
+      request_id = System.unique_integer([:positive, :monotonic])
+      name = {:mail, :credential_check, id, generation, request_id}
+
+      socket
+      |> put(%{credential_check: {id, generation, request_id}})
+      |> start_async(name, fn -> Mail.check_credentials(id, generation, actor: @owner) end)
+    else
+      socket
+    end
+  end
+
   defp event("mail:disconnect", %{"id" => id}, socket) do
     socket = load_accounts(socket)
     mail = socket.assigns.mail
 
-    if mail.scope == :connections && !mail.command &&
+    if mail.scope == :connections && !mail.command && !mail.credential_check &&
          Enum.any?(mail.accounts, &(&1.id == id)) && connected?(socket) do
       socket = clear_view(socket, nil)
       mail = socket.assigns.mail
@@ -394,7 +451,12 @@ defmodule LovelaceWeb.HomeMail do
 
       socket =
         socket
-        |> put(%{accounts: accounts, memberships: ids, directory_error: false})
+        |> put(%{
+          accounts: accounts,
+          memberships: ids,
+          directory_error: false,
+          credential_checks: current_credential_checks(mail.credential_checks, accounts)
+        })
         |> subscribe_accounts(
           if(mail.scope == :connections, do: Enum.map(accounts, & &1.id), else: ids)
         )
@@ -460,6 +522,40 @@ defmodule LovelaceWeb.HomeMail do
       name -> socket |> cancel_async(name) |> put(%{task: nil, loading: false})
     end
   end
+
+  defp cancel_credential_check(socket) do
+    case socket.assigns.mail.credential_check do
+      nil ->
+        socket
+
+      {id, generation, request_id} ->
+        cancel_async(socket, {:mail, :credential_check, id, generation, request_id})
+    end
+  end
+
+  defp current_credential_checks(checks, accounts) do
+    Map.filter(checks, fn {id, check} ->
+      Enum.any?(
+        accounts,
+        &(&1.id == id && &1.generation == check.generation && &1.status != :disconnected)
+      )
+    end)
+  end
+
+  defp credential_result({:ok, {:ok, %{status: status}}})
+       when status in [
+              :accessible,
+              :not_found,
+              :locked,
+              :timeout,
+              :unavailable,
+              :invalid_account,
+              :invalid_value,
+              :changed
+            ],
+       do: status
+
+  defp credential_result(_), do: :unavailable
 
   defp workspace_memberships(%{scope: scope}) when scope in [:connections, :home], do: {:ok, []}
   defp workspace_memberships(mail), do: Mail.workspace_accounts(mail.workspace_id, actor: @owner)

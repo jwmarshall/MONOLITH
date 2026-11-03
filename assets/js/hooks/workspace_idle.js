@@ -26,6 +26,11 @@ export default {
       this.expireIfNeeded()
       this.schedule()
     }
+    this.onModalClosed = () => {
+      this.lastActivity = this.window.Date.now()
+      this.schedule()
+    }
+    this.document.addEventListener("lovelace:modal-closed", this.onModalClosed)
 
     // Capture scroll (which doesn't bubble) and input without preventing its
     // normal action or moving keyboard focus. Mouse movement is never observed.
@@ -45,7 +50,13 @@ export default {
     this.js().exec(this.el.getAttribute(`data-workspace-${name}`))
   },
 
+  modalOpen() {
+    // Presence also covers the patch before the dialog's hook calls showModal.
+    return !!this.el.querySelector("dialog[data-modal]")
+  },
+
   expireIfNeeded() {
+    if (this.modalOpen()) return
     if (!this.idle && this.window.Date.now() - this.lastActivity >= this.duration()) {
       this.idle = true
       // This command sets aria-pressed=false AND resets the independent brand.
@@ -57,7 +68,7 @@ export default {
 
   schedule() {
     this.window.clearTimeout(this.timer)
-    if (this.idle) return
+    if (this.idle || this.modalOpen()) return
     const remaining = this.duration() - (this.window.Date.now() - this.lastActivity)
     this.timer = this.window.setTimeout(() => {
       this.expireIfNeeded()
@@ -77,5 +88,6 @@ export default {
       this.document.removeEventListener(event, this.onActivity, true)
     }
     this.document.removeEventListener("visibilitychange", this.onVisibility)
+    this.document.removeEventListener("lovelace:modal-closed", this.onModalClosed)
   },
 }

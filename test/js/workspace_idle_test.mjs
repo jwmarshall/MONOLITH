@@ -69,6 +69,7 @@ function workspace(t, minutes = "3") {
   root.ownerDocument = document
   root.dataset = {idleMinutes: minutes}
   root.querySelector = selector => {
+    if (selector === "dialog[data-modal]") return root.modal ?? null
     assert.equal(selector, "#workspace-pane")
     return pane
   }
@@ -242,6 +243,26 @@ test("invalid duration safely uses the three-minute default", async t => {
       assert.equal(pane.getAttribute("aria-pressed"), "false")
     })
   }
+})
+
+test("an open modal suspends scenery resets across deadlines, patches, sleep and Escape", t => {
+  const {clock, document, root, hook, pane, commands, patch} = workspace(t)
+  root.modal = {}
+  clock.advance(180_000)
+  patch()
+  clock.advance(300_000, false)
+  document.emit("visibilitychange")
+  document.emit("keydown", {key: "Escape"})
+  assert.equal(pane.getAttribute("aria-pressed"), "true")
+  assert.deepEqual(commands, [])
+  assert.equal(clock.timers.size, 0, "overdue modal does not spin a one-millisecond timer")
+  root.modal = null
+  document.emit("lovelace:modal-closed")
+  clock.advance(179_999)
+  assert.deepEqual(commands, [])
+  clock.advance(1)
+  assert.deepEqual(commands, ["reset-command"])
+  hook.destroyed()
 })
 
 test("destruction removes every listener and timer", t => {

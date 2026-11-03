@@ -81,8 +81,11 @@ No DrawSVG/SplitText plugin, `unsafe-eval` or remote script allowance is needed.
 
 ## Encrypted local environment
 
-See [stage-designer setup](STAGE_DESIGNER.md) for dotenvx initialization, hidden-prompt
-API-key entry, explicit environment injection, permissions, backups, and privacy caveats.
+See [stage-designer setup](STAGE_DESIGNER.md) for dotenvx initialization, explicit
+settings injection, permissions, backups, and privacy caveats. Gemini keys now use
+Connections and macOS Keychain; `GEMINI_API_KEY` is ignored (no environment fallback).
+Rebuild the native helper after updating to support the separate Gemini service.
+Saving/removing a key never generates, verifies provider access or changes startup opt-in.
 The external CLI (validated with 2.38.2) needs no npm/Mix application dependency.
 Encrypted `.env` and plaintext private `.env.keys` remain ignored and owner-only;
 `.env.example` is a readable, secret-free public template. Plain Mix does not load it.
@@ -115,7 +118,7 @@ LOVELACE_STAGE_ENABLED=false mix ecto.migrate
 The first connected LiveView mount initializes **Personal** through a conflict-safe Ash
 upsert with a fixed ID and no update fields. Reloads, reconnects, and directory refreshes
 never reset its renamed name or timestamps. Disconnected HTTP rendering does not write
-workspace records. Creation and rename use `AshPhoenix.Form`; names are trimmed, nonblank,
+workspace records. Creation and rename use focused native-dialog modals with `AshPhoenix.Form`; names are trimmed, nonblank,
 and bounded to 64 characters server-side. There are deliberately no delete/archive actions,
 or projects. Account connection and read-only mail are implemented separately in `Lovelace.Mail`.
 

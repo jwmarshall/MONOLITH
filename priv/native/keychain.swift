@@ -1,10 +1,10 @@
-// LOVELACE Gmail Keychain boundary. No credential argv, files, logging or UI.
+// LOVELACE Keychain boundary. No credential argv, files, logging or UI.
 // Build only: mix lovelace.keychain.build. One JSON line in, one JSON line out.
 import Foundation
 import Security
 import Darwin
 
-private let service = "LOVELACE Gmail"
+private let services = ["LOVELACE Gmail", "LOVELACE Gemini"]
 private let maxInput = 128 * 1024
 private let maxValue = 16 * 1024
 
@@ -55,8 +55,16 @@ private func input() -> [String: Any] {
 }
 
 let request = input()
-guard let operation = request["operation"] as? String,
-      ["get", "put", "delete"].contains(operation),
+guard let service = (request["service"] ?? "LOVELACE Gmail") as? String,
+      services.contains(service) else {
+    respond(["error": "unavailable"])
+}
+
+// Old helpers ignore unknown fields. Distinct operations ensure a new Gemini
+// request fails closed on an old binary instead of touching the Gmail service.
+let prefix = service == "LOVELACE Gemini" ? "gemini_" : ""
+guard let requestedOperation = request["operation"] as? String,
+      ["get", "put", "delete"].map({ prefix + $0 }).contains(requestedOperation),
       let account = request["account"] as? String,
       let uuid = UUID(uuidString: account),
       uuid.uuidString.lowercased() == account.lowercased(),
@@ -64,6 +72,7 @@ guard let operation = request["operation"] as? String,
     respond(["error": "unavailable"])
 }
 
+let operation = String(requestedOperation.dropFirst(prefix.count))
 let query: [String: Any] = [
     kSecClass as String: kSecClassGenericPassword,
     kSecAttrService as String: service,

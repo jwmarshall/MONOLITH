@@ -18,6 +18,7 @@ File.chmod!(root, 0o700)
 defmodule Lovelace.UIFixture do
   @moduledoc false
 
+  def get("00000000-0000-4000-8000-000000000005"), do: {:error, :locked}
   def get(_id), do: {:ok, "synthetic-refresh"}
   def put(_id, _token), do: :ok
   def delete(_id), do: :ok
@@ -94,6 +95,8 @@ try do
 
   Application.put_env(:lovelace, :gmail_provider, Lovelace.UIFixture)
   Application.put_env(:lovelace, :gmail_vault, Lovelace.UIFixture)
+  {:ok, _} = Lovelace.TestSupport.GeminiVault.start_link([])
+  Application.put_env(:lovelace, :gemini_vault, Lovelace.TestSupport.GeminiVault)
 
   scenery = %Lovelace.StageDesigner.Settings{
     enabled: false,
@@ -192,6 +195,20 @@ try do
     },
     actor: owner
   )
+
+  # Exercise real Connections density with five independent synthetic accounts.
+  for number <- 3..5 do
+    Lovelace.Mail.save_connection!(
+      %{
+        id:
+          if(number == 5, do: "00000000-0000-4000-8000-000000000005", else: Ecto.UUID.generate()),
+        subject: "synthetic-extra-browser-account-#{number}",
+        email: "secondary-#{number}@example.test",
+        generation: Ecto.UUID.generate()
+      },
+      actor: owner
+    )
+  end
 
   {:ok, {_ip, port}} = LovelaceWeb.Endpoint.server_info(:http)
 

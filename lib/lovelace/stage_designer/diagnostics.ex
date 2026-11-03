@@ -2,7 +2,9 @@ defmodule Lovelace.StageDesigner.Diagnostics do
   @moduledoc "Allowlisted failure descriptions. Never formats provider text, exceptions, or credentials."
 
   @messages %{
-    missing_api_key: "GEMINI_API_KEY is missing or invalidly formatted; check dotenvx injection",
+    missing_api_key: "no valid Gemini API key is stored; connect Gemini in Settings",
+    keychain_unavailable:
+      "the Gemini key could not be read; unlock or check macOS Keychain access",
     invalid_settings:
       "image model, size, aspect ratio, prompt length, or timeout configuration is invalid",
     invalid_options: "the provider client received unsupported options",

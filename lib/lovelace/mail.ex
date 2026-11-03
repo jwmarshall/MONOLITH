@@ -24,6 +24,7 @@ defmodule Lovelace.Mail do
       define :link, action: :link, args: [:workspace_id, :account_id]
       define :unlink, action: :unlink, args: [:workspace_id, :account_id]
       define :disconnect, action: :disconnect, args: [:account_id]
+      define :check_credentials, action: :check_credentials, args: [:account_id, :generation]
       define :mail_page, action: :page, args: [:workspace_id, :account_id]
       define :thread, action: :thread, args: [:workspace_id, :account_id, :thread_id]
       define :account_page, action: :account_page, args: [:account_id]
