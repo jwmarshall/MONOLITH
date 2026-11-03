@@ -135,7 +135,8 @@ defmodule LovelaceWeb.GoogleCalendarOAuthTest do
         ] do
       response = post(conn, "/oauth/google/start", params)
       assert response.status == 302, "invalid intent was accepted: #{inspect(params)}"
-      assert redirected_to(response) == "/"
+      expected = if params.capability == "calendar", do: "calendar", else: "gmail"
+      assert redirected_to(response) == "/connections/#{expected}"
     end
 
     refute Enum.any?(Lovelace.TestMail.calls(), &match?({:authorization, _}, &1))
@@ -174,7 +175,7 @@ defmodule LovelaceWeb.GoogleCalendarOAuthTest do
   test "Calendar callback requires scope evidence, binds subject, and enables only existing connection",
        %{conn: conn, workspace: w, account: account} do
     response = callback(conn, w.id, account.id)
-    assert redirected_to(response, 303) == "/?calendar=connected&workspace=" <> w.id
+    assert redirected_to(response, 303) == "/connections/calendar?calendar=connected"
     assert {:ok, saved} = Lovelace.Mail.get_account(account.id, actor: @owner)
     assert saved.calendar_enabled
     assert {:ok, "new-refresh"} = Lovelace.TestMailVault.get(account.id)
@@ -255,7 +256,7 @@ defmodule LovelaceWeb.GoogleCalendarOAuthTest do
 
     {:ok, state, _} = OAuth.begin(w.id, get_session(conn, :owner_session_token), account.id)
     response = get(conn, callback_url(state))
-    assert redirected_to(response, 303) == "/?gmail=connected&workspace=" <> w.id
+    assert redirected_to(response, 303) == "/workspaces/#{w.id}?gmail=connected"
     assert {:ok, saved} = Lovelace.Mail.get_account(account.id, actor: @owner)
     refute saved.calendar_enabled
   end
@@ -314,7 +315,7 @@ defmodule LovelaceWeb.GoogleCalendarOAuthTest do
         capability: "calendar"
       })
 
-    assert redirected_to(response) == "/"
+    assert redirected_to(response) == "/connections/calendar"
     refute Enum.any?(Lovelace.TestMail.calls(), &match?({:authorization, _}, &1))
   end
 
@@ -344,7 +345,7 @@ defmodule LovelaceWeb.GoogleCalendarOAuthTest do
     assert_receive :reconnect_started
     assert Task.yield(reconnect, 100) == nil
     send(worker, :continue)
-    assert redirected_to(Task.await(task), 303) == "/?calendar=connected&workspace=" <> w.id
+    assert redirected_to(Task.await(task), 303) == "/connections/calendar?calendar=connected"
     assert {:ok, current} = Task.await(reconnect)
     assert {:ok, "race-refresh"} = Lovelace.TestMailVault.get(account.id)
     assert Lovelace.Mail.get_account!(account.id, actor: @owner).generation == current.generation
@@ -366,7 +367,7 @@ defmodule LovelaceWeb.GoogleCalendarOAuthTest do
     assert Lovelace.Mail.get_account!(account.id, actor: @owner).generation == account.generation
     assert {:ok, "rotated-refresh"} = Lovelace.TestMailVault.get(account.id)
     send(worker, :continue)
-    assert redirected_to(Task.await(task), 303) == "/?calendar=connected&workspace=" <> w.id
+    assert redirected_to(Task.await(task), 303) == "/connections/calendar?calendar=connected"
     assert {:ok, "rotated-refresh"} = Lovelace.TestMailVault.get(account.id)
 
     assert [{:vault_put, id}] =
@@ -413,6 +414,7 @@ defmodule LovelaceWeb.GoogleCalendarOAuthTest do
 
   defp assert_failure(conn, stage, reason) do
     uri = URI.parse(redirected_to(conn, 303))
+    assert uri.path == "/connections/gmail"
 
     assert URI.decode_query(uri.query) == %{
              "gmail" => "failed",

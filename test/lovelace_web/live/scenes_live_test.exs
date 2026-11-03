@@ -139,8 +139,8 @@ defmodule LovelaceWeb.ScenesLiveTest do
     {:ok, reloaded, _} = live(conn, "/")
     assert has_element?(reloaded, "#workspace-background img[src='#{Storage.url(first)}']")
     view |> element("#show-connections") |> render_click()
-    refute has_element?(view, "#scenes-panel")
-    assert has_element?(view, "#connections-panel")
+    refute has_element?(view, "#scenes-panel, #connections-panel, #connections-subnav")
+    assert has_element?(view, "#connections-overview")
   end
 
   test "a ready scene within 24 hours permits manual requests without reserving on open or cancel",

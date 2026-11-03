@@ -2,6 +2,7 @@ defmodule LovelaceWeb.Plugs.RequireOwner do
   @moduledoc "Fail-closed HTTP boundary for private local-owner routes. Run after fetch_session."
   import Plug.Conn
   import Phoenix.Controller, only: [redirect: 2]
+  alias LovelaceWeb.OwnerReturnPath
 
   def init(opts), do: opts
 
@@ -13,9 +14,12 @@ defmodule LovelaceWeb.Plugs.RequireOwner do
         assign(conn, :current_actor, %{role: :local_owner})
 
       _ ->
+        destination = OwnerReturnPath.from_request(conn)
+
         conn
         |> configure_session(renew: true)
         |> clear_session()
+        |> put_session(:owner_return_to, destination)
         |> redirect(to: "/unlock")
         |> halt()
     end

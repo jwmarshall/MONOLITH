@@ -21,6 +21,7 @@ defmodule LovelaceWeb.GeminiConnectionLiveTest do
        %{conn: conn} do
     {:ok, view, _} = live(conn, "/")
     view |> element("#show-connections") |> render_click()
+    view |> element("#open-connection-gmail") |> render_click()
     assert has_element?(view, "#gmail-connections-heading", "Gmail accounts")
     refute has_element?(view, "#gemini-connection")
     assert :sys.get_state(view.pid).socket.assigns.gemini_status == :unknown
@@ -46,7 +47,7 @@ defmodule LovelaceWeb.GeminiConnectionLiveTest do
     refute inspect(:sys.get_state(view.pid).socket.assigns) =~ "synthetic-key-never-rendered"
   end
 
-  test "provider subnav rejects invalid/out-of-view events and preserves workspace return context",
+  test "provider subnav rejects invalid/out-of-view events and returns to the global index",
        %{conn: conn} do
     {:ok, view, _} = live(conn, "/")
     render_click(view, "select_connection", %{"provider" => "gemini"})
@@ -56,7 +57,11 @@ defmodule LovelaceWeb.GeminiConnectionLiveTest do
     view |> element("#show-workspaces") |> render_click()
     view |> element("#open-00000000-0000-4000-8000-000000000001") |> render_click()
     view |> element("#show-connections") |> render_click()
-    assert has_element?(view, "#back-from-connections", "Personal")
+    assert_patch(view, "/connections")
+    assert :sys.get_state(view.pid).socket.assigns.selected == nil
+    assert has_element?(view, "#connections-overview")
+    refute has_element?(view, "#connections-subnav, #back-from-connections")
+    view |> element("#open-connection-gmail") |> render_click()
     render_click(view, "select_connection", %{"provider" => "unknown"})
     assert has_element?(view, "#connections-gmail[aria-current=page]")
     view |> element("#new-gmail-connection") |> render_click()
@@ -65,14 +70,21 @@ defmodule LovelaceWeb.GeminiConnectionLiveTest do
     assert has_element?(view, "#gmail-connection-modal")
     view |> element("#gmail-connection-modal button[type=button]") |> render_click()
     view |> element("#connections-gemini") |> render_click()
-    view |> element("#show-connections") |> render_click()
     render_async(view)
     assert has_element?(view, "#connections-gemini[aria-current=page]")
-    assert has_element?(view, "#back-from-connections", "Personal")
-    view |> element("#connections-gmail") |> render_click()
+    view |> element("#show-connections") |> render_click()
+    assert_patch(view, "/connections")
+    assert has_element?(view, "#connections-overview")
+    refute has_element?(view, "#connections-subnav, #gemini-connection, #connections-panel")
+    assert :sys.get_state(view.pid).socket.assigns.selected == nil
+    view |> element("#open-connection-gmail") |> render_click()
     assert has_element?(view, "#connections-panel")
     refute has_element?(view, "#gemini-connection, #gmail-connection-modal")
-    view |> element("#back-from-connections") |> render_click()
+    view |> element("#back-to-connections") |> render_click()
+    assert_patch(view, "/connections")
+    assert has_element?(view, "#connections-overview")
+    refute has_element?(view, "#connections-subnav, #back-from-connections")
+    render_patch(view, "/workspaces/00000000-0000-4000-8000-000000000001")
     assert has_element?(view, "#directory-heading", "Personal")
     refute has_element?(view, "#connections-subnav")
   end
@@ -81,7 +93,7 @@ defmodule LovelaceWeb.GeminiConnectionLiveTest do
     conn: conn
   } do
     GeminiVault.fail(:locked)
-    {:ok, view, _} = live(conn, "/?connections=gemini&gemini=saved")
+    {:ok, view, _} = live(conn, "/connections/gemini?gemini=saved")
     render_async(view)
     assert has_element?(view, "#directory-heading", "Connections")
     assert has_element?(view, "#connections-gemini[aria-current=page]")

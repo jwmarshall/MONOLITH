@@ -135,7 +135,7 @@ async function verifyEmptyInstallation() {
   assert.equal(await bundledBackground('#workspace-background'), initial, 'static and live default choices agree')
   assert.equal(await evaluate("!!document.querySelector('#workspace-background img')"), false)
   await screenshot('home-empty-desktop')
-  await click('#calendar-agenda .calendar-empty button')
+  await click('#calendar-agenda .calendar-empty a')
   await waitFor("!!document.querySelector('#calendar-connections') && document.querySelector('#connections-calendar')?.getAttribute('aria-current') === 'page'", 'Calendar setup goes directly to its Connections provider')
   await click('#home-link')
   await waitFor("!!document.querySelector('#home-readouts')", 'empty Home after Calendar setup')
@@ -155,6 +155,7 @@ async function verifyEmptyInstallation() {
   assert.equal(await bundledBackground('#workspace-background'), initial)
   await screenshot('bundled-default-empty-scenes')
   await click('#home-link')
+  await waitFor("location.pathname === '/' && !!document.querySelector('#home-overview')", 'Home navigation before reload')
   await send('Page.reload')
   await waitFor("!!document.querySelector('#home-overview') && window.liveSocket?.getSocket().isConnected()", 'empty Home reload')
   assert.equal(await bundledBackground('#workspace-background'), initial, 'reload retains the installation default')
@@ -221,7 +222,7 @@ async function scenesLayout(width, forced) {
     const gallery = document.querySelector('#scene-gallery');
     const pane = document.querySelector('#workspace-content');
     const buttons = Array.from(panel.querySelectorAll('button'), button => button.getBoundingClientRect());
-    const nav = Array.from(document.querySelectorAll('#center-nav > button'), button => button.getBoundingClientRect());
+    const nav = Array.from(document.querySelectorAll('#center-nav > a'), link => link.getBoundingClientRect());
     return {pageOverflow: document.documentElement.scrollWidth > innerWidth,
       paneOverflow: pane.scrollWidth > pane.clientWidth + 1,
       panelOverflow: panel.scrollWidth > panel.clientWidth + 1,
@@ -390,6 +391,92 @@ async function homeLayout(width, forced = false) {
   await calendarItemLayout()
 }
 
+async function connectionsOverview() {
+  await waitFor("location.pathname === '/connections' && location.search === '' && !!document.querySelector('#connections-overview')", 'global Connections overview URL')
+  assert.equal(await evaluate("document.querySelector('#show-connections').getAttribute('href')"), '/connections')
+  assert.equal(await evaluate("!!document.querySelector('#connections-panel, #calendar-connections, #gemini-connection, #connections-subnav, #back-from-connections')"), false, 'overview mounts no provider or workspace return')
+  assert.deepEqual(await evaluate("Array.from(document.querySelectorAll('#connections-overview a'), link => link.getAttribute('href'))"), ['/connections/gmail', '/connections/calendar', '/connections/gemini'])
+  assert.equal(await evaluate("document.documentElement.scrollWidth <= innerWidth && Array.from(document.querySelectorAll('#connections-overview a')).every(link => link.getBoundingClientRect().height >= 44)"), true, 'overview stays within viewport with usable links')
+}
+
+async function openGmailConnections() {
+  await click('#show-connections')
+  await connectionsOverview()
+  await click('#open-connection-gmail')
+  await waitFor("!!document.querySelector('#connections-panel') && location.pathname === '/connections/gmail' && location.search === ''", 'Gmail provider chosen explicitly')
+}
+
+async function verifyNavigationHistory() {
+  await evaluate("void (window.navigationSocket = window.liveSocket)")
+  await click('#show-workspaces')
+  await waitFor("location.pathname === '/workspaces' && !!document.querySelector('#workspace-list')", 'directory URL')
+  await click(`#open-${workspaceId}`)
+  await waitFor(`location.pathname === '/workspaces/${workspaceId}' && !!document.querySelector('#workspace-landing')`, 'workspace URL')
+  await click('#show-connections')
+  await connectionsOverview()
+  await screenshot('connections-overview-desktop')
+  await click('#open-connection-calendar')
+  await waitFor("location.pathname === '/connections/calendar' && location.search === '' && !!document.querySelector('#calendar-connections')", 'Calendar URL is global even after workspace entry')
+  await click('#show-scenes')
+  await scenesLoaded()
+  await evaluate('history.back()')
+  await waitFor("location.pathname === '/connections/calendar' && !!document.querySelector('#calendar-connections')", 'Back to Calendar provider')
+  await evaluate('history.back()')
+  await connectionsOverview()
+  await evaluate('history.back()')
+  await waitFor(`location.pathname === '/workspaces/${workspaceId}' && !!document.querySelector('#workspace-landing')`, 'Back to workspace')
+  await evaluate('history.back()')
+  await waitFor("location.pathname === '/workspaces' && !!document.querySelector('#workspace-list')", 'Back to directory')
+  await evaluate('history.forward()')
+  await waitFor(`location.pathname === '/workspaces/${workspaceId}' && !!document.querySelector('#workspace-landing')`, 'Forward to workspace')
+  assert.equal(await evaluate('window.navigationSocket === window.liveSocket'), true, 'patch navigation preserves the shared stage and LiveSocket')
+  await send('Page.reload')
+  await waitFor(`location.pathname === '/workspaces/${workspaceId}' && !!document.querySelector('#workspace-landing') && window.liveSocket?.getSocket().isConnected()`, 'reload retains workspace')
+  await media([{name: 'prefers-reduced-motion', value: 'reduce'}])
+  await click('#workspace-pane')
+  await focused()
+  await send('Page.navigate', {url: origin + `/connections/gemini?workspace=${workspaceId}`})
+  await waitFor("location.pathname === '/connections/gemini' && location.search === '' && !!document.querySelector('#gemini-connection') && window.liveSocket?.getSocket().isConnected()", 'direct Gemini GET works and removes obsolete workspace query')
+  await evaluate('window.navigationBeforeGeminiReload = true')
+  await send('Page.reload')
+  await waitFor("!window.navigationBeforeGeminiReload && location.pathname === '/connections/gemini' && !!document.querySelector('#gemini-connection') && window.liveSocket?.getSocket().isConnected()", 'Gemini provider reload works through credential boundary')
+  await click('#workspace-pane')
+  await focused()
+  await click('#back-to-connections')
+  await connectionsOverview()
+  const deep = `/accounts/${accountId}/mail/threads/navigation-thread?q=synthetic&page_token=fixture-page`
+  await send('Page.navigate', {url: origin + deep})
+  await waitFor("!!document.querySelector('#mail-conversation-heading') && window.liveSocket?.getSocket().isConnected()", 'copied conversation link loads directly')
+  await click('#workspace-pane')
+  await focused()
+  assert.equal(await evaluate('location.pathname + location.search'), deep)
+  assert.equal(await evaluate("document.querySelector('#mail-search input').value"), 'synthetic')
+  await click('#mail-back')
+  await waitFor("document.querySelector('#mail-threads')?.getAttribute('aria-busy') === 'false'", 'direct-reader fallback to results')
+  assert.equal(await evaluate('location.pathname + location.search'), `/accounts/${accountId}/mail?q=synthetic&page_token=fixture-page`)
+  await screenshot('navigation-deep-link-results')
+  await send('Page.navigate', {url: origin + '/accounts/00000000-0000-4000-8000-000000000099/mail'})
+  await waitFor("location.pathname === '/workspaces' && !!document.querySelector('#workspace-list') && !!document.querySelector('#flash-error')", 'unavailable account link visibly canonicalizes to Workspaces')
+  await click('#workspace-pane')
+  await focused()
+  await click('#flash-error button[aria-label=close]')
+  await waitFor("!document.querySelector('#flash-error')", 'dismiss unavailable-account notice before Lock')
+  await click('#owner-lock-form button')
+  await waitFor("location.pathname === '/unlock' && !!document.querySelector('#owner-unlock-form')", 'fixture owner explicitly locks')
+  await evaluate('window.navigationBeforeUnlock = true')
+  await send('Page.navigate', {url: origin + '/connections/calendar'})
+  await waitFor("!window.navigationBeforeUnlock && location.pathname === '/unlock' && !!document.querySelector('#owner-unlock-form')", 'protected deep link requires a fresh unlock page')
+  await evaluate("document.querySelector('#owner-unlock-form input[type=password]').value = 'synthetic browser owner password'; document.querySelector('#owner-unlock-form').requestSubmit()")
+  await waitFor("location.pathname === '/connections/calendar' && !!document.querySelector('#calendar-connections') && window.liveSocket?.getSocket().isConnected()", 'unlock resumes the requested deep page rather than Home')
+  await click('#workspace-pane')
+  await focused()
+  await screenshot('navigation-unlock-return')
+  await click('#home-link')
+  await home()
+  await media([])
+  console.log('PASS global Connections overview and provider URLs, obsolete-query cleanup, direct Gemini GET/reload, browser Back/Forward, copied mail links, invalid-account recovery and unlock return')
+}
+
 let homeVisits = 0
 async function home() {
   await waitFor(`!!document.querySelector('#home-overview') &&
@@ -399,7 +486,7 @@ async function home() {
   assert.equal(await evaluate("document.querySelector('#home-link').closest('nav')?.id"), "center-nav", "Home belongs to the center navigation")
   assert.equal(await evaluate("document.querySelector('#home-link').textContent.trim()"), "Home")
   assert.equal(await evaluate("document.querySelector('#workspace-monogram').closest('a, button') === null && document.querySelector('#workspace-monogram').getAttribute('aria-hidden') === 'true' && document.querySelector('#workspace-monogram').getAttribute('focusable') === 'false' && getComputedStyle(document.querySelector('#workspace-monogram')).pointerEvents === 'none'"), true, "corner monogram is decoration only")
-  assert.equal(await evaluate("location.pathname + location.search + location.hash"), "/", "navigation stays in-page")
+  assert.equal(await evaluate("location.pathname + location.search + location.hash"), "/", "Home has its canonical URL")
   assert.equal(await evaluate("!!document.querySelector('#workspace-list, #home-inbox, #connections-panel, #scenes-panel')"), false)
   const orientation = await evaluate(`(() => {
     const now = new Date();
@@ -510,7 +597,9 @@ try {
   console.log("PASS ordinary entrance, static stage, corner/Home/Lock visibility and gate/focus handoff")
 
   await home()
-  assert.deepEqual(await evaluate("Array.from(document.querySelectorAll('#center-nav > button'), button => button.id)"), ["home-link", "show-workspaces", "show-connections", "show-scenes"])
+  assert.deepEqual(await evaluate("Array.from(document.querySelectorAll('#center-nav > a[data-phx-link=patch]'), link => link.id)"), ["home-link", "show-workspaces", "show-connections", "show-scenes"])
+  await verifyNavigationHistory()
+  await home()
   assert.equal(await evaluate("document.querySelectorAll('#home-accounts > li').length"), 5, "one Home row per connection, not per membership")
   for (const [id, count] of [[accountId, "7"], [unattachedId, "0"]]) {
     assert.equal(await evaluate(`document.querySelectorAll('#home-account-${id}').length`), 1)
@@ -542,8 +631,8 @@ try {
   }
   await send('Emulation.setDeviceMetricsOverride', {width: 1440, height: 1000, deviceScaleFactor: 1, mobile: false})
   await click("#show-connections")
-  await waitFor("!!document.querySelector('#connections-calendar')", "Calendar provider navigation mounted")
-  await click("#connections-calendar")
+  await connectionsOverview()
+  await click("#open-connection-calendar")
   await waitFor("!!document.querySelector('#calendar-connections') && !document.querySelector('#connections-panel, #gemini-connection')", "exclusive Calendar connection provider")
   await click(`#calendar-connections-selection-${accountId} summary`)
   assert.equal(await evaluate(`document.querySelector('#calendar-connections-select-${accountId} input[value=primary]').checked`), true, "Google-selected default calendar")
@@ -695,13 +784,11 @@ try {
 
     await media([{name: "prefers-reduced-motion", value: "reduce"}])
     await send("Page.reload")
-    await waitFor(`!!document.querySelector('#home-overview') && window.liveSocket?.getSocket().isConnected() &&
+    await waitFor(`location.pathname === '/scenes' && !!document.querySelector('#scenes-panel') && window.liveSocket?.getSocket().isConnected() &&
       document.querySelector('#workspace-background img')?.getAttribute('src') === ${JSON.stringify(chosen.src)} &&
-      document.querySelector('#workspace-background img')?.dataset.loaded === 'true'`, "reload returns Home with the persisted chosen background")
-    await home()
+      document.querySelector('#workspace-background img')?.dataset.loaded === 'true'`, "reload retains Scenes with the persisted chosen background")
     await click("#workspace-pane")
     await focused()
-    await click("#show-scenes")
     await scenesLoaded()
     assert.deepEqual(await sceneManifest(), selectedScenes, "manual scene selection and timestamps survive a real page reload")
     assert.equal(await evaluate("document.querySelector('#scene-generate').disabled"), false, "navigation, stage broadcasts and reload preserve manual availability")
@@ -830,7 +917,7 @@ try {
   await focused()
   assert.equal(await evaluate("document.querySelector('#workspace-content').scrollTop"), readerScroll)
   assert.deepEqual(await evaluate("Array.from(document.querySelectorAll('details.mail-message'), message => message.open)"), [true, true, true], "Escape/wake retains reader content and disclosures")
-  await click("#mail-back")
+  await evaluate("history.back()")
   await waitFor(`document.querySelector('#mail-threads')?.getAttribute('aria-busy') === 'false' &&
     document.activeElement.id === 'mail-thread-synthetic-thread-12' &&
     Math.abs(document.querySelector('#workspace-content').scrollTop - ${returnScroll}) <= 1`, "Back restores original row keyboard focus and actual click scroll after async results")
@@ -853,8 +940,7 @@ try {
   await key("Enter")
   await home()
   await waitFor("document.activeElement.id === 'directory-heading'", "keyboard Home transfers heading focus")
-  await click("#show-connections")
-  await waitFor("!!document.querySelector('#connections-panel')", "Home opens Connections")
+  await openGmailConnections()
   assert.equal(await evaluate("!!document.querySelector('#back-from-connections')"), false, "Connections has no redundant Home button")
   assert.equal(await evaluate("document.querySelectorAll('.gmail-connection-list > .gmail-connection-card').length"), 5, "five Gmail accounts use compact rows")
   assert.equal(await evaluate("!!document.querySelector('#mail-connect-new')"), false, "new Gmail form stays out of the connection list")
@@ -878,7 +964,7 @@ try {
   await click("#gmail-connection-modal button[type=button]")
   await waitFor("!document.querySelector('#gmail-connection-modal') && document.activeElement.id === 'new-gmail-connection'", "Gmail Cancel restores Add button")
   console.log("PASS five-account Connections list and new Gmail modal, workspace choice and Escape/Cancel focus")
-  assert.equal(await evaluate("!!document.querySelector('#gemini-connection')"), false, "Gmail is the default provider view")
+  assert.equal(await evaluate("!!document.querySelector('#gemini-connection')"), false, "Gmail mounts only after choosing its provider")
   await evaluate("document.querySelector('#connections-gemini').focus()")
   await key("Enter")
   await waitFor("!!document.querySelector('#gemini-connection') && !document.querySelector('#connections-panel')", "keyboard provider navigation shows Gemini only")
@@ -898,7 +984,7 @@ try {
   assert.equal(await evaluate("document.querySelector('#gemini-api-key').type"), "password")
   await media([{name: "prefers-reduced-motion", value: "reduce"}])
   await click("#gemini-key-form button[type=submit]")
-  await waitFor("location.search.includes('gemini=saved') && document.querySelector('#gemini-status')?.textContent.includes('API key stored')", "Gemini save POST returns to Connections")
+  await waitFor("location.pathname === '/connections/gemini' && document.querySelector('#gemini-api-key')?.value === '' && document.querySelector('#gemini-status')?.textContent.includes('API key stored') && !document.querySelector('#gemini-status')?.textContent.includes('No API key stored')", "Gemini save POST completes at canonical Connections URL with an empty form")
   await click("#workspace-pane")
   await focused()
   assert.equal(await evaluate("document.querySelector('#gemini-api-key').value"), "", "stored key is not returned to the form")
@@ -913,8 +999,7 @@ try {
   console.log("PASS separate app-wide Gemini Keychain UI, ordinary credential POST, empty return form and truthful unverified/startup state")
   await click("#home-link")
   await home()
-  await click("#show-connections")
-  await waitFor("!!document.querySelector('#connections-panel')", "Connections before center-nav Home")
+  await openGmailConnections()
   await click("#workspace-monogram")
   assert.equal(await evaluate("!!document.querySelector('#connections-panel') && document.querySelector('#home-overview') === null"), true, "clicking the decorative monogram does not navigate")
   await click("#home-link")
@@ -992,8 +1077,9 @@ try {
   await waitFor("document.querySelector('#mail-threads')?.getAttribute('aria-busy') === 'false'", "synthetic inbox")
   assert.equal(await evaluate("!!document.querySelector('#workspace-content #mail-account-view #mail-threads')"), true)
   await click("#show-connections")
-  await waitFor("!!document.querySelector('#connections-panel') && document.activeElement.id === 'directory-heading'", "Connections navigation focus")
-  await click("#back-from-connections")
+  await connectionsOverview()
+  await waitFor("document.activeElement.id === 'directory-heading'", "Connections navigation focus")
+  await evaluate('history.back()')
   await waitFor("!!document.querySelector('#workspace-landing') && document.activeElement.id === 'directory-heading'", "return to workspace")
   await click("#back-to-workspaces")
   await waitFor(`!!document.querySelector('#open-${workspaceId}')`, "return to directory")
@@ -1009,8 +1095,7 @@ try {
   // finish once and open the actual inert gate, not just a fake hook target.
   failStageImages = true
   await send("Page.reload")
-  await waitFor(`!!document.querySelector('#home-overview') && document.querySelector('#workspace-background img')?.dataset.loaded === 'false'`, "reload returns Home with fresh entrance and failed live image")
-  await home()
+  await waitFor(`location.pathname === '/workspaces' && !!document.querySelector('#workspace-list') && document.querySelector('#workspace-background img')?.dataset.loaded === 'false'`, "reload retains Workspaces with fresh entrance and failed live image")
   await landscape()
   assert.equal(await evaluate("document.querySelector('#workspace-content').inert"), true)
   assert.equal(await evaluate("getComputedStyle(document.querySelector('#workspace-background img')).opacity"), "0")
@@ -1019,6 +1104,7 @@ try {
   await click("#workspace-pane")
   await media([{name: "prefers-reduced-motion", value: "reduce"}])
   await focused()
+  await click('#home-link')
   await home()
   await media([])
   await key("Escape")
@@ -1087,8 +1173,11 @@ try {
         await waitFor("document.querySelector('#mail-message-synthetic-message-1').open", "forced-color keyboard disclosure")
         assert.notEqual(await evaluate("getComputedStyle(document.activeElement).outlineStyle"), "none", "forced-color reader retains a visible keyboard focus outline")
       }
-      await click("#show-connections")
-      await waitFor("!!document.querySelector('#connections-panel')", "Connections for shared width check")
+      await click('#show-connections')
+      await connectionsOverview()
+      if (!forced) await screenshot(width === 390 ? 'connections-overview-narrow' : 'connections-overview-layout-desktop')
+      await click('#open-connection-gmail')
+      await waitFor("!!document.querySelector('#connections-panel')", "Gmail Connections for shared width check")
       const connectionBounds = await evaluate(`(() => {
         const content = document.querySelector('#connections-panel').getBoundingClientRect();
         return {width: content.width, left: content.left};
@@ -1200,9 +1289,9 @@ try {
         await click("#mail-accounts .workspace-menu summary")
         assert.equal(await evaluate("document.querySelector('#mail-accounts details').open"), true)
         await click("#show-connections")
-        await waitFor("!!document.querySelector('#connections-panel')", "narrow Connections")
+        await connectionsOverview()
         assert.equal(await evaluate("document.documentElement.scrollWidth <= innerWidth"), true)
-        await click("#back-from-connections")
+        await evaluate('history.back()')
         await waitFor("!!document.querySelector('#workspace-landing')", "narrow return workspace")
         await click("#back-to-workspaces")
         await waitFor(`!!document.querySelector('#open-${workspaceId}')`, "narrow return directory")
@@ -1221,13 +1310,13 @@ try {
   assert.deepEqual(cspViolations, [], "CSP evidence accumulates across all navigations/reloads")
   assert.deepEqual(errors, [])
   assert.deepEqual(external, [])
-  console.log("PASS Home reload, reduced motion, forced colors, desktop/narrow Home/card/inbox/reader/Scenes/dialog layout and no off-origin requests/page errors")
+  console.log("PASS destination reload, reduced motion, forced colors, desktop/narrow Home/card/inbox/reader/Scenes/dialog layout and no off-origin requests/page errors")
   }
 } catch (error) {
   console.error(error.message)
   if (socket?.readyState === WebSocket.OPEN) {
     await screenshot("failure").catch(() => console.error("Failure screenshot unavailable"))
-    console.error(await evaluate(`JSON.stringify({title: document.title, home: !!document.querySelector('#home-overview'), current: document.querySelector('#home-link')?.getAttribute('aria-current'), inbox: !!document.querySelector('#home-inbox'), active: document.activeElement?.id, heading: document.querySelector('#directory-heading')?.textContent.trim(), sceneBusy: document.querySelector('#scenes-panel')?.getAttribute('aria-busy'), sceneCards: document.querySelectorAll('#scene-gallery > li.scene-card').length, sceneImages: Array.from(document.querySelectorAll('#scene-gallery img'), image => ({id: image.id, loaded: image.dataset.loaded, width: image.naturalWidth}))})`).catch(() => "Browser state unavailable"))
+    console.error(await evaluate(`JSON.stringify({url: location.pathname + location.search, entered: document.querySelector('#main-content')?.dataset.entered, pressed: document.querySelector('#workspace-pane')?.getAttribute('aria-pressed'), inert: document.querySelector('#workspace-content')?.inert, reduced: matchMedia('(prefers-reduced-motion: reduce)').matches, title: document.title, home: !!document.querySelector('#home-overview'), current: document.querySelector('#home-link')?.getAttribute('aria-current'), inbox: !!document.querySelector('#home-inbox'), active: document.activeElement?.id, heading: document.querySelector('#directory-heading')?.textContent.trim(), sceneBusy: document.querySelector('#scenes-panel')?.getAttribute('aria-busy'), sceneCards: document.querySelectorAll('#scene-gallery > li.scene-card').length, sceneImages: Array.from(document.querySelectorAll('#scene-gallery img'), image => ({id: image.id, loaded: image.dataset.loaded, width: image.naturalWidth}))})`).catch(() => "Browser state unavailable"))
   }
   process.exitCode = 1
 } finally {

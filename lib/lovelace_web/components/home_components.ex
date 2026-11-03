@@ -35,7 +35,7 @@ defmodule LovelaceWeb.HomeComponents do
       </div>
       <div :if={!@loading && !@error && @accounts == []} id="home-empty" class="home-empty">
         <p>No Gmail accounts connected.</p>
-        <button type="button" class="workspace-action" phx-click="show_connections">Connect Gmail</button>
+        <.link patch="/connections/gmail" class="workspace-action">Connect Gmail</.link>
       </div>
       <ul :if={!@error && !@loading && @accounts != []} id="home-accounts" class="home-accounts">
         <.account_readout :for={account <- @accounts} account={account} />
@@ -49,12 +49,10 @@ defmodule LovelaceWeb.HomeComponents do
   def account_readout(assigns) do
     ~H"""
     <li id={"home-account-#{@account.id}"} class="home-account">
-      <button
+      <.link
         id={"open-home-account-#{@account.id}"}
-        type="button"
+        patch={LovelaceWeb.HomeNavigation.account_path(@account.id)}
         class="home-account-open"
-        phx-click="open_home_account"
-        phx-value-id={@account.id}
         aria-label={"Open inbox for #{@account.email}"}
         aria-describedby={"home-count-#{@account.id} home-health-#{@account.id}"}
       >
@@ -75,17 +73,16 @@ defmodule LovelaceWeb.HomeComponents do
           </span>
         </span>
         <.icon name="hero-arrow-up-right" class="home-account-arrow size-4" />
-      </button>
+      </.link>
       <div id={"home-health-#{@account.id}"} class="home-account-health">
         <.freshness account={@account} />
         <span :if={health_message(@account)} class="connection-warning">{health_message(@account)}</span>
-        <button
+        <.link
           :if={@account.status == :reconnect || @account.last_error == :keychain}
-          type="button"
+          patch="/connections/gmail"
           class="home-recovery"
-          phx-click="show_connections"
           aria-label={"Manage connection for #{@account.email}"}
-        >Connections →</button>
+        >Connections →</.link>
       </div>
     </li>
     """

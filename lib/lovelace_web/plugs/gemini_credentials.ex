@@ -11,9 +11,10 @@ defmodule LovelaceWeb.Plugs.GeminiCredentials do
   def init(opts), do: opts
 
   def call(conn, _opts) do
-    if SensitivePath.matches?(conn, ["connections", "gemini"]),
-      do: consume(conn),
-      else: conn
+    if conn.method not in ["GET", "HEAD"] &&
+         SensitivePath.matches?(conn, ["connections", "gemini"]),
+       do: consume(conn),
+       else: conn
   end
 
   defp consume(conn) do
@@ -30,7 +31,7 @@ defmodule LovelaceWeb.Plugs.GeminiCredentials do
       case Lovelace.Owner.verify_session(get_session(conn, :owner_session_token)) do
         {:ok, _session} ->
           result = perform(params)
-          redirect(conn, "/?connections=gemini&gemini=" <> result)
+          redirect(conn, "/connections/gemini?gemini=" <> result)
 
         _ ->
           redirect(conn, "/unlock")

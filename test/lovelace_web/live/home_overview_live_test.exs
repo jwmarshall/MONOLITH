@@ -106,7 +106,7 @@ defmodule LovelaceWeb.HomeOverviewLiveTest do
     assert has_element?(view, ".mail-inbox-heading #mail-search input[aria-label='Search Gmail']")
     assert has_element?(view, "#mail-search button[type=submit]", "Search")
     refute has_element?(view, "#mail-panel button", "Home")
-    refute has_element?(view, "#mail-panel button", "All accounts")
+    refute has_element?(view, "#mail-panel a", "All accounts")
     refute has_element?(view, "#mail-search .label")
     refute render(view) =~ "Separate accounts. Nothing sent, changed, or marked as read."
     refute render(view) =~ "Search this entire Gmail account"
@@ -181,7 +181,13 @@ defmodule LovelaceWeb.HomeOverviewLiveTest do
 
     view |> element("#open-home-account-#{account.id}") |> render_click()
     render_async(view)
-    assert has_element?(view, "#home-inbox button", "Reconnect in Connections")
+
+    assert has_element?(
+             view,
+             "#home-inbox a[href='/connections/gmail'][data-phx-link=patch]",
+             "Reconnect in Connections"
+           )
+
     refute_receive {:home_fetch, _}
 
     view |> element("#home-link") |> render_click()
@@ -201,10 +207,22 @@ defmodule LovelaceWeb.HomeOverviewLiveTest do
   test "empty Home is concise and Connections has no redundant Home button", %{conn: conn} do
     {:ok, view, _html} = live(conn, ~p"/")
     assert has_element?(view, "#home-empty p", "No Gmail accounts connected.")
-    assert has_element?(view, "#home-empty button", "Connect Gmail")
+
+    assert has_element?(
+             view,
+             "#home-empty a[href='/connections/gmail'][data-phx-link=patch]",
+             "Connect Gmail"
+           )
+
     refute has_element?(view, "#daily-heading p, .home-section-heading p, .home-footnote")
     assert has_element?(view, "#calendar-agenda .calendar-empty", "Calendar not enabled.")
-    assert has_element?(view, "#calendar-agenda .calendar-empty button", "Set up Calendar")
+
+    assert has_element?(
+             view,
+             "#calendar-agenda .calendar-empty a[href='/connections/calendar'][data-phx-link=patch]",
+             "Set up Calendar"
+           )
+
     refute render(view) =~ "background polling while LOVELACE is running"
 
     view |> element("#show-connections") |> render_click()
@@ -238,7 +256,13 @@ defmodule LovelaceWeb.HomeOverviewLiveTest do
     assert has_element?(view, "#home-count-#{account.id} .home-unread-number", "9")
     assert has_element?(view, "#home-freshness-#{account.id}[data-failed=true]")
     assert has_element?(view, "#home-health-#{account.id}", "Reconnect required")
-    assert has_element?(view, "#home-health-#{account.id} button", "Connections")
+
+    assert has_element?(
+             view,
+             "#home-health-#{account.id} a[href='/connections/gmail'][data-phx-link=patch]",
+             "Connections"
+           )
+
     refute_receive {:home_fetch, _}
   end
 

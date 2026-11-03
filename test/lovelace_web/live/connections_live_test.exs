@@ -145,7 +145,10 @@ defmodule LovelaceWeb.ConnectionsLiveTest do
     alpha = "#workspaces-#{ctx.workspace.id}"
     beta = "#workspaces-#{ctx.other.id}"
 
-    assert has_element?(view, "#{alpha}.workspace-card > button#open-#{ctx.workspace.id}")
+    assert has_element?(
+             view,
+             "#{alpha}.workspace-card > a#open-#{ctx.workspace.id}[href='/workspaces/#{ctx.workspace.id}'][data-phx-link=patch]"
+           )
 
     assert has_element?(
              view,
@@ -154,7 +157,7 @@ defmodule LovelaceWeb.ConnectionsLiveTest do
            )
 
     assert has_element?(view, "#{alpha} > details button#rename-#{ctx.workspace.id}", "Rename")
-    refute has_element?(view, "#{alpha} > button details, #{alpha} > button button")
+    refute has_element?(view, "#{alpha} > a details, #{alpha} > a button")
 
     assert has_element?(
              view,
@@ -315,7 +318,7 @@ defmodule LovelaceWeb.ConnectionsLiveTest do
   test "global Connections has no workspace or inbox, and forged mail events never read providers",
        ctx do
     {:ok, view, _} = live(ctx.conn, ~p"/")
-    view |> element("#show-connections") |> render_click()
+    open_gmail_connections(view)
     mail = socket(view).assigns.mail
     assert mail.scope == :connections
     assert mail.workspace_id == nil
@@ -376,7 +379,7 @@ defmodule LovelaceWeb.ConnectionsLiveTest do
   test "global OAuth forms require an unselected workspace and bind reconnect identity", ctx do
     {:ok, view, _} = live(ctx.conn, ~p"/")
     open_workspace(view, ctx.workspace)
-    view |> element("#show-connections") |> render_click()
+    open_gmail_connections(view)
     refute has_element?(view, "#mail-connect-new")
     view |> element("#new-gmail-connection") |> render_click()
 
@@ -424,7 +427,7 @@ defmodule LovelaceWeb.ConnectionsLiveTest do
     render_click(view, "mail:new_connection")
     refute socket(view).assigns.mail.connecting
 
-    view |> element("#show-connections") |> render_click()
+    open_gmail_connections(view)
     view |> element("#new-gmail-connection") |> render_click()
     status(ctx.healthy, %{last_error: :provider})
     broadcast(ctx.healthy.id)
@@ -443,11 +446,11 @@ defmodule LovelaceWeb.ConnectionsLiveTest do
 
     view |> element("#new-gmail-connection") |> render_click()
     view |> element("#home-link") |> render_click()
-    view |> element("#show-connections") |> render_click()
+    open_gmail_connections(view)
     refute has_element?(view, "#gmail-connection-modal")
   end
 
-  test "center nav returns Home and contextual back returns the workspace without inbox content",
+  test "Connections is global and browser history restores a workspace without inbox content",
        ctx do
     {:ok, view, _} = live(ctx.conn, ~p"/")
     view |> element("#show-connections") |> render_click()
@@ -461,7 +464,11 @@ defmodule LovelaceWeb.ConnectionsLiveTest do
     open_workspace(view, ctx.workspace)
     view |> element("#add-integration") |> render_click()
     view |> element("#show-connections") |> render_click()
-    view |> element("#back-from-connections") |> render_click()
+    assert_patch(view, "/connections")
+    assert socket(view).assigns.selected == nil
+    assert has_element?(view, "#connections-overview")
+    refute has_element?(view, "#back-from-connections, #connections-subnav")
+    render_patch(view, "/workspaces/#{ctx.workspace.id}")
     refute has_element?(view, "#integration-add-panel")
     assert FakeIO.calls() == []
 
@@ -471,13 +478,21 @@ defmodule LovelaceWeb.ConnectionsLiveTest do
     calls = FakeIO.calls()
 
     view |> element("#show-connections") |> render_click()
-    assert has_element?(view, "#back-from-connections", ctx.workspace.name)
+    assert_patch(view, "/connections")
+    assert has_element?(view, "#connections-overview")
+    refute has_element?(view, "#back-from-connections, #connections-subnav")
+    assert socket(view).assigns.selected == nil
     assert socket(view).assigns.mail.workspace_id == nil
     assert socket(view).assigns.mail.scope == :connections
     assert ViewData.get(ref) == nil
     refute render(view) =~ "Synthetic inbox"
 
-    view |> element("#back-from-connections") |> render_click()
+    view |> element("#open-connection-gmail") |> render_click()
+    assert has_element?(view, "#back-to-connections[href='/connections']")
+    view |> element("#back-to-connections") |> render_click()
+    assert has_element?(view, "#connections-overview")
+    assert socket(view).assigns.selected == nil
+    render_patch(view, "/workspaces/#{ctx.workspace.id}")
     assert has_element?(view, "#directory-heading", ctx.workspace.name)
     assert has_element?(view, "#mail-heading", "Integrations")
     assert socket(view).assigns.mail.workspace_id == ctx.workspace.id
@@ -496,7 +511,7 @@ defmodule LovelaceWeb.ConnectionsLiveTest do
 
   test "disconnect everywhere is global, removes all links, and preserves other accounts", ctx do
     {:ok, view, _} = live(ctx.conn, ~p"/")
-    view |> element("#show-connections") |> render_click()
+    open_gmail_connections(view)
     disconnect(view, ctx.healthy)
     html = render_async(view)
 
@@ -535,7 +550,7 @@ defmodule LovelaceWeb.ConnectionsLiveTest do
     FakeIO.unblock()
     assert_late_view_ignored(view, old_task)
 
-    view |> element("#back-from-connections") |> render_click()
+    render_patch(view, "/workspaces/#{ctx.workspace.id}")
     view |> element("#back-to-workspaces") |> render_click()
     open_workspace(view, ctx.other)
     assert_late_view_ignored(view, old_task)
@@ -552,7 +567,7 @@ defmodule LovelaceWeb.ConnectionsLiveTest do
   test "switching providers preserves an in-flight Gmail disconnect without showing Gmail on Gemini",
        ctx do
     {:ok, view, _} = live(ctx.conn, ~p"/")
-    view |> element("#show-connections") |> render_click()
+    open_gmail_connections(view)
     FakeIO.block(:revoke)
     disconnect(view, ctx.healthy)
     assert_receive {:fake_blocked, worker, {:revoke, id}}, 2_000
@@ -580,7 +595,7 @@ defmodule LovelaceWeb.ConnectionsLiveTest do
        ctx do
     {:ok, view, _} = live(ctx.conn, ~p"/")
     open_workspace(view, ctx.workspace)
-    view |> element("#show-connections") |> render_click()
+    open_gmail_connections(view)
     FakeIO.block(:revoke)
     disconnect(view, ctx.healthy)
     assert_receive {:fake_blocked, worker, {:revoke, id}}, 2_000
@@ -592,13 +607,13 @@ defmodule LovelaceWeb.ConnectionsLiveTest do
     refute has_element?(view, "#gmail-connection-modal, #mail-connect-new")
     render_click(view, "mail:new_connection")
     refute has_element?(view, "#gmail-connection-modal")
-    view |> element("#back-from-connections") |> render_click()
+    render_patch(view, "/workspaces/#{ctx.workspace.id}")
     assert has_element?(view, "#directory-heading", ctx.workspace.name)
     current = socket(view)
     result = {:ok, {:ok, %{local_removed: true, credentials_removed: true, revoked: true}}}
     assert {:noreply, ^current} = HomeLive.handle_async(name, result, current)
 
-    view |> element("#show-connections") |> render_click()
+    open_gmail_connections(view)
     assert socket(view).assigns.mail.generation != generation
     assert socket(view).assigns.mail.command == nil
     assert has_element?(view, "#new-gmail-connection:not([disabled])")
@@ -625,7 +640,7 @@ defmodule LovelaceWeb.ConnectionsLiveTest do
   test "local credential checks expose distinct safe observations without changing sync state",
        ctx do
     {:ok, view, _} = live(ctx.conn, ~p"/")
-    view |> element("#show-connections") |> render_click()
+    open_gmail_connections(view)
     before = account_state()
     private = "synthetic-private-refresh-token"
 
@@ -686,7 +701,7 @@ defmodule LovelaceWeb.ConnectionsLiveTest do
 
   test "credential diagnostic failures never expose raw vault errors or task exceptions", ctx do
     {:ok, view, _} = live(ctx.conn, ~p"/")
-    view |> element("#show-connections") |> render_click()
+    open_gmail_connections(view)
     private = "synthetic-private-vault-error"
     before = account_state()
     responses = [{:error, %{private: private}}, {:raise, private}, {:throw, private}]
@@ -727,7 +742,7 @@ defmodule LovelaceWeb.ConnectionsLiveTest do
     assert FakeIO.calls() == []
 
     status(ctx.available, %{status: :disconnected})
-    view |> element("#show-connections") |> render_click()
+    open_gmail_connections(view)
 
     for params <- [
           %{"id" => Ash.UUID.generate()},
@@ -752,7 +767,7 @@ defmodule LovelaceWeb.ConnectionsLiveTest do
   test "one active check disables every account and fences mismatched requests and task errors",
        ctx do
     {:ok, view, _} = live(ctx.conn, ~p"/")
-    view |> element("#show-connections") |> render_click()
+    open_gmail_connections(view)
     FakeIO.block(:get)
     check_credentials(view, ctx.healthy)
     assert_receive {:fake_blocked, worker, {:get, id}}, 2_000
@@ -804,7 +819,7 @@ defmodule LovelaceWeb.ConnectionsLiveTest do
   test "leaving and reentering Connections rejects a pending completion even during a new check",
        ctx do
     {:ok, view, _} = live(ctx.conn, ~p"/")
-    view |> element("#show-connections") |> render_click()
+    open_gmail_connections(view)
     FakeIO.block(:get)
     check_credentials(view, ctx.healthy)
     assert_receive {:fake_blocked, worker, {:get, id}}, 2_000
@@ -816,7 +831,7 @@ defmodule LovelaceWeb.ConnectionsLiveTest do
     assert_receive {:DOWN, ^monitor, :process, ^worker, _}, 2_000
     assert_credential_completion_ignored(view, old_name)
 
-    view |> element("#show-connections") |> render_click()
+    open_gmail_connections(view)
     assert socket(view).assigns.mail.credential_checks == %{}
     assert socket(view).assigns.mail.credential_check == nil
     assert_credential_completion_ignored(view, old_name)
@@ -836,7 +851,7 @@ defmodule LovelaceWeb.ConnectionsLiveTest do
 
   test "reconnect during a pending check discards the old generation result", ctx do
     {:ok, view, _} = live(ctx.conn, ~p"/")
-    view |> element("#show-connections") |> render_click()
+    open_gmail_connections(view)
     FakeIO.block(:get)
     check_credentials(view, ctx.healthy)
     assert_receive {:fake_blocked, worker, {:get, id}}, 2_000
@@ -868,7 +883,7 @@ defmodule LovelaceWeb.ConnectionsLiveTest do
 
   test "metadata changes invalidate only the changed account's credential observation", ctx do
     {:ok, view, _} = live(ctx.conn, ~p"/")
-    view |> element("#show-connections") |> render_click()
+    open_gmail_connections(view)
     check_credentials(view, ctx.healthy)
     render_async(view)
     FakeIO.get_result(ctx.limited.id, {:error, :locked})
@@ -886,6 +901,11 @@ defmodule LovelaceWeb.ConnectionsLiveTest do
     refute has_element?(view, "#credential-check-#{ctx.limited.id}")
     assert socket(view).assigns.mail.credential_checks == %{}
     assert FakeIO.calls() == [{:get, ctx.healthy.id}, {:get, ctx.limited.id}]
+  end
+
+  defp open_gmail_connections(view) do
+    view |> element("#show-connections") |> render_click()
+    view |> element("#open-connection-gmail") |> render_click()
   end
 
   defp check_credentials(view, account) do

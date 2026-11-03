@@ -142,7 +142,7 @@ and bounded to 64 characters server-side. There are deliberately no delete/archi
 or projects. Account connection and read-only mail are implemented separately in `Lovelace.Mail`.
 
 `WorkspaceComponents.card/1` and `MailComponents` render directory and integration surfaces;
-`HomeLive`/`HomeMail` own in-page navigation and account-topic lifecycle. See
+`HomeLive`/`HomeNavigation` own URL-driven patch navigation; `HomeMail` owns account-topic lifecycle. See
 [UI_CONTRACT.md](UI_CONTRACT.md#home-workspace-and-integration-navigation) for control semantics,
 management context and navigation behavior.
 
@@ -167,7 +167,9 @@ covers those lifecycle contracts; LiveView tests cover server search/page/contex
 `DailyOrientation` and `ObservationTime` hooks own only their ignored readout subtrees and
 clean up timers/resume listeners. Default navigation is Home; the center navigation contains
 Home, Workspaces, Connections and Scenes. The corner monogram is decorative only, and Escape/idle
-preserve the current destination. Direct
+preserve the current destination. Browser history/reload/deep links restore meaningful views,
+including submitted mail searches/pages, Conversations and Connections providers. Only navigation
+URLs, not drafts/dialogs/scenery focus, enter history. Direct
 Home inbox reads use explicit owner-only account actions, not relaxed workspace membership
 checks.
 
@@ -274,7 +276,8 @@ static unlock with/without JavaScript; static/live image success/failure; native
 workspace/integration/Connections navigation; unsaved input, scroll and first-key/click wake;
 reduced-motion changes; forced colors; desktop/narrow layouts; dedicated reader body size,
 reading measure and long-token wrapping; native message/recipient disclosures and Refresh
-preservation; reader Escape/wake and async Back row-focus/scroll restoration; and page errors/off-origin
+preservation; reader Escape/wake and async browser-Back row-focus/scroll restoration;
+real URL Back/Forward, copied conversation/search/page links and workspace reload; and page errors/off-origin
 requests/CSP events across navigation. The real browser idle timer uses a shortened
 **disposable DOM setting**; native Node tests retain the actual three-minute deadline.
 Chrome is shut down and disposable data removed on completion. The runner has startup,

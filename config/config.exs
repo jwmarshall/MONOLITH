@@ -99,6 +99,8 @@ config :phoenix, :filter_parameters, [
   "state",
   "verifier",
   "query",
+  "q",
+  "page_token",
   "refresh_token",
   "access_token",
   "api_key"

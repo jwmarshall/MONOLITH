@@ -1,6 +1,7 @@
 defmodule LovelaceWeb.GeminiCredentialsTest do
   use LovelaceWeb.ConnCase, async: false
   import ExUnit.CaptureLog
+  import Phoenix.LiveViewTest
 
   alias Lovelace.TestSupport.GeminiVault
   alias LovelaceWeb.Plugs.GeminiCredentials
@@ -38,7 +39,7 @@ defmodule LovelaceWeb.GeminiCredentialsTest do
 
     assert capture_log(fn ->
              saved = submit(conn, %{"operation" => "save", "api_key" => @key})
-             assert redirected_to(saved, 303) == "/?connections=gemini&gemini=saved"
+             assert redirected_to(saved, 303) == "/connections/gemini?gemini=saved"
              assert saved.params == %{}
              assert saved.body_params == %{}
              assert get_resp_header(saved, "cache-control") == ["no-store"]
@@ -46,7 +47,7 @@ defmodule LovelaceWeb.GeminiCredentialsTest do
              assert {:ok, @key} = GeminiVault.get("unused")
 
              removed = submit(recycle(saved), %{"operation" => "remove"})
-             assert redirected_to(removed, 303) == "/?connections=gemini&gemini=removed"
+             assert redirected_to(removed, 303) == "/connections/gemini?gemini=removed"
              assert {:error, :not_found} = GeminiVault.get("unused")
            end) == ""
 
@@ -81,7 +82,7 @@ defmodule LovelaceWeb.GeminiCredentialsTest do
       |> put_private(:plug_skip_csrf_protection, false)
       |> submit(%{"operation" => "save", "api_key" => @key, "_csrf_token" => csrf})
 
-    assert redirected_to(saved, 303) =~ "gemini=saved"
+    assert redirected_to(saved, 303) == "/connections/gemini?gemini=saved"
 
     Lovelace.Owner.logout(get_session(saved, :owner_session_token))
     refused = saved |> recycle() |> submit(%{"operation" => "remove"})
@@ -92,13 +93,50 @@ defmodule LovelaceWeb.GeminiCredentialsTest do
   test "invalid keys and vault failures return only safe failure", %{conn: conn} do
     for key <- ["", "bad\nkey", String.duplicate("x", 4097)] do
       response = submit(conn, %{"operation" => "save", "api_key" => key})
-      assert redirected_to(response, 303) =~ "gemini=failed"
+      assert redirected_to(response, 303) == "/connections/gemini?gemini=failed"
       refute response.resp_body =~ "bad"
     end
 
     GeminiVault.fail(:locked)
     response = submit(conn, %{"operation" => "save", "api_key" => @key})
-    assert redirected_to(response, 303) =~ "gemini=failed"
+    assert redirected_to(response, 303) == "/connections/gemini?gemini=failed"
+  end
+
+  test "GET and HEAD pass the early boundary unchanged" do
+    for method <- [:get, :head] do
+      conn = Plug.Test.conn(method, "/connections/gemini?gemini=saved")
+      assert GeminiCredentials.call(conn, []) == conn
+      refute conn.halted
+    end
+  end
+
+  test "direct GET and HEAD require an active owner session", %{conn: conn} do
+    for response <- [
+          get(build_conn(:get, "http://localhost/"), "/connections/gemini"),
+          head(build_conn(:get, "http://localhost/"), "/connections/gemini")
+        ] do
+      assert redirected_to(response) == "/unlock"
+      assert get_resp_header(response, "cache-control") == ["no-store"]
+    end
+
+    authorized_get = get(conn, "/connections/gemini")
+    assert html_response(authorized_get, 200) =~ "data-phx-main"
+    assert get_resp_header(authorized_get, "cache-control") == ["no-store"]
+    {:ok, view, _} = live(authorized_get)
+    assert has_element?(view, "#gemini-connection")
+    assert has_element?(view, "#connections-gemini[aria-current=page]")
+    authorized_head = head(conn, "/connections/gemini")
+    assert response(authorized_head, 200) == ""
+    assert get_resp_header(authorized_head, "cache-control") == ["no-store"]
+
+    Lovelace.Owner.logout(get_session(conn, :owner_session_token))
+
+    for response <- [get(conn, "/connections/gemini"), head(conn, "/connections/gemini")] do
+      assert redirected_to(response) == "/unlock"
+      assert get_resp_header(response, "cache-control") == ["no-store"]
+    end
+
+    assert {:error, :not_found} = GeminiVault.get("unused")
   end
 
   test "early boundary consumes aliases and rejects query credentials, methods, oversized and malformed input" do
@@ -116,7 +154,8 @@ defmodule LovelaceWeb.GeminiCredentialsTest do
     end
 
     for {method, path, body, expected} <- [
-          {:get, "/connections/gemini", "", 400},
+          {:put, "/connections/gemini", "", 400},
+          {:delete, "/connections/gemini", "", 400},
           {:post, "/connections/gemini?api_key=synthetic", "", 400},
           {:post, "/connections/gemini", String.duplicate("x", 17_000), 400},
           {:post, "/connections/gemini", "api_key[x]=invalid", 303}

@@ -134,7 +134,9 @@ or requests consent automatically.
    a dedicated plain-text reader: earlier messages collapse, the latest opens, and full
    sender/recipient/date details are expandable. Refresh preserves disclosure choices.
    **Back to results** restores the current search/page and opened row's scroll/focus within
-   this live view; it does not add URL/history or reload persistence. Parseable dates display
+   this live view. Account/thread paths and submitted search/page queries support browser
+   Back/Forward, reload and copied links; queries consequently appear in browser history and
+   copied URLs, but are filtered from Phoenix parameter logs. Parseable dates display
    in browser-local time; original headers remain in message details. Compact fetch freshness
    ages locally, with an expandable exact observation timestamp and explicit stale/error states.
 5. In another workspace, use **Add integration → Add to workspace** to reuse the connection
@@ -147,7 +149,9 @@ page count). Unknown remains unavailable, not zero. The count has its own observ
 and failure state; stale counts remain visible and labeled. Unrelated page reads cannot
 make an old count appear fresh. Rows open that account directly, even if unattached to a
 workspace, without adding membership. Home never merges inboxes or shows message previews.
-Global **Connections** lists reusable accounts in compact rows with last known health,
+Global **Connections** (`/connections`) is a provider overview, with no workspace query or
+workspace-return control. **Connections → Gmail** (`/connections/gmail`) lists reusable
+accounts in compact rows with last known health,
 reconnect and confirmed disconnect-everywhere controls. New Gmail connections start from
 an **Add Gmail account** button/modal rather than a permanently expanded form. Reconnecting globally explicitly selects a
 workspace and also adds the account there; workspace-local reconnect retains its workspace.
@@ -156,6 +160,10 @@ Authorization uses system-browser code flow, S256 PKCE, offline access, single-u
 10-minute state bound to the unlocked owner session, and a fresh identity lookup.
 Restarting during consent cancels the in-memory attempt safely; start again.
 A denied or expired grant produces a reconnect state, not endless credential retries.
+Successful Gmail consent returns directly to `/workspaces/:id` for the explicitly selected
+receiving workspace; safe failure categories return to `/connections/gmail`. These are real
+paths, not root-query navigation. Receiving-workspace fields in OAuth forms/state remain
+membership intent, separate from global Connections navigation.
 
 ## Connection troubleshooting
 

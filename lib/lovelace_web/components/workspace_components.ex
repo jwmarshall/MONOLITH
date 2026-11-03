@@ -9,12 +9,10 @@ defmodule LovelaceWeb.WorkspaceComponents do
   def card(assigns) do
     ~H"""
     <article id={@id} class="workspace-card">
-      <button
+      <.link
         id={"open-#{@workspace.id}"}
-        type="button"
+        patch={LovelaceWeb.HomeNavigation.workspace_path(@workspace.id)}
         class="workspace-card-open"
-        phx-click="open_workspace"
-        phx-value-id={@workspace.id}
         aria-label={"Open #{@workspace.name}"}
         aria-describedby={"workspace-health-#{@workspace.id}"}
       >
@@ -36,7 +34,7 @@ defmodule LovelaceWeb.WorkspaceComponents do
           <% end %>
         </span>
         <.icon name="hero-arrow-up-right" class="workspace-card-arrow size-5" />
-      </button>
+      </.link>
       <.workspace_menu workspace={@workspace} />
     </article>
     """

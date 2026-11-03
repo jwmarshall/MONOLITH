@@ -3,6 +3,7 @@ defmodule LovelaceWeb.MailComponents do
   use LovelaceWeb, :html
 
   alias Lovelace.Mail.ViewData
+  alias LovelaceWeb.HomeNavigation
 
   attr :mail, :map, required: true
   attr :workspace, :map, default: nil
@@ -55,16 +56,14 @@ defmodule LovelaceWeb.MailComponents do
           />
           <button type="submit" class="workspace-action" disabled={!!@mail.command}>Search</button>
         </.form>
-        <button
+        <.link
           :if={!@account && !@mail.adding && @mail.scope != :home}
           id="add-integration"
-          type="button"
+          patch={HomeNavigation.workspace_path(@mail.workspace_id) <> "/integrations"}
           class="workspace-action workspace-action-primary"
-          phx-click="mail:add"
-          disabled={!!@mail.command || @mail.directory_error}
         >
           <.icon name="hero-plus" class="size-4" /> Add integration
-        </button>
+        </.link>
       </div>
 
       <p :if={@mail.notice} id="mail-notice" class="mail-notice" role="status">{@mail.notice}</p>
@@ -99,33 +98,30 @@ defmodule LovelaceWeb.MailComponents do
           workspace={@workspace}
           account={@account}
         />
-        <button
+        <.link
           :if={!@workspace && (@account.status == :reconnect || @mail.error == :reconnect)}
-          type="button"
+          patch="/connections/gmail"
           class="workspace-action"
-          phx-click="show_connections"
-        >Reconnect in Connections</button>
+        >Reconnect in Connections</.link>
         <div class="mail-toolbar">
           <div class="mail-actions">
-            <button
+            <.link
               :if={@mail.scope != :home}
-              type="button"
+              patch={HomeNavigation.workspace_path(@mail.workspace_id)}
+              phx-click={JS.focus(to: "#mail-heading")}
               class="workspace-action"
-              phx-click={JS.push("mail:accounts") |> JS.focus(to: "#mail-heading")}
-            >All accounts</button>
-            <button
+            >All accounts</.link>
+            <.link
               :if={@mail.thread_id}
               id="mail-back"
-              type="button"
+              patch={HomeNavigation.mail_path(@mail, %{thread_id: nil})}
               class="workspace-action"
-              phx-click="mail:back"
-            >← Back to results</button>
-            <button
+            >← Back to results</.link>
+            <.link
               :if={!@mail.thread_id && (@mail.query || @mail.page_token)}
-              type="button"
+              patch={HomeNavigation.mail_path(@mail, %{page_token: nil})}
               class="workspace-action"
-              phx-click="mail:first"
-            >First page</button>
+            >First page</.link>
             <span :if={!@mail.thread_id} class="mail-muted">{if @mail.query,
               do: "Search results",
               else: "Inbox"}</span>
@@ -181,13 +177,11 @@ defmodule LovelaceWeb.MailComponents do
           <p :if={@mail.data_loaded && !@payload_expired && @threads == []} class="mail-empty">
             {if @mail.query, do: "No conversations match this search.", else: "Your inbox is empty."}
           </p>
-          <button
+          <.link
             :for={thread <- @threads}
             id={"mail-thread-#{thread["id"]}"}
-            type="button"
+            patch={HomeNavigation.mail_path(@mail, %{thread_id: thread["id"]})}
             class={["mail-thread", thread["unread"] == true && "mail-thread-unread"]}
-            phx-click="mail:thread"
-            phx-value-id={thread["id"]}
             data-mail-open-thread
           >
             <span class="mail-thread-marker" aria-hidden="true"></span>
@@ -200,7 +194,7 @@ defmodule LovelaceWeb.MailComponents do
               <span class="mail-thread-snippet">{thread["snippet"]}</span>
             </span>
             <span :if={thread["unread"] == true} class="sr-only">Unread in Gmail</span>
-          </button>
+          </.link>
         </div>
 
         <section
@@ -262,12 +256,10 @@ defmodule LovelaceWeb.MailComponents do
         </section>
 
         <div :if={!@mail.thread_id && @mail.next_page_token} class="mail-pagination">
-          <button
-            type="button"
+          <.link
+            patch={HomeNavigation.mail_path(@mail, %{page_token: @mail.next_page_token})}
             class="workspace-action"
-            phx-click="mail:next"
-            disabled={@mail.loading}
-          >Next page →</button>
+          >Next page →</.link>
         </div>
       </div>
     </section>
@@ -281,12 +273,10 @@ defmodule LovelaceWeb.MailComponents do
   defp integration_tile(assigns) do
     ~H"""
     <article id={"mail-account-#{@account.id}"} class="integration-tile">
-      <button
-        type="button"
+      <.link
+        patch={HomeNavigation.workspace_path(@workspace.id) <> "/accounts/" <> @account.id <> "/mail"}
         class="mail-account-open integration-tile-open"
-        phx-click={JS.push("mail:select") |> JS.focus(to: "#mail-heading")}
-        phx-value-id={@account.id}
-        disabled={@busy}
+        phx-click={JS.focus(to: "#mail-heading")}
         aria-label={"Open inbox for #{@account.email}"}
         aria-describedby={"integration-status-#{@account.id}"}
       >
@@ -300,7 +290,7 @@ defmodule LovelaceWeb.MailComponents do
           {account_status(@account)}
         </span>
         <.icon name="hero-arrow-up-right" class="workspace-card-arrow size-5" />
-      </button>
+      </.link>
       <details id={"integration-menu-#{@account.id}"} class="workspace-menu">
         <summary aria-label={"Manage #{@account.email}"} title={"Manage #{@account.email}"}>
           <.icon name="hero-ellipsis-horizontal" class="size-5" />
@@ -344,14 +334,14 @@ defmodule LovelaceWeb.MailComponents do
             Reuse a connection or connect another Google account for read-only Gmail. Manage app-wide Gemini scenery in Connections.
           </p>
         </div>
-        <button
+        <.link
           id="close-add-integration"
-          type="button"
+          patch={HomeNavigation.workspace_path(@workspace.id)}
+          phx-click={JS.focus(to: "#mail-heading")}
           class="workspace-action"
-          phx-click={JS.push("mail:close_add") |> JS.focus(to: "#mail-heading")}
         >
           Done
-        </button>
+        </.link>
       </div>
       <h5 class="mail-section-title">Available connections</h5>
       <p :if={!Enum.any?(@mail.accounts, &(&1.id not in @mail.memberships))} class="mail-muted">

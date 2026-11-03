@@ -331,7 +331,9 @@ defmodule LovelaceWeb.MailLiveTest do
     assert LazyHTML.query(document, "#mail-message-m3 .mail-message-text") |> LazyHTML.text() =~
              "> Quoted history\nSignature <img"
 
-    assert LazyHTML.query(document, "#mail-threads, img, script, a") |> LazyHTML.to_tree() == []
+    assert LazyHTML.query(document, "#mail-threads, img, script, .mail-message-text a")
+           |> LazyHTML.to_tree() == []
+
     refute inspect(socket.assigns) =~ "Quoted history"
     assert html =~ "ignore_attrs"
   end
@@ -445,7 +447,12 @@ defmodule LovelaceWeb.MailLiveTest do
     {:ok, view, _} =
       live_isolated(context.conn, Harness, session: %{"workspace_id" => context.workspace.id})
 
-    view |> element("#mail-account-#{context.first.id} .mail-account-open") |> render_click()
+    assert has_element?(
+             view,
+             "#mail-account-#{context.first.id} a.mail-account-open[href='/workspaces/#{context.workspace.id}/accounts/#{context.first.id}/mail'][data-phx-link=patch]"
+           )
+
+    render_click(view, "mail:select", %{"id" => context.first.id})
     assert render_async(view) =~ "Private inbox subject"
 
     assert has_element?(
@@ -454,15 +461,34 @@ defmodule LovelaceWeb.MailLiveTest do
            )
 
     assert has_element?(view, "#mail-search button[type=submit]", "Search")
-    assert has_element?(view, ".mail-toolbar button", "All accounts")
+
+    assert has_element?(
+             view,
+             ".mail-toolbar a[href='/workspaces/#{context.workspace.id}'][data-phx-link=patch]",
+             "All accounts"
+           )
+
     refute has_element?(view, "#mail-panel button", "Home")
     refute render(view) =~ "Search this entire Gmail account"
     refute inspect(:sys.get_state(view.pid).socket.assigns) =~ "Private inbox subject"
-    view |> element("button", "Next page") |> render_click()
+
+    assert has_element?(
+             view,
+             ".mail-pagination a[href='/workspaces/#{context.workspace.id}/accounts/#{context.first.id}/mail?page_token=next'][data-phx-link=patch]",
+             "Next page"
+           )
+
+    render_click(view, "mail:next", %{})
     assert render_async(view) =~ "Next page"
     view |> form("#mail-search", mail_search: %{query: "everywhere"}) |> render_submit()
     assert render_async(view) =~ "Account-wide match"
-    view |> element("#mail-thread-t1") |> render_click()
+
+    assert has_element?(
+             view,
+             "a#mail-thread-t1[href='/workspaces/#{context.workspace.id}/accounts/#{context.first.id}/mail/threads/t1?q=everywhere'][data-phx-link=patch]"
+           )
+
+    render_click(view, "mail:thread", %{"id" => "t1"})
     html = render_async(view)
     assert html =~ "Private body &lt;img"
     assigns = :sys.get_state(view.pid).socket.assigns
@@ -472,7 +498,13 @@ defmodule LovelaceWeb.MailLiveTest do
     assert assigns.mail.thread_id == "t1"
     assert has_element?(view, "#mail-message-m1[open]")
     refute has_element?(view, "#mail-threads")
-    view |> element("#mail-back") |> render_click()
+
+    assert has_element?(
+             view,
+             "a#mail-back[href='/workspaces/#{context.workspace.id}/accounts/#{context.first.id}/mail?q=everywhere'][data-phx-link=patch]"
+           )
+
+    render_click(view, "mail:back", %{})
     assert render_async(view) =~ "Account-wide match"
     assert :sys.get_state(view.pid).socket.assigns.mail.query == "everywhere"
     assert has_element?(view, "#mail-thread-t1[data-mail-open-thread]")
@@ -484,7 +516,7 @@ defmodule LovelaceWeb.MailLiveTest do
     )
 
     assert :sys.get_state(view.pid).socket.assigns.mail.account_id == context.first.id
-    view |> element("button", "All accounts") |> render_click()
+    render_click(view, "mail:accounts", %{})
     assert ViewData.get(assigns.mail.data_ref) == nil
     rendered_sockets = drain_render_sockets([])
     assert rendered_sockets != []
@@ -510,7 +542,7 @@ defmodule LovelaceWeb.MailLiveTest do
     {:ok, view, _} =
       live_isolated(context.conn, Harness, session: %{"workspace_id" => context.workspace.id})
 
-    view |> element("#mail-account-#{context.first.id} .mail-account-open") |> render_click()
+    render_click(view, "mail:select", %{"id" => context.first.id})
     assert render_async(view) =~ "synthetic-ui-cooldown"
 
     entry =

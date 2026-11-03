@@ -17,8 +17,17 @@ defmodule Lovelace.Mail.ConnectionDiagnosticsTest do
     assert log =~ "token_exchange: unavailable"
     refute log =~ sentinel
 
-    assert ConnectionDiagnostics.failure_path({:token_exchange, :invalid_response}) =~
-             "stage=token_exchange"
+    uri = URI.parse(ConnectionDiagnostics.failure_path({:token_exchange, :invalid_response}))
+    assert uri.path == "/connections/gmail"
+
+    assert URI.decode_query(uri.query) == %{
+             "gmail" => "failed",
+             "stage" => "token_exchange",
+             "reason" => "invalid_response"
+           }
+
+    assert ConnectionDiagnostics.failure_path({:token_exchange, sentinel}) ==
+             "/connections/gmail?gmail=failed"
 
     refute ConnectionDiagnostics.failure_path({:token_exchange, sentinel}) =~ sentinel
     refute ConnectionDiagnostics.message(sentinel, sentinel) =~ sentinel

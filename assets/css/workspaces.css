@@ -64,6 +64,13 @@
 .connection-identity { display: flex; align-items: flex-start; gap: 16px; margin-bottom: 20px; }
 .connection-identity h3 { font-size: 18px; overflow-wrap: anywhere; }
 .connections-subnav { display: flex; align-items: center; gap: 24px; flex-shrink: 0; }
+.connections-overview { display: grid; border-top: 1px solid var(--color-base-300); }
+.connection-provider { display: flex; align-items: center; gap: 20px; min-height: 108px; padding: 24px 0; border-bottom: 1px solid var(--color-base-300); }
+.connection-provider > :first-child, .connection-provider > :last-child { flex-shrink: 0; color: var(--color-primary); }
+.connection-provider-copy { display: flex; flex: 1; min-width: 0; flex-direction: column; gap: 6px; overflow-wrap: anywhere; }
+.connection-provider-name { font-size: 20px; }
+.connection-provider .mail-muted { font-size: 14px; }
+.connection-provider:hover .connection-provider-name { color: var(--color-primary); }
 .connections-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
 .connections-heading .mail-section-title { margin: 0; }
 .gmail-connection-list { display: grid; gap: 8px; }
@@ -111,6 +118,8 @@
   .workspace-card-open, .integration-tile-open, .workspace-action { transition: none; }
 }
 @media (forced-colors: active) {
+  .connections-overview, .connection-provider { border-color: CanvasText; }
+  .connection-provider * { color: CanvasText; text-shadow: none; }
   .workspace-card, .integration-tile, .connection-card, .integration-add-panel,
   .workspace-menu-actions, .workspace-menu summary, .connection-workspace-select { border-color: CanvasText; background: Canvas; box-shadow: none; }
   .workspace-card *, .integration-tile *, .connections-panel *, .integration-add-panel *, .gemini-connection *,

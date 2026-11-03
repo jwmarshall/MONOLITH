@@ -128,7 +128,7 @@ defmodule LovelaceWeb.CalendarLiveTest do
     render_hook(view, "calendar:day", ctx.window)
     poll(ctx.a, ctx.window)
     view |> element("#show-connections") |> render_click()
-    view |> element("#connections-calendar") |> render_click()
+    view |> element("#open-connection-calendar") |> render_click()
     assert has_element?(view, "#calendar-connections")
     refute has_element?(view, "#connections-panel, #gemini-connection")
 
@@ -151,7 +151,13 @@ defmodule LovelaceWeb.CalendarLiveTest do
 
     assert snapshot.explicit_selection
     assert snapshot.selected_ids == []
-    view |> element("#calendar-connections-disconnect-help button") |> render_click()
+
+    view
+    |> element(
+      "#calendar-connections-disconnect-help a[href='/connections/gmail'][data-phx-link=patch]"
+    )
+    |> render_click()
+
     assert has_element?(view, "#connections-panel")
     refute has_element?(view, "#calendar-connections")
   end

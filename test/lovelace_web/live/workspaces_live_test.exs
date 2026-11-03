@@ -118,6 +118,7 @@ defmodule LovelaceWeb.WorkspacesLiveTest do
          conn: conn
        } do
     {:ok, view, _html} = live(conn, ~p"/")
+    assert_push_event(view, "workspace:focus-heading", %{})
     view |> element("#show-workspaces") |> render_click()
     assert_push_event(view, "workspace:focus-heading", %{})
     view |> element("#open-#{@personal_id}") |> render_click()
@@ -125,7 +126,7 @@ defmodule LovelaceWeb.WorkspacesLiveTest do
 
     view |> element("#show-connections") |> render_click()
     assert_push_event(view, "workspace:focus-heading", %{})
-    view |> element("#back-from-connections") |> render_click()
+    render_patch(view, "/workspaces/#{@personal_id}")
     assert_push_event(view, "workspace:focus-heading", %{})
 
     view |> element("#rename-current-workspace") |> render_click()
@@ -171,6 +172,7 @@ defmodule LovelaceWeb.WorkspacesLiveTest do
 
   test "unrelated directory updates preserve modal drafts and validation errors", %{conn: conn} do
     {:ok, view, _html} = live(conn, ~p"/")
+    assert_push_event(view, "workspace:focus-heading", %{})
     view |> element("#show-workspaces") |> render_click()
     assert_push_event(view, "workspace:focus-heading", %{})
     view |> element("#new-workspace") |> render_click()

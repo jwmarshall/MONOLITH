@@ -14,6 +14,7 @@ defmodule LovelaceWeb.HomeLive do
     HomeComponents,
     HomeGemini,
     HomeMail,
+    HomeNavigation,
     HomeScenes,
     MailComponents,
     SceneComponents,
@@ -38,12 +39,14 @@ defmodule LovelaceWeb.HomeLive do
       |> assign(
         page_title: "Home",
         home: true,
+        navigation_ready: false,
+        navigation_path: nil,
         home_accounts: [],
         home_error: false,
         background: background,
         selected: nil,
         connections: false,
-        connection_view: :gmail,
+        connection_view: :index,
         workspace_options: [],
         workspace_health: %{},
         directory_subscriptions: [],
@@ -77,7 +80,7 @@ defmodule LovelaceWeb.HomeLive do
     if id in socket.assigns.directory_subscriptions do
       {:noreply, load_workspaces(socket)}
     else
-      HomeMail.handle_info(message, socket)
+      reconcile_mail_navigation(socket, HomeMail.handle_info(message, socket))
     end
   end
 
@@ -96,24 +99,34 @@ defmodule LovelaceWeb.HomeLive do
     do: HomeScenes.handle_async(name, result, socket)
 
   def handle_async(:gemini_status, result, socket), do: HomeGemini.handle_async(result, socket)
-  def handle_async(name, result, socket), do: HomeMail.handle_async(name, result, socket)
+
+  def handle_async(name, result, socket),
+    do: reconcile_mail_navigation(socket, HomeMail.handle_async(name, result, socket))
 
   @impl true
-  def handle_event("calendar:" <> _ = event, params, socket),
+  def handle_event(name, params, socket) do
+    {:noreply, socket} = event(name, params, socket)
+    path = HomeNavigation.current(socket)
+
+    {:noreply,
+     if(path == socket.assigns.navigation_path, do: socket, else: push_patch(socket, to: path))}
+  end
+
+  defp event("calendar:" <> _ = event, params, socket),
     do: HomeCalendar.handle_event(event, params, socket)
 
-  def handle_event("mail:accounts", _params, %{assigns: %{mail: %{scope: :home}}} = socket),
-    do: handle_event("show_home", %{}, socket)
+  defp event("mail:accounts", _params, %{assigns: %{mail: %{scope: :home}}} = socket),
+    do: event("show_home", %{}, socket)
 
-  def handle_event("mail:" <> _ = event, params, socket),
+  defp event("mail:" <> _ = event, params, socket),
     do: HomeMail.handle_event(event, params, socket)
 
-  def handle_event("scenes:" <> _ = event, params, %{assigns: %{scenes: true}} = socket),
+  defp event("scenes:" <> _ = event, params, %{assigns: %{scenes: true}} = socket),
     do: HomeScenes.handle_event(event, params, socket)
 
-  def handle_event("scenes:" <> _, _params, socket), do: {:noreply, socket}
+  defp event("scenes:" <> _, _params, socket), do: {:noreply, socket}
 
-  def handle_event("show_scenes", _params, socket) do
+  defp event("show_scenes", _params, socket) do
     {:noreply,
      socket
      |> HomeMail.leave_workspace()
@@ -130,7 +143,7 @@ defmodule LovelaceWeb.HomeLive do
      |> focus_heading()}
   end
 
-  def handle_event("show_home", _params, socket) do
+  defp event("show_home", _params, socket) do
     {:noreply,
      socket
      |> HomeScenes.leave()
@@ -149,7 +162,7 @@ defmodule LovelaceWeb.HomeLive do
      |> focus_heading()}
   end
 
-  def handle_event("open_home_account", %{"id" => id}, socket) do
+  defp event("open_home_account", %{"id" => id}, socket) do
     socket = load_workspaces(socket)
 
     if Enum.any?(socket.assigns.home_accounts, &(&1.id == id)) do
@@ -174,38 +187,45 @@ defmodule LovelaceWeb.HomeLive do
     end
   end
 
-  def handle_event(
-        "gemini:check",
-        _params,
-        %{assigns: %{connections: true, connection_view: :gemini}} = socket
-      ),
-      do: {:noreply, HomeGemini.open(socket)}
+  defp event(
+         "gemini:check",
+         _params,
+         %{assigns: %{connections: true, connection_view: :gemini}} = socket
+       ),
+       do: {:noreply, HomeGemini.open(socket)}
 
-  def handle_event("gemini:check", _params, socket), do: {:noreply, socket}
+  defp event("gemini:check", _params, socket), do: {:noreply, socket}
 
-  def handle_event(
-        "select_connection",
-        %{"provider" => provider},
-        %{assigns: %{connections: true}} = socket
-      )
-      when provider in ["gemini", "gmail", "calendar"] do
+  defp event(
+         "select_connection",
+         %{"provider" => provider},
+         %{assigns: %{connections: true}} = socket
+       )
+       when provider in ["gemini", "gmail", "calendar"] do
     view =
       Map.fetch!(%{"gemini" => :gemini, "gmail" => :gmail, "calendar" => :calendar}, provider)
 
     if view == socket.assigns.connection_view do
       {:noreply, socket}
     else
+      socket =
+        if socket.assigns.connection_view == :index, do: focus_heading(socket), else: socket
+
       socket = socket |> HomeMail.close_connection() |> assign(:connection_view, view)
       {:noreply, if(view == :gemini, do: HomeGemini.open(socket), else: socket)}
     end
   end
 
-  def handle_event("select_connection", _params, socket), do: {:noreply, socket}
+  defp event("select_connection", _params, socket), do: {:noreply, socket}
 
-  def handle_event("show_connections", _params, %{assigns: %{connections: true}} = socket),
-    do: {:noreply, socket}
+  defp event(
+         "show_connections",
+         _params,
+         %{assigns: %{connections: true, connection_view: :index}} = socket
+       ),
+       do: {:noreply, socket}
 
-  def handle_event("show_connections", _params, socket) do
+  defp event("show_connections", _params, socket) do
     {:noreply,
      socket
      |> HomeScenes.leave()
@@ -213,9 +233,10 @@ defmodule LovelaceWeb.HomeLive do
      |> assign(
        home: false,
        connections: true,
+       selected: nil,
        scenes: false,
        scene_confirmation: false,
-       connection_view: :gmail,
+       connection_view: :index,
        editor: nil,
        form: nil,
        page_title: "Connections"
@@ -224,25 +245,11 @@ defmodule LovelaceWeb.HomeLive do
      |> focus_heading()}
   end
 
-  def handle_event("close_connections", _params, socket) do
-    if socket.assigns.selected do
-      workspace = socket.assigns.selected
-
-      {:noreply,
-       socket
-       |> assign(connections: false, page_title: workspace.name)
-       |> HomeMail.open_workspace(workspace)
-       |> focus_heading()}
-    else
-      handle_event("show_home", %{}, socket)
-    end
-  end
-
-  def handle_event("retry_workspaces", _params, socket) do
+  defp event("retry_workspaces", _params, socket) do
     {:noreply, load_workspaces(socket)}
   end
 
-  def handle_event("new_workspace", _params, socket) do
+  defp event("new_workspace", _params, socket) do
     form =
       Workspace
       |> AshPhoenix.Form.for_create(:create, as: "workspace", actor: @owner)
@@ -251,7 +258,7 @@ defmodule LovelaceWeb.HomeLive do
     {:noreply, assign(socket, editor: :new, form: form, form_failed: false, save_status: "")}
   end
 
-  def handle_event("rename_workspace", %{"id" => id}, socket) do
+  defp event("rename_workspace", %{"id" => id}, socket) do
     case Workspaces.get_workspace(id, actor: @owner) do
       {:ok, %Workspace{} = workspace} ->
         form =
@@ -267,11 +274,11 @@ defmodule LovelaceWeb.HomeLive do
     end
   end
 
-  def handle_event("cancel_workspace", _params, socket) do
+  defp event("cancel_workspace", _params, socket) do
     {:noreply, assign(socket, editor: nil, form: nil)}
   end
 
-  def handle_event("validate_workspace", %{"workspace" => params}, socket) do
+  defp event("validate_workspace", %{"workspace" => params}, socket) do
     if socket.assigns.form do
       form = AshPhoenix.Form.validate(socket.assigns.form, params)
       {:noreply, assign(socket, form: to_form(form), form_failed: false)}
@@ -280,7 +287,7 @@ defmodule LovelaceWeb.HomeLive do
     end
   end
 
-  def handle_event("save_workspace", %{"workspace" => params}, socket) do
+  defp event("save_workspace", %{"workspace" => params}, socket) do
     if socket.assigns.form do
       save_workspace(socket, params)
     else
@@ -288,7 +295,7 @@ defmodule LovelaceWeb.HomeLive do
     end
   end
 
-  def handle_event("open_workspace", %{"id" => id}, socket) do
+  defp event("open_workspace", %{"id" => id}, socket) do
     case Workspaces.get_workspace(id, actor: @owner) do
       {:ok, %Workspace{} = workspace} ->
         {:noreply,
@@ -313,7 +320,7 @@ defmodule LovelaceWeb.HomeLive do
     end
   end
 
-  def handle_event("show_workspaces", _params, socket) do
+  defp event("show_workspaces", _params, socket) do
     {:noreply,
      socket
      |> HomeScenes.leave()
@@ -330,6 +337,148 @@ defmodule LovelaceWeb.HomeLive do
      )
      |> load_workspaces()
      |> focus_heading()}
+  end
+
+  @impl true
+  def handle_params(params, uri, socket) do
+    {:noreply, if(connected?(socket), do: navigate_params(socket, params, uri), else: socket)}
+  end
+
+  defp navigate_params(socket, params, uri) do
+    %{path: path, query: query} = URI.parse(uri)
+    path = if query, do: path <> "?" <> query, else: path
+
+    socket =
+      if socket.assigns.navigation_ready && HomeNavigation.current(socket) == path,
+        do: socket,
+        else: visit(socket, params)
+
+    canonical = HomeNavigation.current(socket)
+    socket = assign(socket, navigation_ready: true, navigation_path: canonical)
+    if path == canonical, do: socket, else: push_patch(socket, to: canonical, replace: true)
+  end
+
+  # Account removal can arrive through PubSub or a delayed completion. Leave the
+  # invalid route completely, rather than keeping an account-shaped empty shell.
+  defp reconcile_mail_navigation(previous, {:noreply, socket}) do
+    if previous.assigns.mail.account_id && is_nil(socket.assigns.mail.account_id) do
+      socket =
+        unavailable_destination(
+          socket,
+          "This account is no longer available in this view. Check Connections."
+        )
+
+      {:noreply, push_patch(socket, to: HomeNavigation.current(socket), replace: true)}
+    else
+      {:noreply, socket}
+    end
+  end
+
+  defp visit(socket, params) do
+    case HomeNavigation.destination(socket.assigns.live_action, params) do
+      {:ok, destination} -> visit_destination(socket, destination)
+      _ -> unavailable_destination(socket, "This link is invalid. Choose a view from navigation.")
+    end
+  end
+
+  defp visit_destination(socket, %{action: :index}), do: transition(socket, "show_home")
+
+  defp visit_destination(socket, %{action: :workspaces}),
+    do: transition(socket, "show_workspaces")
+
+  defp visit_destination(socket, %{action: :connections}),
+    do: transition(socket, "show_connections")
+
+  defp visit_destination(socket, %{action: :connection, provider: provider}) do
+    socket =
+      if socket.assigns.connections, do: socket, else: transition(socket, "show_connections")
+
+    transition(socket, "select_connection", %{"provider" => to_string(provider)})
+  end
+
+  defp visit_destination(socket, %{action: :scenes, page: page}) do
+    socket = if socket.assigns.scenes, do: socket, else: transition(socket, "show_scenes")
+
+    if socket.assigns.scene_page == page,
+      do: socket,
+      else: socket |> assign(:scene_page, page) |> HomeScenes.refresh()
+  end
+
+  defp visit_destination(socket, %{action: action} = destination)
+       when action in [:workspace, :integration_add, :workspace_inbox, :workspace_thread] do
+    socket = select_workspace(socket, destination.workspace_id)
+
+    if socket.assigns.selected && socket.assigns.selected.id == destination.workspace_id do
+      visit_workspace(socket, destination)
+    else
+      unavailable_destination(socket, "This workspace is unavailable. Choose another workspace.")
+    end
+  end
+
+  defp visit_destination(socket, %{action: action} = destination)
+       when action in [:inbox, :thread] do
+    socket =
+      if socket.assigns.mail.scope == :home do
+        socket
+      else
+        socket
+        |> HomeScenes.leave()
+        |> directory_subscriptions([])
+        |> assign(
+          home: false,
+          selected: nil,
+          connections: false,
+          editor: nil,
+          form: nil,
+          page_title: "Inbox"
+        )
+        |> HomeMail.open_home()
+        |> focus_heading()
+      end
+
+    visit_mail(socket, destination)
+  end
+
+  defp visit_workspace(socket, destination) do
+    socket =
+      if socket.assigns.connections ||
+           (socket.assigns.mail.account_id && is_nil(destination.account_id)),
+         do: transition(socket, "open_workspace", %{"id" => destination.workspace_id}),
+         else: socket
+
+    cond do
+      destination.account_id -> visit_mail(socket, destination)
+      destination.action == :integration_add -> transition(socket, "mail:add")
+      socket.assigns.mail.adding -> transition(socket, "mail:close_add")
+      true -> socket
+    end
+  end
+
+  defp visit_mail(socket, destination) do
+    socket = HomeMail.navigate(socket, destination)
+
+    if socket.assigns.mail.account_id == destination.account_id,
+      do: socket,
+      else:
+        unavailable_destination(
+          socket,
+          "This account is unavailable in this view. Check Connections."
+        )
+  end
+
+  defp select_workspace(socket, id) do
+    if socket.assigns.selected && socket.assigns.selected.id == id,
+      do: socket,
+      else: transition(socket, "open_workspace", %{"id" => id})
+  end
+
+  defp unavailable_destination(socket, message) do
+    socket |> transition("show_workspaces") |> put_flash(:error, message)
+  end
+
+  defp transition(socket, name, params \\ %{}) do
+    {:noreply, socket} = event(name, params, socket)
+    socket
   end
 
   defp save_workspace(socket, params) do
@@ -468,7 +617,6 @@ defmodule LovelaceWeb.HomeLive do
       end
 
     socket
-    |> resume_workspace(params)
     |> resume_calendar(params)
     |> resume_gemini(params)
   end
@@ -482,7 +630,7 @@ defmodule LovelaceWeb.HomeLive do
   defp resume_calendar(socket, _params), do: socket
 
   defp resume_gemini(socket, params) do
-    if connected?(socket) && params["connections"] == "gemini" do
+    if connected?(socket) && (params["connections"] == "gemini" || params["provider"] == "gemini") do
       message =
         case params["gemini"] do
           "saved" ->
@@ -499,26 +647,7 @@ defmodule LovelaceWeb.HomeLive do
             nil
         end
 
-      socket = if message, do: put_flash(socket, elem(message, 0), elem(message, 1)), else: socket
-      {:noreply, socket} = handle_event("show_connections", %{}, socket)
-      socket |> assign(:connection_view, :gemini) |> HomeGemini.open()
-    else
-      socket
-    end
-  end
-
-  defp resume_workspace(socket, params) do
-    if connected?(socket) && is_binary(params["workspace"]) do
-      case Workspaces.get_workspace(params["workspace"], actor: @owner) do
-        {:ok, workspace} ->
-          socket
-          |> directory_subscriptions([])
-          |> assign(home: false, selected: workspace, page_title: workspace.name)
-          |> HomeMail.open_workspace(workspace)
-
-        _ ->
-          socket
-      end
+      if message, do: put_flash(socket, elem(message, 0), elem(message, 1)), else: socket
     else
       socket
     end
@@ -557,41 +686,37 @@ defmodule LovelaceWeb.HomeLive do
         <p id="workspace-save-status" class="sr-only" role="status">{@save_status}</p>
         <div class="workspace-topline">
           <nav id="center-nav" class="center-nav" aria-label="Main navigation">
-            <button
+            <.link
               id="home-link"
-              type="button"
+              patch="/"
               class="workspace-nav-link"
               aria-label="Home"
               aria-current={if @home, do: "page"}
-              phx-click="show_home"
-              disabled={!!@editor}
-            >Home</button>
-            <button
+              aria-disabled={if @editor, do: "true"}
+            >Home</.link>
+            <.link
               id="show-workspaces"
-              type="button"
+              patch="/workspaces"
               class="workspace-nav-link"
-              phx-click="show_workspaces"
               aria-current={
                 if !@home && !@connections && !@scenes && @mail.scope != :home, do: "page"
               }
-              disabled={!!@editor}
-            >Workspaces</button>
-            <button
+              aria-disabled={if @editor, do: "true"}
+            >Workspaces</.link>
+            <.link
               id="show-connections"
-              type="button"
+              patch="/connections"
               class="workspace-nav-link"
-              phx-click="show_connections"
               aria-current={if @connections, do: "page"}
-              disabled={!!@editor}
-            >Connections</button>
-            <button
+              aria-disabled={if @editor, do: "true"}
+            >Connections</.link>
+            <.link
               id="show-scenes"
-              type="button"
+              patch="/scenes"
               class="workspace-nav-link"
-              phx-click="show_scenes"
               aria-current={if @scenes, do: "page"}
-              disabled={!!@editor}
-            >Scenes</button>
+              aria-disabled={if @editor, do: "true"}
+            >Scenes</.link>
           </nav>
           <.form for={%{}} action="/lock" method="post" id="owner-lock-form">
             <button type="submit" class="workspace-action">Lock</button>
@@ -602,26 +727,23 @@ defmodule LovelaceWeb.HomeLive do
           class={["workspace-directory", @home && "workspace-directory-home"]}
           aria-labelledby="directory-heading"
         >
-          <button
+          <.link
             :if={@selected && !@connections}
             id="back-to-workspaces"
-            type="button"
+            patch="/workspaces"
             class="workspace-back workspace-action"
-            phx-click="show_workspaces"
           >
             <span aria-hidden="true">←</span> All workspaces
-          </button>
+          </.link>
 
-          <button
-            :if={@connections && @selected}
-            id="back-from-connections"
-            type="button"
+          <.link
+            :if={@connections && @connection_view != :index}
+            id="back-to-connections"
+            patch="/connections"
             class="workspace-back workspace-action"
-            phx-click="close_connections"
           >
-            <.icon name="hero-arrow-left" class="size-4" />
-            {@selected.name}
-          </button>
+            <.icon name="hero-arrow-left" class="size-4" /> All connections
+          </.link>
 
           <HomeComponents.daily_heading :if={@home} />
 
@@ -638,35 +760,29 @@ defmodule LovelaceWeb.HomeLive do
               </h2>
             </div>
             <nav
-              :if={@connections}
+              :if={@connections && @connection_view != :index}
               id="connections-subnav"
               class="connections-subnav"
               aria-label="Connection providers"
             >
-              <button
+              <.link
                 id="connections-gemini"
-                type="button"
+                patch={HomeNavigation.connections_path(:gemini)}
                 class="workspace-nav-link"
-                phx-click="select_connection"
-                phx-value-provider="gemini"
                 aria-current={if @connection_view == :gemini, do: "page"}
-              >Gemini</button>
-              <button
+              >Gemini</.link>
+              <.link
                 id="connections-gmail"
-                type="button"
+                patch={HomeNavigation.connections_path(:gmail)}
                 class="workspace-nav-link"
-                phx-click="select_connection"
-                phx-value-provider="gmail"
                 aria-current={if @connection_view == :gmail, do: "page"}
-              >Gmail</button>
-              <button
+              >Gmail</.link>
+              <.link
                 id="connections-calendar"
-                type="button"
+                patch={HomeNavigation.connections_path(:calendar)}
                 class="workspace-nav-link"
-                phx-click="select_connection"
-                phx-value-provider="calendar"
                 aria-current={if @connection_view == :calendar, do: "page"}
-              >Calendar</button>
+              >Calendar</.link>
             </nav>
             <button
               :if={!@selected && !@connections && !@scenes && @mail.scope != :home && !@editor}
@@ -799,6 +915,8 @@ defmodule LovelaceWeb.HomeLive do
             notice={@scene_notice}
             confirmation={@scene_confirmation}
           />
+
+          <LovelaceWeb.ConnectionComponents.overview :if={@connections && @connection_view == :index} />
 
           <GeminiComponents.connection
             :if={@connections && @connection_view == :gemini}

@@ -11,6 +11,9 @@ defmodule LovelaceWeb.OwnerUnlock do
   def init(opts), do: opts
 
   def call(conn, _opts) do
+    # Plug.Head later rewrites HEAD to GET; return navigation must use the original method.
+    conn = put_private(conn, :owner_request_method, conn.method)
+
     if conn.method == "POST" && SensitivePath.matches?(conn, ["unlock"]),
       do: unlock(conn),
       else: conn

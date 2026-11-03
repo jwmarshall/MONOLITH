@@ -2,6 +2,7 @@ defmodule LovelaceWeb.OwnerController do
   use LovelaceWeb, :controller
   alias Lovelace.Owner
   alias Lovelace.Owner.Actions
+  alias LovelaceWeb.OwnerReturnPath
 
   plug :no_cache
 
@@ -27,12 +28,14 @@ defmodule LovelaceWeb.OwnerController do
         # Replacing an authenticated browser session also revokes its old token.
         case revoke_current(conn) do
           {:ok, true} ->
+            destination = OwnerReturnPath.safe(get_session(conn, :owner_return_to)) || "/"
+
             conn
             |> configure_session(renew: true)
             |> clear_session()
             |> put_session(:owner_session_token, token)
             |> put_session(:live_socket_id, Actions.topic(Actions.digest(token)))
-            |> redirect(to: "/")
+            |> redirect(to: destination)
 
           _ ->
             Owner.logout(token)

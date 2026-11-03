@@ -63,9 +63,10 @@ defmodule Lovelace.Mail.ConnectionDiagnostics do
   end
 
   def failure_path({stage, reason}) when stage in @stages and reason in @reasons,
-    do: "/?" <> URI.encode_query(%{gmail: "failed", stage: stage, reason: reason})
+    do:
+      "/connections/gmail?" <> URI.encode_query(%{gmail: "failed", stage: stage, reason: reason})
 
-  def failure_path(_), do: "/?gmail=failed"
+  def failure_path(_), do: "/connections/gmail?gmail=failed"
 
   def message(stage, reason) when is_binary(stage) and is_binary(reason) do
     case Enum.find(@stages, &(Atom.to_string(&1) == stage)) do

@@ -106,6 +106,92 @@ defmodule LovelaceWeb.OwnerControllerTest do
     assert {:error, _} = Owner.verify_session(token)
   end
 
+  test "failed unlock retains the requested destination and success consumes it", %{conn: conn} do
+    configure()
+
+    destination =
+      "/workspaces/synthetic-workspace/accounts/synthetic-account/mail/threads/synthetic-thread?q=quiet%20morning&page=2"
+
+    conn = get(conn, destination)
+    assert redirected_to(conn) == "/unlock"
+    assert get_session(conn, :owner_return_to) == destination
+
+    conn = conn |> recycle() |> get("/unlock")
+    assert html_response(conn, 200)
+    assert get_session(conn, :owner_return_to) == destination
+
+    conn = conn |> recycle() |> post_password("incorrect synthetic password")
+    assert html_response(conn, 401) =~ "Unable to unlock"
+    assert get_session(conn, :owner_return_to) == destination
+    refute get_session(conn, :owner_session_token)
+
+    conn = conn |> recycle() |> post_password(@password)
+    assert redirected_to(conn) == destination
+    assert {:ok, _} = Owner.verify_session(get_session(conn, :owner_session_token))
+    refute get_session(conn, :owner_return_to)
+    assert conn.private.plug_session_info == :renew
+
+    conn = conn |> recycle() |> post_password(@password)
+    assert redirected_to(conn) == "/"
+  end
+
+  test "HEAD navigation cannot become a return destination after Plug.Head rewrites it", %{
+    conn: conn
+  } do
+    conn =
+      conn
+      |> init_test_session(%{owner_return_to: "/?stale=destination"})
+      |> head("/workspaces/synthetic-workspace?account=synthetic-account")
+
+    assert redirected_to(conn) == "/unlock"
+    assert conn.method == "GET"
+    assert conn.private.owner_request_method == "HEAD"
+    refute get_session(conn, :owner_return_to)
+  end
+
+  test "successful unlock revalidates stored destinations and ignores form return parameters", %{
+    conn: conn
+  } do
+    configure()
+
+    for destination <- [nil, "//external.test/", "/?q=%0a", "/unlock", "/oauth/google/callback"] do
+      result =
+        conn
+        |> init_test_session(%{owner_return_to: destination})
+        |> put_req_header("content-type", "application/x-www-form-urlencoded")
+        |> post(
+          "/unlock",
+          URI.encode_query(%{"password" => @password, "return_to" => "/?injected=true"})
+        )
+
+      assert redirected_to(result) == "/"
+      refute get_session(result, :owner_return_to)
+      refute Map.has_key?(result.params, "return_to")
+      refute Map.has_key?(result.body_params, "return_to")
+    end
+  end
+
+  test "explicit lock clears any return destination before ordinary unlock", %{conn: conn} do
+    configure()
+
+    conn = post_password(conn, @password)
+    token = get_session(conn, :owner_session_token)
+
+    conn =
+      conn
+      |> recycle()
+      |> init_test_session(%{owner_session_token: token, owner_return_to: "/?stale=destination"})
+      |> post("/lock")
+
+    assert redirected_to(conn) == "/unlock"
+    refute get_session(conn, :owner_return_to)
+    refute get_session(conn, :owner_session_token)
+    assert {:error, _} = Owner.verify_session(token)
+
+    conn = conn |> recycle() |> post_password(@password)
+    assert redirected_to(conn) == "/"
+  end
+
   test "Lock rejects missing or invalid CSRF without revoking, then accepts the rendered token",
        %{
          conn: conn

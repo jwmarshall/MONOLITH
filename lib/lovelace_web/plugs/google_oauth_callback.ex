@@ -21,8 +21,8 @@ defmodule LovelaceWeb.Plugs.GoogleOAuthCallback do
 
     target =
       case result do
-        {:ok, workspace, :calendar} -> "/?calendar=connected&workspace=" <> workspace
-        {:ok, workspace, :gmail} -> "/?gmail=connected&workspace=" <> workspace
+        {:ok, _workspace, :calendar} -> "/connections/calendar?calendar=connected"
+        {:ok, workspace, :gmail} -> "/workspaces/" <> workspace <> "?gmail=connected"
         {:error, failure} -> ConnectionDiagnostics.failure_path(failure)
       end
 

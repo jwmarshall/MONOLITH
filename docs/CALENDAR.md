@@ -19,8 +19,9 @@ descriptions/HTML or load remote imagery. Repeating events are expanded by Googl
    workspace and explicitly authorize Calendar. This reuses the same Google subject and
    Keychain item, not a second identity or owner login. Choosing another Google identity
    is rejected. Granting Calendar also retains read-only Gmail access.
-5. Google's selected calendars seed the LOVELACE selection, including shared calendars.
-   Use the checkboxes in Calendar Connections to override the selection locally.
+5. Consent returns directly to `/connections/calendar`. Google's selected calendars seed
+   the LOVELACE selection, including shared calendars. Use the checkboxes there to override
+   the selection locally.
    An empty selection is valid; it means no calendars selected, not no events in Google.
 
 Calendar consent is never requested automatically. Denying the optional consent leaves

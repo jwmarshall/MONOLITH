@@ -31,7 +31,13 @@ defmodule LovelaceWeb.GoogleOAuthController do
           :error,
           "Google connection is unavailable. Complete the local Google setup first."
         )
-        |> redirect(to: "/")
+        |> redirect(
+          to:
+            if(conn.body_params["capability"] == "calendar",
+              do: "/connections/calendar",
+              else: "/connections/gmail"
+            )
+        )
     end
   end
 

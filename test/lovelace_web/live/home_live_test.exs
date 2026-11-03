@@ -79,7 +79,7 @@ defmodule LovelaceWeb.HomeLiveTest do
 
     assert has_element?(
              view,
-             "#center-nav #home-link[type=button][aria-label=Home][aria-current=page]",
+             "#center-nav a#home-link[href='/'][data-phx-link=patch][aria-label=Home][aria-current=page]",
              "Home"
            )
 

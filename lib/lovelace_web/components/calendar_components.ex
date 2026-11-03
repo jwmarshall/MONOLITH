@@ -20,14 +20,10 @@ defmodule LovelaceWeb.CalendarComponents do
       </header>
       <div :if={@accounts == []} class="calendar-empty">
         <p class="calendar-message">Calendar not enabled.</p>
-        <button
-          type="button"
+        <.link
+          patch="/connections/calendar"
           class="workspace-action"
-          phx-click={
-            JS.push("show_connections")
-            |> JS.push("select_connection", value: %{provider: "calendar"})
-          }
-        >Set up Calendar</button>
+        >Set up Calendar</.link>
       </div>
       <section
         :for={{account, snapshot} <- @readouts}
@@ -50,18 +46,20 @@ defmodule LovelaceWeb.CalendarComponents do
         </header>
         <div :if={!snapshot.enabled} class="calendar-message">
           <p>Calendar is not enabled for this account.</p>
-          <button type="button" class="workspace-action" phx-click="show_connections">
+          <.link
+            patch="/connections/calendar"
+            class="workspace-action"
+          >
             Enable in Connections →
-          </button>
+          </.link>
         </div>
         <div :if={snapshot.enabled}>
           <.status snapshot={snapshot} id={"#{@id}-status-#{account.id}"} warnings_only={@home} />
-          <button
+          <.link
             :if={snapshot.error == :reconnect}
-            type="button"
+            patch="/connections/calendar"
             class="workspace-action"
-            phx-click="show_connections"
-          >Authorize Calendar again in Connections →</button>
+          >Authorize Calendar again in Connections →</.link>
           <p
             :if={successful?(snapshot) && snapshot.events == []}
             class="calendar-message"
@@ -198,12 +196,7 @@ defmodule LovelaceWeb.CalendarComponents do
       <p id={"#{@id}-disconnect-help"} class="calendar-muted calendar-disconnect-help">
         Calendar shares this Google connection. There is no separate Calendar disconnect.
         Disconnect everywhere removes the shared connection from every workspace.
-        <button
-          type="button"
-          class="workspace-action"
-          phx-click="select_connection"
-          phx-value-provider="gmail"
-        >Manage Google connection in Gmail</button>
+        <.link patch="/connections/gmail" class="workspace-action">Manage Google connection in Gmail</.link>
       </p>
     </section>
     """

@@ -40,6 +40,51 @@ defmodule LovelaceWeb.HomeMail do
 
   defp event_select(socket, id), do: event("mail:select", %{"id" => id}, socket)
 
+  def open_home(socket) do
+    socket |> leave_workspace() |> put(%{scope: :home}) |> load_accounts()
+  end
+
+  # URL entry may address a thread not present in the bounded results page. The
+  # account still must belong to this view; the domain repeats that authorization.
+  def navigate(socket, destination) do
+    socket = load_accounts(socket)
+    mail = socket.assigns.mail
+    id = destination.account_id
+
+    if member?(mail, id),
+      do: navigate_account(socket, destination),
+      else: put(socket, %{notice: "This account is unavailable in this view. Check Connections."})
+  end
+
+  defp navigate_account(socket, destination) do
+    mail = socket.assigns.mail
+    id = destination.account_id
+
+    context_changed =
+      {mail.account_id, mail.query, mail.page_token} !=
+        {id, destination.query, destination.page_token}
+
+    if !context_changed && mail.thread_id == destination.thread_id do
+      socket
+    else
+      socket = if mail.account_id == id, do: reset_content(socket), else: clear_view(socket, id)
+
+      socket
+      |> put(%{
+        query: destination.query,
+        page_token: destination.page_token,
+        thread_id: destination.thread_id,
+        list_key:
+          if(context_changed,
+            do: System.unique_integer([:positive, :monotonic]),
+            else: mail.list_key
+          ),
+        search_form: to_form(%{"query" => destination.query || ""}, as: :mail_search)
+      })
+      |> request(false)
+    end
+  end
+
   def open_connections(socket) do
     socket
     |> leave_workspace()

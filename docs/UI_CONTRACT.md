@@ -69,15 +69,18 @@ Verify implementation in code; the coverage map below is not evidence that check
 
 ## Home, workspace and integration navigation
 
-- Home is the default after unlock/reload. Escape/idle wake preserves the current view,
-  scroll and forms; it never navigates Home. Explicit OAuth workspace returns retain context.
+- `/` is Home, the default after ordinary unlock. Reload and copied deep links restore their
+  destination; a protected deep link resumes after unlock when its local return URL is safe
+  and bounded. Escape/idle wake preserves the current view, scroll and forms; it never navigates
+  Home. Successful Gmail consent returns to the receiving workspace; Calendar consent
+  returns to its global provider page for calendar selection.
 - A centered navigation bar contains **Home**, **Workspaces**, **Connections**, and **Scenes**,
-  in that order. These are native buttons for the existing in-page navigation; current destinations
-  are identified with `aria-current`. Home is a visible text control, never the decorative
-  corner monogram. Lock stays separate. Global Connections has no additional Home/back
-  button; use the center navigation. Gmail inboxes likewise have no redundant Home
-  button. A contextual workspace-return button remains when Connections was opened
-  from a workspace.
+  in that order. These are native links using LiveView patches, with usable `href` destinations
+  for copying/opening in a new tab; current destinations are identified with `aria-current`. Home is a visible text control, never the decorative
+  corner monogram. Lock stays separate. Top-nav Connections always opens the global
+  `/connections` overview, including from workspaces and provider pages. No workspace query
+  or workspace-return control is attached; browser Back retraces the actual origin.
+  Gmail inboxes likewise have no redundant Home button.
 - Home opens with a restrained greeting and date in the browser's local time, updated
   across midnight/resume. Home, Workspaces, Connections and Scenes use the same content width and
   alignment from the shared directory container; Home has no narrower inner cap. Reserve
@@ -118,21 +121,25 @@ Verify implementation in code; the coverage map below is not evidence that check
   See [CALENDAR.md](CALENDAR.md) for bounds and lifecycle.
 
 - Workspaces represent areas of life. **Quiet sea-glass cards supersede the earlier
-  typographic/no-card directory**. Use generous native button surfaces and separate native
+  typographic/no-card directory**. Use generous native link surfaces and separate native
   management disclosures for rename; opening and management are siblings, never nested controls.
   Create/rename use native modal dialogs with trapped focus, labelled headings and inline
   validation. Cancel/Escape closes only the dialog, restoring focus without entering scenery
   mode. Unrelated patches preserve the draft; invalid submissions keep the dialog open.
   The visual idle timer pauses while a modal is open and resumes on dismissal;
   this is not an authentication or privacy change.
-- Connections has a **Gemini / Gmail / Calendar** provider subnav on the same row as its title,
-  on desktop (wrapping below the heading on narrow screens), with only the selected
-  provider's interface mounted. Native navigation buttons identify
-  the current provider with `aria-current`; switching keeps focus on the chosen control.
-  Opening Connections defaults to Gmail; Gemini credential POSTs return to Gemini.
-  Escape/idle preserves the selected provider and contextual workspace return remains intact.
-  Re-selecting the active provider does not discard forms. Selection has no URL/history or
-  reload persistence; provider changes remove the previous provider's unsaved form content.
+- `/connections` is a quiet provider overview with Gmail, Calendar and Gemini links and
+  short purpose labels, not a default Gmail page or combined health dashboard. It mounts
+  no provider form and makes no Keychain/provider probe. Opening a provider focuses the
+  heading; each provider offers **All connections** back to the overview.
+- Provider pages have a **Gemini / Gmail / Calendar** subnav on the same row as the title
+  on desktop (wrapping below on narrow screens), with only the selected provider mounted.
+  Native links identify the provider with `aria-current`; switching preserves focus on the
+  chosen subnav control. Provider paths are `/connections/gmail`, `/connections/calendar`
+  and `/connections/gemini`. Each supports direct GET, reload and new tabs; Gemini credential
+  POSTs return directly to Gemini without exposing credentials to normal request instrumentation.
+  Escape/idle preserves selection. Re-selecting the active provider does not discard forms;
+  provider changes enter history and remove the previous provider's unsaved form content.
 - Workspace detail prioritizes separate integration/account tiles, never an aggregate inbox.
   **Add integration** is a focused panel for reusable connections or connecting Google;
   Gmail and opt-in read-only Google Calendar reuse account identities, not a speculative
@@ -208,8 +215,21 @@ Verify implementation in code; the coverage map below is not evidence that check
   or unknown outcomes, and that there are no automatic retries. Cancel/Escape restores trigger focus and
   does not request generation. Confirmed work survives navigation; startup opt-in remains
   independent. Preserve modal idle/focus behavior and gallery selection during scenery wake.
-- Navigation currently stays in-page at `/`, without URL/history or reload selection
-  persistence. Do not imply reload persistence or cross-tab directory synchronization exists.
+- Meaningful views have URLs: `/workspaces`, `/workspaces/:workspace_id`, its `/integrations`
+  setup panel, `/accounts/:account_id/mail`, and workspace-scoped
+  `/workspaces/:workspace_id/accounts/:account_id/mail`. Readers append `/threads/:thread_id`.
+  Submitted searches use `q` and Gmail pagination uses `page_token`; both remain in reader URLs
+  for returning to results. Search text is consequently visible in browser history/copied links,
+  but is filtered from Phoenix parameter logs. Connections URLs have no workspace context.
+  Obsolete/irrelevant query parameters are removed with history replacement; old root-query
+  navigation bookmarks still resolve to canonical paths. Consent/credential feedback queries
+  carry only safe status categories and are consumed on entry. Scenes uses `/scenes?page=N`
+  (page one omits the query).
+- Navigation adds browser history; Back/Forward reapply the URL without remounting the shared
+  stage. Reload/new tabs resolve the same view, subject to current account/workspace access.
+  Invalid/unavailable destinations recover visibly to Workspaces rather than retaining another
+  account's content. Dialogs, unsaved drafts, disclosures, scenery focus and idle state are not
+  URL state. There is no cross-tab directory synchronization.
 - Loading, empty, stale, offline, expired-credential, rate-limited and failed states must
   remain truthful and distinguishable. Account context stays explicit in mail views;
   disconnected integrations must not appear operational. Detailed Gmail boundaries live
@@ -265,6 +285,10 @@ historical results do not certify a new change.
 - `test/js/mail_reader_test.mjs`: async reader focus/latest-reply handoff, exact return
   scroll/focus, context fencing and teardown; local date formatting and independently
   aging fetch freshness, patched attributes and timer/resume-listener cleanup.
+- `test/lovelace_web/live/navigation_live_test.exs`: native deep links, global provider
+  overview, obsolete-query/bookmark normalization, workspace history, direct account/thread/search/page entry, reload-equivalent mounts, URL
+  transitions, invalid/unavailable recovery and account fencing. Owner controller/auth tests
+  cover safe requested destinations through unlock and reject unsafe/form-injected returns.
 - `test/lovelace_web/live/home_overview_live_test.exs`: distinct connection summaries,
   shared/unattached membership, unknown/zero/stale counts, Home navigation and account isolation.
 - `test/lovelace/stage_designer/bundled_scenes_test.exs`: fresh-database default reads,
@@ -317,7 +341,8 @@ historical results do not certify a new change.
   scheduled idle expiration with a shortened disposable DOM timer; mid-reveal reduced motion;
   forced colors; desktop/narrow inbox/reader layouts; long-token wrapping and body type;
   native message/metadata disclosures and refresh preservation; reader Escape/wake;
-  async Back row-focus/scroll restoration; real delayed loading transparency, stable status
+  async browser-Back row-focus/scroll restoration; real URL Back/Forward, global Connections overview/provider
+  navigation, obsolete-query cleanup and direct Gemini reload, workspace reload and copied conversation/search/page links; real delayed loading transparency, stable status
   height and ordinary/reduced-motion/forced-color sweep behavior, including mid-load preference
   changes; Scenes keyboard navigation, gallery dates/previews, confirmation Cancel/Escape
   and focus restoration, read-only refresh, cross-tab selection, reload persistence, narrow

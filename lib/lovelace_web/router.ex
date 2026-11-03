@@ -50,6 +50,20 @@ defmodule LovelaceWeb.Router do
 
     live_session :owner, on_mount: [{LovelaceWeb.OwnerAuth, :require_owner}] do
       live "/", HomeLive, :index
+      live "/workspaces", HomeLive, :workspaces
+      live "/workspaces/:workspace_id", HomeLive, :workspace
+      live "/workspaces/:workspace_id/integrations", HomeLive, :integration_add
+      live "/workspaces/:workspace_id/accounts/:account_id/mail", HomeLive, :workspace_inbox
+
+      live "/workspaces/:workspace_id/accounts/:account_id/mail/threads/:thread_id",
+           HomeLive,
+           :workspace_thread
+
+      live "/accounts/:account_id/mail", HomeLive, :inbox
+      live "/accounts/:account_id/mail/threads/:thread_id", HomeLive, :thread
+      live "/connections", HomeLive, :connections
+      live "/connections/:provider", HomeLive, :connection
+      live "/scenes", HomeLive, :scenes
     end
   end
 

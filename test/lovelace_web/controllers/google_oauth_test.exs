@@ -74,7 +74,7 @@ defmodule LovelaceWeb.GoogleOAuthTest do
     conn =
       get(conn, "/oauth/google/callback?" <> URI.encode_query(%{code: "fake-code", state: state}))
 
-    assert redirected_to(conn, 303) == "/?gmail=connected&workspace=" <> w.id
+    assert redirected_to(conn, 303) == "/workspaces/#{w.id}?gmail=connected"
     assert get_resp_header(conn, "cache-control") == ["no-store"]
     assert [%{subject: "new-subject"}] = Lovelace.Mail.list_accounts!(actor: @owner)
     refute_receive {:observed, _, _}
@@ -156,7 +156,7 @@ defmodule LovelaceWeb.GoogleOAuthTest do
     for path <- ["/oauth/google/callback/", "/oauth//google/callback", "/oauth/%67oogle/callback"] do
       {:ok, state, _} = OAuth.begin(w.id, get_session(conn, :owner_session_token))
       response = get(conn, path <> "?" <> URI.encode_query(%{code: "fake-code", state: state}))
-      assert redirected_to(response, 303) == "/?gmail=connected&workspace=" <> w.id
+      assert redirected_to(response, 303) == "/workspaces/#{w.id}?gmail=connected"
     end
   end
 
@@ -168,7 +168,7 @@ defmodule LovelaceWeb.GoogleOAuthTest do
 
   defp assert_failure(conn, stage, reason) do
     uri = URI.parse(redirected_to(conn, 303))
-    assert uri.path == "/"
+    assert uri.path == "/connections/gmail"
 
     assert URI.decode_query(uri.query) == %{
              "gmail" => "failed",
