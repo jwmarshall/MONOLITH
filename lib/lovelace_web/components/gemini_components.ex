@@ -97,7 +97,7 @@ defmodule LovelaceWeb.GeminiComponents do
       </div>
       <p class="mail-muted gemini-safety">
         Scenery is shared across LOVELACE, not added to workspaces. Only generic art direction is sent; no mail is shared.
-        Generation remains startup-only with a persisted minimum 24-hour cooldown and no automatic retries.
+        Request a generation in Scenes, or opt into startup generation. Manual requests have no daily cooldown; automatic startup keeps a persisted minimum 24-hour cooldown. No automatic retries.
         Removing a key keeps existing scenery and cooldowns; it cannot cancel a request already in progress.
       </p>
     </section>

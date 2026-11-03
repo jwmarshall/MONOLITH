@@ -12,12 +12,18 @@ defmodule Lovelace.Application do
       Lovelace.Repo,
       {Ecto.Migrator,
        repos: Application.fetch_env!(:lovelace, :ecto_repos), skip: skip_migrations?()},
+      # Persist the bundled default before static or live pages can be served.
+      %{
+        id: Lovelace.StageDesigner.DefaultScene,
+        start: {Lovelace.StageDesigner.BundledScenes, :initialize, []}
+      },
       {DNSCluster, query: Application.get_env(:lovelace, :dns_cluster_query) || :ignore},
       {Phoenix.PubSub, name: Lovelace.PubSub},
       Lovelace.Owner.Throttle,
       Lovelace.Mail.OAuth,
       Lovelace.Mail.ViewData,
       {Oban, Application.fetch_env!(:lovelace, Oban)},
+      {Task.Supervisor, name: Lovelace.StageDesigner.TaskSupervisor},
       # One asynchronous attempt per application startup, never restarted/retried.
       %{
         id: Lovelace.StageDesigner.Startup,

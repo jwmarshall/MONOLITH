@@ -4,6 +4,8 @@ defmodule LovelaceWeb.Layouts do
   """
   use LovelaceWeb, :html
 
+  alias Lovelace.StageDesigner.BundledScenes
+
   embed_templates "layouts/*"
 
   attr :id, :string, required: true
@@ -16,11 +18,19 @@ defmodule LovelaceWeb.Layouts do
   # Static owner screens and LiveViews share the same validated local scenery.
   # Static images use the same load observer without requiring a LiveView socket.
   def stage(assigns) do
-    assigns = assign(assigns, :background_url, local_background_url(assigns.background))
+    assigns =
+      assigns
+      |> assign(:background_url, local_background_url(assigns.background))
+      |> assign(:default_background_url, BundledScenes.default_url())
 
     ~H"""
     <div id={@id} class={["glass-workspace", @class]} {@rest}>
-      <div id={"#{@id}-background"} class="workspace-background" aria-hidden="true">
+      <div
+        id={"#{@id}-background"}
+        class="workspace-background"
+        style={"--workspace-default-background: url('#{@default_background_url}')"}
+        aria-hidden="true"
+      >
         <img
           :if={@background_url}
           id={"stage-background-#{Path.rootname(Path.basename(@background_url))}"}
@@ -145,7 +155,7 @@ defmodule LovelaceWeb.Layouts do
   end
 
   defp background_status(%{status: status}) when status in [:failed, :error, :unavailable] do
-    "Background unavailable. Using the previous image or original landscape."
+    "Background unavailable. Using the previous image or bundled scenery."
   end
 
   defp background_status(_background), do: ""

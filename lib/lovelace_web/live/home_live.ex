@@ -8,11 +8,15 @@ defmodule LovelaceWeb.HomeLive do
   alias Lovelace.Workspaces.Workspace
 
   alias LovelaceWeb.{
+    CalendarComponents,
     GeminiComponents,
+    HomeCalendar,
     HomeComponents,
     HomeGemini,
     HomeMail,
+    HomeScenes,
     MailComponents,
+    SceneComponents,
     WorkspaceComponents
   }
 
@@ -52,7 +56,9 @@ defmodule LovelaceWeb.HomeLive do
       )
       |> stream(:workspaces, [])
       |> HomeMail.init()
+      |> HomeCalendar.init()
       |> HomeGemini.init()
+      |> HomeScenes.init()
 
     socket = if connected?(socket), do: load_workspaces(socket), else: socket
     socket = resume_connection(socket, params)
@@ -61,10 +67,13 @@ defmodule LovelaceWeb.HomeLive do
 
   @impl true
   def handle_info({:stage_background, %{url: _url, status: _status} = background}, socket) do
-    {:noreply, assign(socket, :background, background)}
+    socket = assign(socket, :background, background)
+    {:noreply, if(socket.assigns.scenes, do: HomeScenes.refresh(socket), else: socket)}
   end
 
   def handle_info({:mail_changed, id} = message, socket) do
+    socket = HomeCalendar.reload(socket)
+
     if id in socket.assigns.directory_subscriptions do
       {:noreply, load_workspaces(socket)}
     else
@@ -72,25 +81,64 @@ defmodule LovelaceWeb.HomeLive do
     end
   end
 
+  def handle_info({:calendar_changed, id}, socket) do
+    if id in socket.assigns.directory_subscriptions || id in socket.assigns.mail.subscriptions do
+      {:noreply, HomeCalendar.changed(socket)}
+    else
+      {:noreply, socket}
+    end
+  end
+
   def handle_info(_message, socket), do: {:noreply, socket}
 
   @impl true
+  def handle_async(name, result, socket) when name in [:scene_gallery, :scene_request],
+    do: HomeScenes.handle_async(name, result, socket)
+
   def handle_async(:gemini_status, result, socket), do: HomeGemini.handle_async(result, socket)
   def handle_async(name, result, socket), do: HomeMail.handle_async(name, result, socket)
 
   @impl true
+  def handle_event("calendar:" <> _ = event, params, socket),
+    do: HomeCalendar.handle_event(event, params, socket)
+
   def handle_event("mail:accounts", _params, %{assigns: %{mail: %{scope: :home}}} = socket),
     do: handle_event("show_home", %{}, socket)
 
   def handle_event("mail:" <> _ = event, params, socket),
     do: HomeMail.handle_event(event, params, socket)
 
-  def handle_event("show_home", _params, socket) do
+  def handle_event("scenes:" <> _ = event, params, %{assigns: %{scenes: true}} = socket),
+    do: HomeScenes.handle_event(event, params, socket)
+
+  def handle_event("scenes:" <> _, _params, socket), do: {:noreply, socket}
+
+  def handle_event("show_scenes", _params, socket) do
     {:noreply,
      socket
      |> HomeMail.leave_workspace()
+     |> directory_subscriptions([])
+     |> assign(
+       home: false,
+       selected: nil,
+       connections: false,
+       editor: nil,
+       form: nil,
+       page_title: "Scenes"
+     )
+     |> HomeScenes.open()
+     |> focus_heading()}
+  end
+
+  def handle_event("show_home", _params, socket) do
+    {:noreply,
+     socket
+     |> HomeScenes.leave()
+     |> HomeMail.leave_workspace()
      |> assign(
        home: true,
+       scenes: false,
+       scene_confirmation: false,
        selected: nil,
        connections: false,
        editor: nil,
@@ -107,9 +155,12 @@ defmodule LovelaceWeb.HomeLive do
     if Enum.any?(socket.assigns.home_accounts, &(&1.id == id)) do
       {:noreply,
        socket
+       |> HomeScenes.leave()
        |> directory_subscriptions([])
        |> assign(
          home: false,
+         scenes: false,
+         scene_confirmation: false,
          selected: nil,
          connections: false,
          editor: nil,
@@ -137,8 +188,9 @@ defmodule LovelaceWeb.HomeLive do
         %{"provider" => provider},
         %{assigns: %{connections: true}} = socket
       )
-      when provider in ["gemini", "gmail"] do
-    view = if provider == "gemini", do: :gemini, else: :gmail
+      when provider in ["gemini", "gmail", "calendar"] do
+    view =
+      Map.fetch!(%{"gemini" => :gemini, "gmail" => :gmail, "calendar" => :calendar}, provider)
 
     if view == socket.assigns.connection_view do
       {:noreply, socket}
@@ -156,10 +208,13 @@ defmodule LovelaceWeb.HomeLive do
   def handle_event("show_connections", _params, socket) do
     {:noreply,
      socket
+     |> HomeScenes.leave()
      |> directory_subscriptions([])
      |> assign(
        home: false,
        connections: true,
+       scenes: false,
+       scene_confirmation: false,
        connection_view: :gmail,
        editor: nil,
        form: nil,
@@ -238,10 +293,13 @@ defmodule LovelaceWeb.HomeLive do
       {:ok, %Workspace{} = workspace} ->
         {:noreply,
          socket
+         |> HomeScenes.leave()
          |> directory_subscriptions([])
          |> assign(
            home: false,
            selected: workspace,
+           scenes: false,
+           scene_confirmation: false,
            connections: false,
            editor: nil,
            form: nil,
@@ -258,9 +316,12 @@ defmodule LovelaceWeb.HomeLive do
   def handle_event("show_workspaces", _params, socket) do
     {:noreply,
      socket
+     |> HomeScenes.leave()
      |> HomeMail.leave_workspace()
      |> assign(
        home: false,
+       scenes: false,
+       scene_confirmation: false,
        selected: nil,
        connections: false,
        editor: nil,
@@ -303,6 +364,7 @@ defmodule LovelaceWeb.HomeLive do
         workspace_options: Enum.map(workspaces, &{&1.name, &1.id})
       )
       |> load_workspace_health(workspaces)
+      |> HomeCalendar.reload()
       |> stream(:workspaces, workspaces, reset: true)
     else
       _ -> assign(socket, workspaces_error: true, home_error: true, loading: false)
@@ -361,7 +423,7 @@ defmodule LovelaceWeb.HomeLive do
       ids = Enum.map(accounts, & &1.id)
 
       browsing =
-        socket.assigns.selected || socket.assigns.connections ||
+        socket.assigns.scenes || socket.assigns.selected || socket.assigns.connections ||
           socket.assigns.mail.scope == :home
 
       ids = if browsing, do: [], else: ids
@@ -407,8 +469,17 @@ defmodule LovelaceWeb.HomeLive do
 
     socket
     |> resume_workspace(params)
+    |> resume_calendar(params)
     |> resume_gemini(params)
   end
+
+  defp resume_calendar(socket, %{"calendar" => "connected"}) do
+    socket
+    |> put_flash(:info, "Calendar connected. Event access is read-only.")
+    |> HomeCalendar.reload()
+  end
+
+  defp resume_calendar(socket, _params), do: socket
 
   defp resume_gemini(socket, params) do
     if connected?(socket) && params["connections"] == "gemini" do
@@ -482,6 +553,7 @@ defmodule LovelaceWeb.HomeLive do
       </div>
 
       <div id="workspace-content" class="workspace-content" inert>
+        <span id="calendar-context" phx-hook="CalendarDay" class="hidden" aria-hidden="true"></span>
         <p id="workspace-save-status" class="sr-only" role="status">{@save_status}</p>
         <div class="workspace-topline">
           <nav id="center-nav" class="center-nav" aria-label="Main navigation">
@@ -499,7 +571,9 @@ defmodule LovelaceWeb.HomeLive do
               type="button"
               class="workspace-nav-link"
               phx-click="show_workspaces"
-              aria-current={if !@home && !@connections && @mail.scope != :home, do: "page"}
+              aria-current={
+                if !@home && !@connections && !@scenes && @mail.scope != :home, do: "page"
+              }
               disabled={!!@editor}
             >Workspaces</button>
             <button
@@ -510,6 +584,14 @@ defmodule LovelaceWeb.HomeLive do
               aria-current={if @connections, do: "page"}
               disabled={!!@editor}
             >Connections</button>
+            <button
+              id="show-scenes"
+              type="button"
+              class="workspace-nav-link"
+              phx-click="show_scenes"
+              aria-current={if @scenes, do: "page"}
+              disabled={!!@editor}
+            >Scenes</button>
           </nav>
           <.form for={%{}} action="/lock" method="post" id="owner-lock-form">
             <button type="submit" class="workspace-action">Lock</button>
@@ -544,6 +626,7 @@ defmodule LovelaceWeb.HomeLive do
             <div>
               <h2 id="directory-heading" tabindex="-1" data-workspace-heading>
                 {cond do
+                  @scenes -> "Scenes"
                   @connections -> "Connections"
                   @selected -> @selected.name
                   @mail.scope == :home -> "Inbox"
@@ -573,9 +656,17 @@ defmodule LovelaceWeb.HomeLive do
                 phx-value-provider="gmail"
                 aria-current={if @connection_view == :gmail, do: "page"}
               >Gmail</button>
+              <button
+                id="connections-calendar"
+                type="button"
+                class="workspace-nav-link"
+                phx-click="select_connection"
+                phx-value-provider="calendar"
+                aria-current={if @connection_view == :calendar, do: "page"}
+              >Calendar</button>
             </nav>
             <button
-              :if={!@selected && !@connections && @mail.scope != :home && !@editor}
+              :if={!@selected && !@connections && !@scenes && @mail.scope != :home && !@editor}
               id="new-workspace"
               type="button"
               class="workspace-action"
@@ -642,7 +733,7 @@ defmodule LovelaceWeb.HomeLive do
           </LovelaceWeb.ModalComponents.modal>
 
           <div
-            :if={!@home && !@selected && !@connections && @mail.scope != :home}
+            :if={!@home && !@selected && !@connections && !@scenes && @mail.scope != :home}
             class="workspace-list"
             id="workspace-list"
             phx-update="stream"
@@ -662,6 +753,13 @@ defmodule LovelaceWeb.HomeLive do
             error={@home_error}
           />
 
+          <CalendarComponents.agenda
+            :if={@home}
+            accounts={Enum.filter(@calendar_accounts, & &1.calendar_enabled)}
+            window={@calendar_window}
+            refresh={@calendar_revision}
+          />
+
           <div
             :if={!@home && !@connections && @mail.scope == :home}
             id="home-inbox"
@@ -670,11 +768,16 @@ defmodule LovelaceWeb.HomeLive do
             <MailComponents.panel mail={@mail} />
           </div>
 
-          <p :if={@loading && !@home} id="workspaces-loading" class="workspace-notice" role="status">
+          <p
+            :if={@loading && !@home && !@scenes}
+            id="workspaces-loading"
+            class="workspace-notice"
+            role="status"
+          >
             Opening your spaces…
           </p>
           <div
-            :if={@workspaces_error && !@home}
+            :if={@workspaces_error && !@home && !@scenes}
             id="workspaces-error"
             class="workspace-notice"
             role="alert"
@@ -682,6 +785,16 @@ defmodule LovelaceWeb.HomeLive do
             <p>Your workspaces couldn’t be loaded. Your saved spaces have not been changed.</p>
             <button type="button" class="workspace-action" phx-click="retry_workspaces">Try again</button>
           </div>
+
+          <SceneComponents.gallery
+            :if={@scenes}
+            data={@scene_data}
+            loading={@scene_loading}
+            error={@scene_error}
+            pending={@scene_request_pending}
+            notice={@scene_notice}
+            confirmation={@scene_confirmation}
+          />
 
           <GeminiComponents.connection
             :if={@connections && @connection_view == :gemini}
@@ -694,12 +807,28 @@ defmodule LovelaceWeb.HomeLive do
             workspace_options={@workspace_options}
           />
 
+          <CalendarComponents.connections
+            :if={@connections && @connection_view == :calendar}
+            accounts={@calendar_accounts}
+            workspace_options={@workspace_options}
+            window={@calendar_window}
+            refresh={@calendar_revision}
+          />
+
           <div
             :if={@selected && !@connections && !@editor}
             id="workspace-landing"
             class="workspace-landing"
           >
             <MailComponents.panel mail={@mail} workspace={@selected} />
+            <CalendarComponents.agenda
+              :if={!@mail.account_id && !@mail.adding}
+              accounts={
+                Enum.filter(@calendar_accounts, &(&1.calendar_enabled && &1.id in @mail.memberships))
+              }
+              window={@calendar_window}
+              refresh={@calendar_revision}
+            />
           </div>
         </section>
 

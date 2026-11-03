@@ -10,8 +10,7 @@ defmodule Lovelace.StageDesigner.Settings do
             prompt: @prompt,
             min_refresh_hours: 24,
             timeout_seconds: 120,
-            storage_dir: "./data/stage-designer",
-            retain_count: 7
+            storage_dir: "./data/stage-designer"
 
   def get, do: Application.get_env(:lovelace, :stage_designer, %__MODULE__{})
 
@@ -24,8 +23,7 @@ defmodule Lovelace.StageDesigner.Settings do
       prompt: Map.get(env, "LOVELACE_STAGE_PROMPT", @prompt),
       min_refresh_hours: integer!(env, "LOVELACE_STAGE_MIN_REFRESH_HOURS", 24, 24..8760),
       timeout_seconds: integer!(env, "LOVELACE_STAGE_TIMEOUT_SECONDS", 120, 1..120),
-      storage_dir: Map.get(env, "LOVELACE_STAGE_STORAGE_DIR", "./data/stage-designer"),
-      retain_count: integer!(env, "LOVELACE_STAGE_RETAIN_COUNT", 7, 1..7)
+      storage_dir: Map.get(env, "LOVELACE_STAGE_STORAGE_DIR", "./data/stage-designer")
     }
 
     if valid_art_settings?(settings) and valid_request_policy?(env),

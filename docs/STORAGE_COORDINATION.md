@@ -20,8 +20,8 @@ another process with the owner's OS permissions deliberately replacing files.
 Symlink/nonregular coordination files fail closed. Infrastructure bootstrap
 creates the directory/file before exclusion; it never replaces an existing file.
 
-Do not count the sidecar as an image. Retention applies to digest-named `.png` /
-`.jpg` files only. Cleanup never matches the sidecar (or SQLite journal names).
+Do not count the sidecar as an image. Catalog membership protects digest-named `.png` /
+`.jpg` files without a total count cap. Cleanup never matches the sidecar (or SQLite journal names).
 No remote coordination service, distributed Erlang or BEAM-local mutex is used.
 Independent BEAMs and independently owned connections contend through SQLite's
 OS-backed file locks on the same sidecar.
@@ -40,7 +40,9 @@ to close/rollback after **all** callback work, so the compiler/GC must keep it l
 throughout the callback. It is never sent to another process or exposed to the
 callback. The exclusive transaction has no pool/DBConnection timeout and cannot
 be revoked by the main Repo timing out, disconnecting, restarting or dying.
-Callbacks contain bounded local validation/storage/SQL work, never provider HTTP.
+Publication/selection callbacks contain bounded local validation/storage/SQL work, never
+provider HTTP. Orphan reconciliation scans local filenames and performs indexed catalog
+membership checks, without materializing or validating the whole image catalog.
 A slow or suspended live owner continues to exclude all other mutations; those
 callers fail closed after bounded acquisition rather than stealing ownership.
 
@@ -106,17 +108,18 @@ resource and same-process raw deletion; monitors are not a replacement.
 3. On provider success, `Storage.store_and_publish/4` takes the sidecar lock and
    opens a short main Repo transaction. It reads the current reservation inside
    exclusion and rejects a stale version/status **before writing any image**.
-   It validates and atomically stores original bytes, builds distinct newest-first
-   bounded history, then invokes Ash's optimistic publication action. That action
+   It validates and atomically stores original bytes, upserts the Ash scene catalog and
+   builds a bounded recent-fallback history, then invokes Ash's optimistic publication
+   action in the same transaction. The catalog has no total count cap. That action
    remains authoritative; a conflicting reservation still makes publication fail.
 4. The main publication transaction commits and the private sidecar handle closes.
    **Nothing is pruned in this transaction.** A failed/rolled-back publication
    leaves an orphan at worst, never deletion of files a rolled-back manifest needs.
 5. Startup calls `Storage.prune/2` separately after publication returns committed.
-   Cleanup reacquires the sidecar and rereads the authoritative manifest **inside
-   the lock**. Its caller's retained list is compatibility-only and ignored. If A
-   pauses after publishing and B publishes retention-one imagery, A's later cleanup
-   sees B's manifest, not A's list, and cannot delete B's image.
+   Cleanup reacquires the sidecar and checks the authoritative catalog **inside
+   the lock**. Its caller's recent list is compatibility-only and ignored. Published
+   scenes are never evicted; a delayed cleanup cannot delete an older or newer catalog
+   image merely because it is absent from a recent-fallback list.
 
 `Storage.store/2` keeps its public result contract and uses the same exclusion
 protocol. Standalone store is not a promise of later publication protection: an
@@ -124,18 +127,18 @@ unregistered file can be reclaimed once the standalone call releases the lock.
 Production publication must use the combined store-and-publish operation. There
 is no unsafe public unlocked storage API.
 
-`Storage.reconcile/3` also ignores supplied history and rereads authority inside
+`Storage.reconcile/3` also ignores supplied history and checks catalog authority inside
 the same lock, preserving five minutes of unreferenced-image and UUID-temp grace.
-Immediate post-publication pruning removes unretained images without that grace;
-a live combined store/publication is protected by exclusion, including repeated
-identical digests. Temp cleanup is reconciliation-only. Unknown files and nonregular
+Post-publication cleanup uses the same five-minute grace for unpublished orphan images
+and interrupted temp writes. A live combined store/publication is protected by exclusion,
+including repeated identical digests. Unknown files and nonregular
 paths are left alone; substantive listing/stat/unlink errors are returned, not
-silently discarded. Missing paths are harmless. A missing manifest fails closed.
+silently discarded. Missing paths are harmless. An unavailable catalog fails closed.
 
 Storage operations reject an existing main transaction or nested storage lock:
 cleanup must never observe tentative publication or run before the caller's COMMIT.
 Readers remain lock-free and revalidate membership, bytes, format and digest; a
-concurrent eviction can yield a safe unavailable/fallback response, never remote
+missing or damaged file can yield a safe unavailable/fallback response, never remote
 content or invalid bytes. Startup reports cleanup failures without undoing a
 committed publication or marking it as a failed generation/retrying a paid call.
 
@@ -148,8 +151,8 @@ The resource's configured Repo routes through `put_dynamic_repo/1`. Every spawne
 process selects its Repo explicitly. These tests never read the user's databases.
 
 Deterministic message/telemetry barriers cover A-publish/B-publish/A-cleanup,
-stale reconciliation and grace, in-flight/identical digest writes, retention one
-and normal distinct retention, tentative publication rollback, killed publication
+stale reconciliation and grace, in-flight/identical digest writes, preserved older catalog
+images, tentative publication rollback, killed publication
 owners, stale reservation rejection before storage, main-connection death, actual
 DBConnection timeout notification while the private lock stays live, killed private
 owners immediately before a destructive raw call, raw deletion execution in the

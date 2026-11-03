@@ -9,11 +9,22 @@ defmodule Lovelace.StageDesigner do
       define :reserve_state, action: :reserve
       define :publish_state, action: :publish
       define :fail_state, action: :fail
+      define :select_state_scene, action: :select_scene
+    end
+
+    resource Lovelace.StageDesigner.Scene
+
+    resource Lovelace.StageDesigner.DefaultScene do
+      define :initialize_default_scene, action: :initialize
+      define :get_default_scene, action: :read, get_by: [:id], not_found_error?: false
     end
 
     resource Lovelace.StageDesigner.Designer do
       define :background, action: :background
       define :image, action: :image, args: [:digest]
+      define :list_scenes, action: :list_scenes
+      define :select_scene, action: :select_scene, args: [:digest]
+      define :request_scene_generation, action: :request_scene_generation
       define :generate_on_startup, action: :startup
       define :retry_failed_startup, action: :retry_failed
       define :gemini_connection_status, action: :gemini_connection_status

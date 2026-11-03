@@ -63,6 +63,24 @@ defmodule LovelaceWeb.OwnerControllerTest do
     end
   end
 
+  test "empty static and live stages share the persisted bundled default without creating scenes",
+       %{conn: conn} do
+    actor = %{role: :stage_designer}
+    before = Lovelace.StageDesigner.get_state!(1, actor: actor)
+    chosen = Lovelace.StageDesigner.initialize_default_scene!(%{}, actor: actor)
+    url = "/images/scenes/#{chosen.digest}.jpg"
+    static = conn |> get("/unlock") |> html_response(200) |> LazyHTML.from_document()
+
+    assert LazyHTML.query(static, "#owner-stage-background") |> LazyHTML.attribute("style") ==
+             ["--workspace-default-background: url('#{url}')"]
+
+    {:ok, live, _} = conn |> authenticate_owner() |> Phoenix.LiveViewTest.live("/")
+    assert Phoenix.LiveViewTest.has_element?(live, "#workspace-background[style*=\"#{url}\"]")
+    refute Phoenix.LiveViewTest.has_element?(live, "#workspace-background img")
+    assert Lovelace.StageDesigner.get_state!(1, actor: actor) == before
+    assert Lovelace.StageDesigner.get_default_scene!(1, actor: actor).digest == chosen.digest
+  end
+
   test "login rotates browser session and lock revokes its token", %{conn: conn} do
     configure()
     old_token = :crypto.strong_rand_bytes(32) |> Base.url_encode64(padding: false)

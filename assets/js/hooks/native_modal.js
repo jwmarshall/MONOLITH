@@ -37,7 +37,8 @@ export default {
     this.window.requestAnimationFrame(() => {
       this.document.dispatchEvent(new this.window.Event("lovelace:modal-closed"))
       if (this.document.querySelector("dialog[open]")) return
-      const target = this.document.querySelector(this.returnFocus) ||
+      const trigger = this.document.querySelector(this.returnFocus)
+      const target = trigger && !trigger.disabled ? trigger :
         this.document.querySelector("[data-workspace-heading]")
       target?.focus({preventScroll: true})
     })

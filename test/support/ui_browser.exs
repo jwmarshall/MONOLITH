@@ -18,12 +18,80 @@ File.chmod!(root, 0o700)
 defmodule Lovelace.UIFixture do
   @moduledoc false
 
+  alias Lovelace.TestSupport.PNG
+
   def get("00000000-0000-4000-8000-000000000005"), do: {:error, :locked}
   def get(_id), do: {:ok, "synthetic-refresh"}
   def put(_id, _token), do: :ok
   def delete(_id), do: :ok
   def refresh("synthetic-refresh"), do: {:ok, %{access_token: "synthetic-access"}}
   def revoke(_token), do: :ok
+
+  def calendars("synthetic-access") do
+    {:ok,
+     %{
+       calendars: [
+         %{id: "primary", name: "Synthetic personal", selected: true},
+         %{id: "shared@example.test", name: "Synthetic shared", selected: false}
+       ],
+       truncated: false
+     }}
+  end
+
+  def events("synthetic-access", calendar_id, _from, _to) do
+    date = Date.utc_today() |> Date.to_iso8601()
+    tomorrow = Date.utc_today() |> Date.add(1) |> Date.to_iso8601()
+
+    {:ok,
+     %{
+       events: [
+         %{
+           id: "synthetic-all-day",
+           title: "Synthetic day off",
+           start: date,
+           end: tomorrow,
+           all_day: true,
+           url: "https://calendar.google.com/calendar/event?eid=synthetic"
+         },
+         %{
+           id: "synthetic-focus",
+           title:
+             if(calendar_id == "primary",
+               do: "Synthetic focus time",
+               else: "Synthetic shared event"
+             ),
+           start: date <> "T12:00:00Z",
+           end: date <> "T13:00:00Z",
+           all_day: false,
+           url: "https://calendar.google.com/calendar/event?eid=synthetic"
+         }
+       ],
+       truncated: false
+     }}
+  end
+
+  # Deliberately synthetic geometry, not generated/private artwork. Distinct
+  # palettes and silhouettes make gallery selection visible in screenshots.
+  def scene_image(number) do
+    palette =
+      Enum.at(
+        [
+          {{76, 105, 109}, {38, 56, 57}, {27, 35, 37}, {188, 151, 103}},
+          {{113, 101, 88}, {62, 68, 61}, {39, 43, 41}, {193, 167, 118}},
+          {{80, 105, 102}, {43, 65, 62}, {29, 42, 41}, {166, 185, 160}}
+        ],
+        rem(number - 1, 3)
+      )
+
+    pixels = for y <- 0..269, into: <<>>, do: scene_row(y, number, palette)
+
+    IO.iodata_to_binary([
+      <<137, 80, 78, 71, 13, 10, 26, 10>>,
+      PNG.chunk("IHDR", <<480::32, 270::32, 8, 6, 0, 0, 0>>),
+      PNG.chunk("IDAT", :zlib.compress(pixels)),
+      PNG.chunk("IEND", "")
+    ])
+  end
 
   def inbox("synthetic-access", _page) do
     threads =
@@ -79,6 +147,31 @@ defmodule Lovelace.UIFixture do
 
     {:ok, %{"messages" => messages}}
   end
+
+  defp scene_row(y, number, palette) do
+    row = for x <- 0..479, into: <<>>, do: scene_pixel(x, y, number, palette)
+    <<0>> <> row
+  end
+
+  defp scene_pixel(x, y, number, {sky, ground, building, light}) do
+    silhouette = rem(number - 1, 7) + 1
+
+    color =
+      cond do
+        within?(x, y, (72 + silhouette * 18)..(192 + silhouette * 18), 95..207) -> building
+        within?(x, y, (192 + silhouette * 18)..(202 + silhouette * 18), 95..207) -> light
+        within?(x, y, 290..430, (145 - silhouette * 8)..218) -> building
+        within?(x, y, (16 + number * 12)..(20 + number * 12), 238..251) -> light
+        y >= 226 -> ground
+        true -> sky
+      end
+
+    {red, green, blue} = color
+    shade = div(y, 18)
+    <<max(red - shade, 0), max(green - shade, 0), max(blue - shade, 0), 255>>
+  end
+
+  defp within?(x, y, horizontal, vertical), do: x in horizontal and y in vertical
 end
 
 try do
@@ -95,6 +188,7 @@ try do
 
   Application.put_env(:lovelace, :gmail_provider, Lovelace.UIFixture)
   Application.put_env(:lovelace, :gmail_vault, Lovelace.UIFixture)
+  Application.put_env(:lovelace, :calendar_provider, Lovelace.UIFixture)
   {:ok, _} = Lovelace.TestSupport.GeminiVault.start_link([])
   Application.put_env(:lovelace, :gemini_vault, Lovelace.TestSupport.GeminiVault)
 
@@ -120,24 +214,60 @@ try do
 
   {:ok, _} = Application.ensure_all_started(:lovelace)
   Lovelace.Owner.configure!("synthetic browser owner password", actor: %{role: :owner_setup})
+  {:ok, {_ip, port}} = LovelaceWeb.Endpoint.server_info(:http)
+
+  # First exercise a genuinely empty installation, using only bundled public
+  # artwork and a synthetic owner. No generated catalog or provider call exists.
+  {_output, default_status} =
+    System.cmd(
+      "node",
+      [
+        "test/browser/ui_contract.mjs",
+        browser,
+        root,
+        "http://localhost:#{port}",
+        "",
+        "",
+        "",
+        "bundled-default"
+      ],
+      into: IO.stream(:stdio, :line),
+      env: [{"LOVELACE_STAGE_ENABLED", "false"}]
+    )
+
+  if default_status != 0, do: Mix.raise("Bundled default scenery browser regressions failed")
+
   owner = %{role: :local_owner}
 
-  # Serve a tiny locally encoded fixture through the real validated image route,
-  # without invoking generation or using the user's scenery directory.
+  # Publish only locally encoded fixtures through the real validated image route.
+  # All 23 distinct archived images remain available beyond the recent fallback
+  # window and fill two gallery pages (20 + 3), without a total retention cap.
+  # Archive dates are old; seed a recent failed reservation below to verify
+  # manual generation stays available inside the automatic startup cooldown.
   now = DateTime.utc_now()
   actor = %{role: :stage_designer}
+  initial = Lovelace.StageDesigner.initialize_state!(%{}, actor: actor)
 
-  reserved =
-    Lovelace.StageDesigner.initialize_state!(%{}, actor: actor)
-    |> Lovelace.StageDesigner.reserve_state!(%{last_attempt_at: now}, actor: actor)
+  Enum.reduce(1..23, initial, fn number, state ->
+    generated_at = DateTime.add(now, -(24 + (24 - number) * 24) * 3600, :second)
 
-  {:ok, _} =
-    Lovelace.StageDesigner.Storage.store_and_publish(
-      scenery,
-      Lovelace.TestSupport.PNG.image(),
-      reserved,
-      now
-    )
+    reserved =
+      Lovelace.StageDesigner.reserve_state!(state, %{last_attempt_at: generated_at}, actor: actor)
+
+    {:ok, published} =
+      Lovelace.StageDesigner.Storage.store_and_publish(
+        scenery,
+        Lovelace.UIFixture.scene_image(number),
+        reserved,
+        generated_at
+      )
+
+    published
+  end)
+
+  Lovelace.StageDesigner.get_state!(1, actor: actor)
+  |> Lovelace.StageDesigner.reserve_state!(%{last_attempt_at: now}, actor: actor)
+  |> Lovelace.StageDesigner.fail_state!(%{}, actor: actor)
 
   workspace = Lovelace.Workspaces.create_workspace!("Browser studio", actor: owner)
 
@@ -152,7 +282,8 @@ try do
         id: Ecto.UUID.generate(),
         subject: "synthetic-browser-account",
         email: "browser@example.test",
-        generation: Ecto.UUID.generate()
+        generation: Ecto.UUID.generate(),
+        calendar_enabled: true
       },
       actor: owner
     )
@@ -196,6 +327,17 @@ try do
     actor: owner
   )
 
+  # Seed a real bounded Calendar cache from synthetic provider data. Chrome uses UTC
+  # for this fixture; production always takes its day boundaries from the browser.
+  day = Date.utc_today()
+  first = DateTime.new!(day, ~T[00:00:00]) |> DateTime.to_iso8601()
+  last = DateTime.new!(Date.add(day, 1), ~T[00:00:00]) |> DateTime.to_iso8601()
+
+  {:ok, %{revision: revision}} =
+    Lovelace.Calendar.prepare(account.id, first, last, Date.to_iso8601(day), "UTC", actor: owner)
+
+  {:ok, _} = Lovelace.Calendar.poll(account.id, account.generation, revision, actor: owner)
+
   # Exercise real Connections density with five independent synthetic accounts.
   for number <- 3..5 do
     Lovelace.Mail.save_connection!(
@@ -209,8 +351,6 @@ try do
       actor: owner
     )
   end
-
-  {:ok, {_ip, port}} = LovelaceWeb.Endpoint.server_info(:http)
 
   {_output, status} =
     System.cmd(

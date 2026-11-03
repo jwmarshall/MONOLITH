@@ -1,10 +1,10 @@
 defmodule Lovelace.StageDesigner.Storage do
-  @moduledoc "Bounded, content-addressed local PNG/JPEG storage. No provider URLs are served."
+  @moduledoc "Content-addressed local PNG/JPEG storage with bounded image reads and orphan cleanup."
 
   require Logger
   alias Lovelace.Repo
   alias Lovelace.StageDesigner
-  alias Lovelace.StageDesigner.{Coordination, Image}
+  alias Lovelace.StageDesigner.{Coordination, Image, Scene}
 
   @actor %{role: :stage_designer}
 
@@ -55,6 +55,32 @@ defmodule Lovelace.StageDesigner.Storage do
     end
   end
 
+  def select(settings, digest) do
+    Coordination.with_lock(settings, fn ->
+      with {:ok, state} when not is_nil(state) <- StageDesigner.get_state(1, actor: @actor),
+           {:ok, true} <- Scene.registered(digest),
+           {:ok, _bytes} <- read(settings, digest),
+           {:ok, _state} <-
+             StageDesigner.select_state_scene(state, %{selected_digest: digest}, actor: @actor) do
+        {:ok, :selected}
+      else
+        _ -> {:error, :unavailable_scene}
+      end
+    end)
+  end
+
+  # Older manifests know only their most recent successful timestamp. Do not
+  # fabricate dates for the rest of their history.
+  def scene_dates(state) do
+    case {state.history, state.generated_at} do
+      {[latest | _], %DateTime{} = date} ->
+        Map.put_new(state.scene_dates, latest, DateTime.to_iso8601(date))
+
+      _ ->
+        state.scene_dates
+    end
+  end
+
   def store(settings, bytes) do
     case Coordination.with_lock(settings, fn -> store_locked(settings, bytes) end) do
       {:ok, digest} -> {:ok, digest}
@@ -81,7 +107,9 @@ defmodule Lovelace.StageDesigner.Storage do
     Repo.transaction(fn ->
       with {:ok, current} when not is_nil(current) <- StageDesigner.get_state(1, actor: @actor),
            true <- current.version == reserved.version and current.status == :generating,
-           {:ok, published} <- publish_locked(settings, bytes, reserved, now) do
+           # Selection does not bump the reservation version. Use the current
+           # record so Ash doesn't suppress a digest equal to the old baseline.
+           {:ok, published} <- publish_locked(settings, bytes, current, now) do
         published
       else
         {:error, {stage, reason}} -> Repo.rollback({stage, reason})
@@ -93,16 +121,29 @@ defmodule Lovelace.StageDesigner.Storage do
   defp publish_locked(settings, bytes, reserved, now) do
     case store_locked(settings, bytes) do
       {:ok, digest} ->
-        history = Enum.take(Enum.uniq([digest | reserved.history]), settings.retain_count)
-        publish_manifest(reserved, history, now)
+        # Seven recent fallback candidates bound background work, not stored scenes.
+        history = Enum.take(Enum.uniq([digest | reserved.history]), 7)
+
+        dates =
+          reserved
+          |> scene_dates()
+          |> Map.put(digest, DateTime.to_iso8601(now))
+          |> Map.take(history)
+
+        case Scene.publish(digest, now) do
+          {:ok, _scene} -> publish_manifest(reserved, digest, history, dates, now)
+          _ -> {:error, {:publication, :publication_error}}
+        end
 
       {:error, _} ->
         {:error, {:storage, :storage_error}}
     end
   end
 
-  defp publish_manifest(reserved, history, now) do
-    case StageDesigner.publish_state(reserved, %{history: history, generated_at: now},
+  defp publish_manifest(reserved, digest, history, dates, now) do
+    case StageDesigner.publish_state(
+           reserved,
+           %{history: history, generated_at: now, selected_digest: digest, scene_dates: dates},
            actor: @actor
          ) do
       {:ok, published} -> {:ok, published}
@@ -125,7 +166,8 @@ defmodule Lovelace.StageDesigner.Storage do
 
   # Compatibility arguments are not authority. Always reread under a fresh writer
   # lock, after the publication transaction has committed.
-  def prune(settings, _retained), do: authoritative_cleanup(settings, nil)
+  def prune(settings, _retained),
+    do: authoritative_cleanup(settings, System.system_time(:second) - 300)
 
   # Keep five minutes of orphan/temp grace for interrupted or standalone stores.
   def reconcile(settings, _retained, now), do: authoritative_cleanup(settings, now - 300)
@@ -133,16 +175,16 @@ defmodule Lovelace.StageDesigner.Storage do
   defp authoritative_cleanup(settings, cutoff) do
     Coordination.with_lock(settings, fn ->
       case StageDesigner.get_state(1, actor: @actor) do
-        {:ok, state} when not is_nil(state) -> cleanup(settings, state.history, cutoff)
+        {:ok, state} when not is_nil(state) -> cleanup(settings, cutoff)
         _ -> {:error, :manifest_unavailable}
       end
     end)
   end
 
-  defp cleanup(settings, retained, cutoff) do
+  defp cleanup(settings, cutoff) do
     case File.ls(settings.storage_dir) do
       {:ok, names} ->
-        prune_files(settings, names, retained, cutoff)
+        prune_files(settings, names, cutoff)
 
       {:error, :enoent} ->
         :ok
@@ -152,9 +194,9 @@ defmodule Lovelace.StageDesigner.Storage do
     end
   end
 
-  defp prune_files(settings, names, retained, cutoff) do
+  defp prune_files(settings, names, cutoff) do
     Enum.reduce_while(names, :ok, fn name, :ok ->
-      case prune_file(settings, name, retained, cutoff) do
+      case prune_file(settings, name, cutoff) do
         :ok -> {:cont, :ok}
         {:error, _} -> {:halt, {:error, :cleanup_error}}
       end
@@ -162,19 +204,30 @@ defmodule Lovelace.StageDesigner.Storage do
   end
 
   # Only exact generated digest/UUID filenames under the configured root are removable.
-  defp prune_file(settings, name, retained, cutoff) do
+  defp prune_file(settings, name, cutoff) do
     digest = Path.rootname(name)
 
     generated? =
-      Path.extname(name) in [".png", ".jpg"] and valid_digest?(digest) and digest not in retained
+      Path.extname(name) in [".png", ".jpg"] and valid_digest?(digest)
 
     temporary? = not is_nil(cutoff) and Regex.match?(~r/\A\.stage-[0-9a-f-]{36}\.tmp\z/, name)
     path = Path.join(settings.storage_dir, name)
 
-    if generated? or temporary? do
-      remove_if_old(path, cutoff)
-    else
-      :ok
+    cond do
+      generated? ->
+        # Catalog authority is unbounded, but each indexed lookup is bounded.
+        # A missing/unavailable catalog never grants permission to delete.
+        case Scene.registered(digest) do
+          {:ok, true} -> :ok
+          {:ok, false} -> remove_if_old(path, cutoff)
+          {:error, _} -> {:error, :cleanup_error}
+        end
+
+      temporary? ->
+        remove_if_old(path, cutoff)
+
+      true ->
+        :ok
     end
   end
 

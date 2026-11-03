@@ -15,9 +15,12 @@ Stack: Phoenix LiveView, Ash/AshSqlite over Ecto/SQLite, and Tailwind.
 - Workspaces represent areas of life; **Personal** is the starter. One reusable Google
   connection can appear in several workspaces, and a workspace can contain several accounts.
   Keep account/integration tiles separate; workspace removal is not global disconnect.
-- The current slice is read-only Gmail. Organizing mail, drafting and explicit sending
-  are the longer-term two-way vision, not permission to add writes now. Projects are deferred;
-  when introduced, each belongs to one account with explicit/manual thread membership.
+- The current slice is read-only Gmail and opt-in Google Calendar: per-account browser-local
+  today's agendas on Home and workspaces, selected/shared calendars, no calendar writes.
+  Reuse Google connections with explicit Calendar consent; Calendar health is independent of Gmail.
+  Organizing mail, drafting, sending and projects
+  are outside current scope, not an implicit roadmap. Revisit only on a fresh user request;
+  any future project must belong to one account with explicit/manual thread membership.
 - Gmail owns mail state; LOVELACE owns workspace/project data. Use bounded on-demand caching
   and Gmail search, not a full offline mirror or local mail index. Poll while the app runs;
   do not promise instant updates or execution while the computer is asleep/off.
@@ -54,11 +57,13 @@ Stack: Phoenix LiveView, Ash/AshSqlite over Ecto/SQLite, and Tailwind.
 - Keep business logic under `lib/lovelace/` and UI under `lib/lovelace_web/`.
   Keep provider HTTP/OAuth and long-running work out of LiveView callbacks.
 - Oban 2.24's bundled SQLite Lite engine handles account-scoped polling.
-  Keychain holds refresh tokens. See docs/GMAIL.md before changing grants/cache/jobs.
+  Keychain holds refresh tokens. See docs/GMAIL.md and docs/CALENDAR.md before changing grants/cache/jobs.
 - No external telemetry exporter. Stock Bandit's in-process conn metadata is an explicit
   user-accepted local exception; never add payload logging/export without privacy review.
 - Scenery is app-wide, not account-owned. Gemini generation is opt-in and potentially billable;
-  preserve startup-only attempts, persisted 24-hour cooldown and no automatic retries.
+  allow opted-in startup or explicitly confirmed Scenes requests. The persisted 24-hour
+  cooldown applies to automatic startup only; manual requests need fresh cost confirmation
+  and refuse overlapping/unconfirmed attempts. Never retry automatically.
   Gemini keys are managed in Connections and stored separately in macOS Keychain;
   no environment-key fallback or provider probe/generation on credential saves.
   Force `LOVELACE_STAGE_ENABLED=false` for maintenance; see docs/STAGE_DESIGNER.md.
@@ -80,6 +85,9 @@ Stack: Phoenix LiveView, Ash/AshSqlite over Ecto/SQLite, and Tailwind.
 Run `mix check` (format/compile/Credo/AshCredo/Sobelow/tests/assets) and `mix audit`
 (online advisories/retired packages). For UI changes also run `mix test.ui` (installed
 Chrome/Chromium; see docs/DEVELOPMENT.md). `mix lint` compiles in test for AshCredo introspection.
-Keep durable decisions here and current status/open work in docs/HANDOFF.md; replace stale
-status rather than appending a chronology. Refresh linked dependency guidance with
-`mix usage_rules.sync` when dependencies change. Report unrun checks; never claim planned work exists.
+Keep durable decisions here and operational contracts in the relevant docs. Do not maintain
+handoff documents, completion histories or speculative backlogs. Choose future work from the
+current user request; retired plans are not obligations. Verify implementation in code and
+report check results in the task response, not a rolling status document. Refresh linked
+dependency guidance with `mix usage_rules.sync` when dependencies change. Report unrun checks;
+never claim planned work exists.

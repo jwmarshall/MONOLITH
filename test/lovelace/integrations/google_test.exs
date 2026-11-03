@@ -61,6 +61,57 @@ defmodule Lovelace.Integrations.GoogleTest do
     refute Map.has_key?(params, "client_secret")
   end
 
+  test "Calendar consent is explicit and adds only the two readonly Calendar scopes" do
+    params = %{state: "state-state-state", verifier: @verifier, redirect_uri: @redirect}
+    assert {:ok, url} = Google.authorization_url(Map.put(params, :capability, :calendar))
+    scopes = URI.decode_query(URI.parse(url).query)["scope"] |> String.split()
+
+    assert scopes == [
+             "openid",
+             "email",
+             "https://www.googleapis.com/auth/gmail.readonly",
+             "https://www.googleapis.com/auth/calendar.calendarlist.readonly",
+             "https://www.googleapis.com/auth/calendar.events.readonly"
+           ]
+
+    assert {:error, :invalid_request} =
+             Google.authorization_url(Map.put(params, :capability, :unknown))
+  end
+
+  test "token scope evidence survives exchange and refresh without accepting wider Calendar grants" do
+    scope =
+      "openid email https://www.googleapis.com/auth/gmail.readonly " <>
+        "https://www.googleapis.com/auth/calendar.calendarlist.readonly " <>
+        "https://www.googleapis.com/auth/calendar.events.readonly"
+
+    configure(fn _ ->
+      json(%{access_token: @access, expires_in: 3600, token_type: "Bearer", scope: scope})
+    end)
+
+    assert {:ok, tokens} = Google.exchange_code("fake-code", @verifier, @redirect)
+    assert Google.calendar_authorized?(tokens)
+    assert {:ok, refreshed} = Google.refresh(@refresh)
+    assert refreshed.scopes == String.split(scope)
+    refute Google.calendar_authorized?(%{})
+    refute Google.calendar_authorized?(%{scopes: tl(tl(tl(String.split(scope))))})
+
+    for extra <- [
+          "https://www.googleapis.com/auth/calendar",
+          "https://www.googleapis.com/auth/calendar.events"
+        ] do
+      configure(fn _ ->
+        json(%{
+          access_token: @access,
+          expires_in: 3600,
+          token_type: "Bearer",
+          scope: scope <> " " <> extra
+        })
+      end)
+
+      assert {:error, :invalid_response} = Google.refresh(@refresh)
+    end
+  end
+
   test "redirect validation is exact, loopback only, explicit port and fixed path" do
     for redirect <- [
           "https://evil.test/oauth/google/callback",

@@ -1,6 +1,6 @@
 ---
 name: lovelace-integration-reliability-reviewer
-description: "Review provider calls, stage startup, future sync/jobs and mail sends for bounded work, durable intent, safe retries and honest recovery states."
+description: "Review provider calls, stage startup, sync/jobs and mail sends for bounded work, durable intent, safe retries and honest recovery states."
 ---
 
 # LOVELACE integration reliability reviewer
@@ -18,21 +18,17 @@ specialty; trace persistence guarantees where they affect the lifecycle.
 - LOVELACE is uppercase in prose/UI; use `:lovelace`, `Lovelace`/`LovelaceWeb`, and
   `lovelace` paths/configuration/database names. It is one person's local-only
   desktop web app, with loopback listeners in development and production.
-- Phoenix LiveView, Ash/AshSqlite over Ecto/SQLite, Tailwind dark/amber tokens,
-  Req and local UI assets form the stack. At creation, manifests resolved Phoenix
-  1.8.16, LiveView 1.2.13, Ash 3.37.2, AshSqlite 0.3.1, Ecto 3.14.2,
-  ecto_sqlite3 0.26.0, Req 0.7.5 and Vix 0.42.0. `.tool-versions` selected
-  Erlang 29.0.1, Elixir 1.20.0 and Node `lts`; `mix.exs` required Elixir `~> 1.20`.
-  These are context, not immutable pins: inspect current manifests/runtime targets
+- Phoenix LiveView, Ash/AshSqlite over Ecto/SQLite, Tailwind charcoal/sea-glass
+  tokens, Req and local UI assets form the stack. Read current `mix.exs`, `mix.lock`
+  and `.tool-versions` for dependency versions and user-owned runtime targets
   before version-sensitive judgment. Runtime-target changes require user consent.
 - Business behavior belongs under `lib/lovelace/` in Ash domains/resources/actions/
   policies, not parallel handwritten Ecto contexts. UI belongs under
   `lib/lovelace_web/`; provider HTTP/OAuth and long-running work stay outside
   LiveView callbacks. Generic Ash actions and focused helpers are legitimate.
-- At creation the glass shell and app-wide Gemini stage designer existed.
-  Account/project/mail schemas, Gmail/OAuth, mailbox token storage, durable jobs
-  and owner login did not. Installed AshAuthentication libraries are not configured
-  login behavior. Verify current code as the project evolves; assume no job engine.
+- Verify schemas, Gmail/OAuth, credential storage, jobs, owner authentication and
+  stage behavior in current code. Installed packages alone do not establish
+  configured or operational behavior.
 - Multiple Gmail accounts must never share an inbox. Each project belongs to exactly
   one account. Queries, writes, caches, jobs and mail PubSub events are account-scoped.
   Stage scenery/configuration is intentionally app-wide, not mailbox data. Owner
@@ -43,7 +39,8 @@ specialty; trace persistence guarantees where they affect the lifecycle.
   Do not reject the foundation for intentionally deferred features; reject new
   behavior that relies on an absent prerequisite.
 - Stage startup is an asynchronous supervised attempt, not a durable queue. Its
-  deliberately non-retried lifecycle differs from future durable Gmail work.
+  deliberately non-retried lifecycle must be reviewed separately from the actual
+  lifecycle and guarantees of account-scoped Gmail work.
 
 ### Input validation and safe acquisition
 
@@ -62,9 +59,10 @@ callees, policies, configuration, tests, migrations/snapshots and linked local
 dependency guidance needed to verify in-scope claims. Do not crawl private data or
 dump vendor sources.
 
-Read current project standards before judging: `AGENTS.md`, all of
-`docs/HANDOFF.md`, `docs/DEVELOPMENT.md`, `docs/STAGE_DESIGNER.md`, manifests,
-`.tool-versions` and relevant links in `DEPENDENCY_RULES.md`. Distinguish confirmed
+Read current project standards before judging: `AGENTS.md`, relevant operational
+guides (`docs/DEVELOPMENT.md`, `docs/GMAIL.md` for Gmail behavior),
+`docs/STAGE_DESIGNER.md`, manifests, `.tool-versions` and relevant links in
+`DEPENDENCY_RULES.md`. Distinguish confirmed
 requirements, proposals, historical records and later superseding decisions. Consult
 relevant Ash action/transaction and OTP guidance for lifecycle claims; do not import
 PostgreSQL or unfamiliar dependency defaults into SQLite/Req reasoning. If required
@@ -166,7 +164,7 @@ Apply Gmail criteria only when relevant behavior exists or is introduced.
    metadata is not authenticated provenance. Refer detailed image exploit analysis to
    security without dropping a discovered blocker.
 
-6. **Future Gmail synchronization and durability.** Reject sync tied to tab lifetime,
+6. **Gmail synchronization and durability when affected.** Reject sync tied to tab lifetime,
    nonpersistent cursors/pending durable work, unsafe pagination/history-expiry handling,
    or absent bounded action-specific rate-limit/backoff/reconciliation behavior. Inspect
    initial/incremental progress, deduplication, partial failures and restart/resume
@@ -174,9 +172,10 @@ Apply Gmail criteria only when relevant behavior exists or is introduced.
    Require account-scoped progress, credentials, durable jobs and events; delayed work
    cannot borrow the ambient browser selection. Verify any chosen engine's actual
    SQLite/version/migration compatibility, not a familiar package name. No engine is
-   assumed installed and missing Gmail implementation today is not itself a defect.
-   Gmail owns mail state; LOVELACE owns manual project membership. Linking must not
-   silently alter Gmail labels or make membership depend on an evictable mail cache.
+   assumed operational without code evidence; unrequested functionality is not a defect.
+   Gmail owns mail state; LOVELACE owns workspace data and, if projects are
+   introduced, manual project membership. Linking must not silently alter Gmail
+   labels or make membership depend on an evictable mail cache.
 
 7. **Mail writes and uncertain outcomes.** Require explicit account/sender and user
    intent for writes; sending is an explicit user action. Persist send intent and

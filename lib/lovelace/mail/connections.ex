@@ -7,12 +7,33 @@ defmodule Lovelace.Mail.Connections do
   @doc false
   def serial(id, fun), do: :global.trans({{__MODULE__, id}, self()}, fun, [node()])
 
-  def accept(workspace_id, %{subject: subject, email: email}, refresh_token)
-      when is_binary(refresh_token) and byte_size(refresh_token) > 0 do
+  def accept(workspace_id, identity, refresh_token),
+    do: accept(workspace_id, identity, refresh_token, :gmail)
+
+  def accept(workspace_id, identity, refresh_token, capability),
+    do: accept(workspace_id, identity, refresh_token, capability, nil)
+
+  def accept(
+        workspace_id,
+        %{subject: subject, email: email},
+        refresh_token,
+        capability,
+        expected_generation
+      )
+      when (refresh_token == :reuse_existing or
+              (is_binary(refresh_token) and byte_size(refresh_token) > 0)) and
+             capability in [:gmail, :calendar] do
     case Lovelace.Workspaces.get_workspace(workspace_id, actor: @owner) do
       {:ok, _} ->
         serial({:subject, :crypto.hash(:sha256, subject)}, fn ->
-          accept_identity(workspace_id, subject, email, refresh_token)
+          accept_identity(
+            workspace_id,
+            subject,
+            email,
+            refresh_token,
+            capability,
+            expected_generation
+          )
         end)
 
       _ ->
@@ -22,20 +43,25 @@ defmodule Lovelace.Mail.Connections do
     _ -> {:error, :unavailable}
   end
 
-  def accept(_, _, _), do: {:error, :reconnect}
+  def accept(_, _, _, _, _), do: {:error, :reconnect}
 
-  defp accept_identity(workspace_id, subject, email, token) do
+  defp accept_identity(workspace_id, subject, email, token, capability, expected_generation) do
     with {:ok, previous} <- Mail.find_account(subject, actor: @owner) do
       id = if previous, do: previous.id, else: Ash.UUID.generate()
-      serial(id, fn -> commit(workspace_id, id, subject, email, token) end)
+
+      serial(id, fn ->
+        commit(workspace_id, id, subject, email, token, capability, expected_generation)
+      end)
     end
   end
 
-  defp commit(workspace_id, id, subject, email, token) do
-    with {:ok, prior} <- read_prior(id),
-         :ok <- write_token(id, token) do
-      case persist_connection(workspace_id, id, subject, email) do
+  defp commit(workspace_id, id, subject, email, token, capability, expected_generation) do
+    with :ok <- current_grant(id, capability, expected_generation),
+         {:ok, prior} <- read_prior(id),
+         :ok <- persist_token(id, token, prior) do
+      case persist_connection(workspace_id, id, subject, email, capability) do
         {:ok, account} ->
+          Lovelace.Calendar.clear(id)
           PollWorker.enqueue(account)
           Operations.broadcast(account.id)
           {:ok, account}
@@ -46,6 +72,17 @@ defmodule Lovelace.Mail.Connections do
     end
   end
 
+  # Checked while holding the same account lock as disconnect and publication.
+  # An old optional-consent callback cannot resurrect a disconnected generation.
+  defp current_grant(id, :calendar, expected) when not is_nil(expected) do
+    case Mail.get_account(id, actor: @owner) do
+      {:ok, %{generation: ^expected, status: status}} when status != :disconnected -> :ok
+      _ -> {:error, :reconnect}
+    end
+  end
+
+  defp current_grant(_, _, _), do: :ok
+
   defp restore_failure(id, prior) do
     case restore(id, prior) do
       :ok -> {:error, :unavailable}
@@ -53,11 +90,17 @@ defmodule Lovelace.Mail.Connections do
     end
   end
 
-  defp persist_connection(workspace_id, id, subject, email) do
+  defp persist_connection(workspace_id, id, subject, email, capability) do
     Ash.transact([Account, WorkspaceAccount], fn ->
       account =
         Mail.save_connection!(
-          %{id: id, subject: subject, email: email, generation: Ash.UUID.generate()},
+          %{
+            id: id,
+            subject: subject,
+            email: email,
+            generation: Ash.UUID.generate(),
+            calendar_enabled: capability == :calendar
+          },
           actor: @owner
         )
 
@@ -76,6 +119,14 @@ defmodule Lovelace.Mail.Connections do
       _ -> {:error, {:keychain, :unavailable}}
     end
   end
+
+  # Reuse is resolved only after reading the current credential under the account
+  # lock. Never write a callback's earlier snapshot over a rotated refresh token.
+  defp persist_token(_, :reuse_existing, {:present, token})
+       when is_binary(token) and byte_size(token) > 0, do: :ok
+
+  defp persist_token(_, :reuse_existing, _), do: {:error, :reconnect}
+  defp persist_token(id, token, _), do: write_token(id, token)
 
   defp write_token(id, token) do
     case Operations.vault().put(id, token) do

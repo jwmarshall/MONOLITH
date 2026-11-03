@@ -7,12 +7,18 @@ defmodule Lovelace.StageDesigner.SettingsTest do
     assert %Settings{
              enabled: false,
              min_refresh_hours: 24,
-             retain_count: 7,
              model: "gemini-nano-banana-2.1",
              image_size: "1K"
            } = Settings.from_env(%{})
 
     assert Settings.idle_minutes(%{}) == 3
+  end
+
+  test "legacy retention configuration is ignored and cannot cap the catalog" do
+    for value <- ["1", "7", "8", "unlimited", "invalid"] do
+      settings = Settings.from_env(%{"LOVELACE_STAGE_RETAIN_COUNT" => value})
+      refute Map.has_key?(settings, :retain_count)
+    end
   end
 
   test "test runtime ignores real enablement and credentials never enter settings" do
@@ -28,7 +34,6 @@ defmodule Lovelace.StageDesigner.SettingsTest do
           {"LOVELACE_STAGE_MIN_REFRESH_HOURS", "0"},
           {"LOVELACE_STAGE_MIN_REFRESH_HOURS", "24seconds"},
           {"LOVELACE_STAGE_TIMEOUT_SECONDS", "999999"},
-          {"LOVELACE_STAGE_RETAIN_COUNT", "8"},
           {"LOVELACE_STAGE_ASPECT_RATIO", "unknown"},
           {"LOVELACE_STAGE_IMAGE_SIZE", "100K"},
           {"LOVELACE_STAGE_MAX_ATTEMPTS_PER_STARTUP", "2"},

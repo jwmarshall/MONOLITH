@@ -2,17 +2,21 @@
 
 ## Scope
 
+Optional read-only Google Calendar agendas reuse these connections with separate,
+explicit consent and independent Calendar freshness. See [CALENDAR.md](CALENDAR.md)
+for scopes, selection, browser-local today, polling and shared disconnect semantics.
+
 One local owner unlocks LOVELACE with a password. Google connections are **not**
 owner identities. Connect Google once and attach that connection to one or more
 workspaces. Each workspace can contain several accounts; each inbox, search,
 conversation, cache, job and update remains account-scoped. There is no unified inbox.
-Projects, sending, drafts, archive/read/label changes and attachment downloads are deferred.
+Projects, sending, drafts, archive/read/label changes and attachment downloads are outside
+current scope, not a standing backlog.
 Reading a conversation does **not** mark it as read in Gmail.
 
-This is a macOS-first integration. Automated tests use synthetic providers and vaults;
-the agent has not inspected credential values or performed a real-account connection.
-The user confirmed a working connection and recovery from the partition-ACL issue below.
-Follow the manual steps below to activate a new installation yourself.
+This is a macOS-first integration. Automated tests use synthetic providers and vaults,
+not real accounts or credential values. Follow the manual steps below to activate a new
+installation yourself.
 
 ## 1. Local preparation
 
@@ -56,11 +60,13 @@ access to these items. Actual credential-store behavior needs manual validation 
 
 Use a dedicated project at <https://console.cloud.google.com/>:
 
-1. Enable the **Gmail API**.
+1. Enable the **Gmail API**. Enable **Google Calendar API** too only when using the
+   optional [Calendar integration](CALENDAR.md).
 2. Configure **Google Auth Platform** branding and audience. Use **External** for
    personal Gmail or accounts from different organizations. Internal is limited to
    the project's own Google Workspace organization.
-3. Add exactly these scopes to the consent configuration:
+3. Add these Gmail scopes to the consent configuration (optional Calendar scopes are
+   documented separately; Gmail-only authorization does not request them):
    - `openid`
    - `https://www.googleapis.com/auth/userinfo.email` (the console's canonical email scope)
    - `https://www.googleapis.com/auth/gmail.readonly`
@@ -189,8 +195,8 @@ password in argv, environment variables, files or chat. Do not substitute broad
 that native command, scoped to `LOVELACE Gmail`, the login keychain and only the verified
 current helper cdhash. This is manual recovery evidence, not an automated permission test.
 Do not rebuild the helper afterward: its ad-hoc signature changes with the executable.
-Remaining verification limits are in `HANDOFF.md`; a stable signing/update strategy is
-still needed to prevent the next helper rebuild repeating this.
+There is no validated stable signing/update strategy; the next helper rebuild can repeat
+this failure. This is an operating limitation, not authorization to rebuild or repair access.
 
 `userinfo.email` is the canonical console scope for the OAuth alias `email`; both
 forms are already supported. If consent completes but LOVELACE rejects the connection,
@@ -298,6 +304,15 @@ retain stock Bandit after reviewing this distinction:
 - Use one running application instance for Gmail. Credential coordination and LiveView
   payload storage are local to that BEAM; scenery's separate multi-BEAM filesystem
   protocol does not make Gmail a distributed integration.
+
+## Verification limits
+
+Synthetic tests do not certify real-provider unread conversation totals/recovery, native
+Keychain permissions, helper signing or cross-version credential migration. Validate these
+manually when relevant; a previous successful connection is not standing permission for
+provider operations or credential changes. Connected A→B→A delayed-result and rotating-token
+reconnect/disconnect interleavings are not exhaustively tested. Keep account/generation
+fences and use synthetic regression cases when changing those paths.
 
 ## References
 

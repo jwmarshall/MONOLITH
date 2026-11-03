@@ -25,6 +25,29 @@ defmodule Lovelace.StageDesigner.Designer do
       run {Lovelace.Integrations.Gemini.Credentials, operation: :delete}
     end
 
+    action :list_scenes, :map do
+      argument :page, :integer do
+        allow_nil? false
+        default 1
+        constraints min: 1
+      end
+
+      run {Lovelace.StageDesigner.Scenes, operation: :list}
+    end
+
+    action :select_scene, :atom do
+      argument :digest, :string do
+        allow_nil? false
+        constraints match: ~r/\A[0-9a-f]{64}\z/
+      end
+
+      run {Lovelace.StageDesigner.Scenes, operation: :select}
+    end
+
+    action :request_scene_generation, :atom do
+      run {Lovelace.StageDesigner.Startup, manual?: true}
+    end
+
     action :background, :map do
       run Lovelace.StageDesigner.ReadBackground
     end
@@ -60,7 +83,14 @@ defmodule Lovelace.StageDesigner.Designer do
   end
 
   policies do
-    policy action([:gemini_connection_status, :save_gemini_key, :remove_gemini_key]) do
+    policy action([
+             :gemini_connection_status,
+             :save_gemini_key,
+             :remove_gemini_key,
+             :list_scenes,
+             :select_scene,
+             :request_scene_generation
+           ]) do
       access_type :strict
       authorize_if Lovelace.Workspaces.LocalOwner
     end

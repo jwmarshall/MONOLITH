@@ -1,9 +1,9 @@
 # LOVELACE — visual and interaction contract
 
 This is the current contract for all owner, workspace and mail surfaces. Keep visual and
-interaction decisions here, durable product/safety rules in [AGENTS.md](../AGENTS.md),
-and implementation status/evidence in [HANDOFF.md](HANDOFF.md). Later approved decisions
-replace old requirements rather than accumulating a chronology.
+interaction decisions here and durable product/safety rules in [AGENTS.md](../AGENTS.md).
+Later approved decisions replace old requirements rather than accumulating a chronology.
+Verify implementation in code; the coverage map below is not evidence that checks passed.
 
 ## Direction and shared stage
 
@@ -71,20 +71,21 @@ replace old requirements rather than accumulating a chronology.
 
 - Home is the default after unlock/reload. Escape/idle wake preserves the current view,
   scroll and forms; it never navigates Home. Explicit OAuth workspace returns retain context.
-- A centered navigation bar contains **Home**, **Workspaces**, and **Connections**, in that
-  order. These are native buttons for the existing in-page navigation; current destinations
+- A centered navigation bar contains **Home**, **Workspaces**, **Connections**, and **Scenes**,
+  in that order. These are native buttons for the existing in-page navigation; current destinations
   are identified with `aria-current`. Home is a visible text control, never the decorative
   corner monogram. Lock stays separate. Global Connections has no additional Home/back
   button; use the center navigation. Gmail inboxes likewise have no redundant Home
   button. A contextual workspace-return button remains when Connections was opened
   from a workspace.
 - Home opens with a restrained greeting and date in the browser's local time, updated
-  across midnight/resume. Home, Workspaces and Connections use the same content width and
+  across midnight/resume. Home, Workspaces, Connections and Scenes use the same content width and
   alignment from the shared directory container; Home has no narrower inner cap. Reserve
   symmetric scrollbar gutters so scrolling pages do not shift the content plane. Keep copy
   functional and minimal: no “Your day” eyebrow, slogans or explanatory footer. Numeric
   account totals are labeled simply **unread**. No clock, message previews, total across
-  accounts or future widgets.
+  accounts or speculative widgets. The separately approved read-only Calendar agenda
+  below complements Gmail's daily orientation.
 - Gmail readouts use quiet horizontal rows: one per non-disconnected connection, including
   connections with no workspace membership. Each shows identity, workspace names, actual
   unread inbox conversation total and independently timestamped count freshness/health.
@@ -94,6 +95,18 @@ replace old requirements rather than accumulating a chronology.
   Home rendering reads persisted metadata, never provider calls or cached message content.
   Empty/loading/error/reconnect states remain explicit, with recovery through Connections.
 
+- Calendar shows account-separated browser-local today's agendas on Home and workspace
+  detail, without a unified timeline. Display time/title/calendar, all-day/ongoing labels
+  and explicit Google Calendar links, never descriptions, attendees or remote content.
+  Connections → Calendar owns optional consent and local calendar selection (Google-selected
+  defaults, shared calendars included). Unknown/loading/failure are not an empty agenda;
+  partial results are labeled. Observations age locally, stale/error states retain their
+  real timestamps, and refresh respects rate-limit cooldowns. The browser rechecks the
+  day across midnight/DST/resume; another timezone's cached context must not be rendered
+  as this view's today. Calendar content is not retained in LiveView socket assigns.
+  Workspace removal is not global disconnect; both services share the Google credential.
+  See [CALENDAR.md](CALENDAR.md) for bounds and lifecycle.
+
 - Workspaces represent areas of life. **Quiet sea-glass cards supersede the earlier
   typographic/no-card directory**. Use generous native button surfaces and separate native
   management disclosures for rename; opening and management are siblings, never nested controls.
@@ -102,8 +115,9 @@ replace old requirements rather than accumulating a chronology.
   mode. Unrelated patches preserve the draft; invalid submissions keep the dialog open.
   The visual idle timer pauses while a modal is open and resumes on dismissal;
   this is not an authentication or privacy change.
-- Connections has a **Gemini / Gmail** provider subnav on the same row as its title,
-  with only the selected provider's interface mounted. Native navigation buttons identify
+- Connections has a **Gemini / Gmail / Calendar** provider subnav on the same row as its title,
+  on desktop (wrapping below the heading on narrow screens), with only the selected
+  provider's interface mounted. Native navigation buttons identify
   the current provider with `aria-current`; switching keeps focus on the chosen control.
   Opening Connections defaults to Gmail; Gemini credential POSTs return to Gemini.
   Escape/idle preserves the selected provider and contextual workspace return remains intact.
@@ -111,13 +125,15 @@ replace old requirements rather than accumulating a chronology.
   reload persistence; provider changes remove the previous provider's unsaved form content.
 - Workspace detail prioritizes separate integration/account tiles, never an aggregate inbox.
   **Add integration** is a focused panel for reusable connections or connecting Google;
-  Gmail is the only workspace integration, not a speculative provider catalog. Google Gemini
+  Gmail and opt-in read-only Google Calendar reuse account identities, not a speculative
+  provider catalog. Google Gemini
   is an **app-wide scenery connection** in global Connections, separate from Gmail accounts;
   it is never attached to a workspace or included in Gmail health/counts. Its API-key forms
   are ordinary authenticated, CSRF-protected POSTs, not LiveView credential events. Display
   only Keychain availability/key presence, never a returned key or unverified Google health.
   Saving/removing does not generate, probe Google or change the startup opt-in/cooldown.
-  Explain possible charges, startup-only generation and preserved imagery on key removal.
+  Explain possible charges, optional startup generation, explicit Scenes requests and
+  preserved imagery on key removal.
 - **Remove from workspace** detaches locally; global **Connections** owns health, reconnect
   and confirmed **Disconnect everywhere**. Global Gmail accounts use compact rows with
   identity/status beside actions on desktop and a wrapping layout on narrow screens.
@@ -169,6 +185,19 @@ replace old requirements rather than accumulating a chronology.
   percentage. Loading completion alone must not shift retained content. Reduced motion
   (including changes mid-load) and forced colors use a static marker. Keep polite textual
   announcements and separate unfilled warning edges for actionable errors/stale states.
+- Scenes keeps all published local images, with no total count cap; the gallery shows
+  20 per page with native Newer/Older controls. Dates when known, the actual active background
+  and latest-attempt states stay honest. Refresh status only reads local state.
+  Confirmed manual requests have no daily cooldown, including after a failed/successful
+  attempt; the persisted 24-hour cooldown applies to automatic startup only. An unconfirmed
+  reservation blocks manual requests to avoid overlap, with an explicit explanation rather
+  than an invented completion time. Disabled controls use a normal cursor, not a waiting cursor.
+  Use scene changes the app-wide background and persists across reloads; a new successful
+  generation becomes active. Missing/corrupt previews cannot be selected. Generate opens a
+  native confirmation dialog warning that each request can incur charges, even with failed
+  or unknown outcomes, and that there are no automatic retries. Cancel/Escape restores trigger focus and
+  does not request generation. Confirmed work survives navigation; startup opt-in remains
+  independent. Preserve modal idle/focus behavior and gallery selection during scenery wake.
 - Navigation currently stays in-page at `/`, without URL/history or reload selection
   persistence. Do not imply reload persistence or cross-tab directory synchronization exists.
 - Loading, empty, stale, offline, expired-credential, rate-limited and failed states must
@@ -178,10 +207,15 @@ replace old requirements rather than accumulating a chronology.
 
 ## Images, accessibility and preferences
 
-- Reveal a generated image only after it successfully loads. Failed loads leave the original
-  local SVG fallback, not a broken-image replacement. Accept only the validated same-origin
-  PNG/JPEG digest routes; no provider-hosted/arbitrary URL substitution. Static and live
-  stages share image-load behavior; a read-only background lookup never starts generation.
+- Reveal a generated image only after it successfully loads. Failed loads leave the
+  installation's local bundled JPEG default, not a broken-image replacement. Three
+  owner-approved images ship locally; choose one once per installation, preserving it
+  across reload, navigation and scenery wake. Static owner pages (including without JS)
+  and live stages share that choice. Keep generated imagery restricted to validated
+  same-origin PNG/JPEG digest routes and bundled imagery to the exact asset allowlist;
+  no provider-hosted/arbitrary URL substitution. Defaults are not generated gallery
+  entries. Rendering only reads local preferences; it never initializes or generates.
+  Generation and default-choice persistence rules belong in `STAGE_DESIGNER.md`.
 - Preserve native keyboard operation, meaningful headings, labels, validation associations,
   announced errors/status and visible focus. Decorative branding is hidden from assistive
   technology; a persistent screen-reader heading supplies the page name separately.
@@ -196,8 +230,8 @@ replace old requirements rather than accumulating a chronology.
 Use native Node and synchronous LiveView/ConnTest suites plus the explicit
 `LOVELACE_STAGE_ENABLED=false mix test.ui` Chrome/Chromium regression gate. No real mailbox,
 Keychain operation or billable provider calls are needed. See [DEVELOPMENT.md](DEVELOPMENT.md)
-for commands and [HANDOFF.md](HANDOFF.md#recorded-verification-and-operational-limits) for
-actual executed evidence.
+for commands. Report actual executed results and unrun checks in the task response;
+historical results do not certify a new change.
 
 - `test/js/brand_reveal_test.mjs`: choreography, interruption/replay, reduced motion and teardown.
 - `test/js/workspace_entrance_test.mjs`: gate completion, focus handoff, patch continuity and teardown.
@@ -206,7 +240,16 @@ actual executed evidence.
 - `test/js/workspace_idle_test.mjs`: elapsed-time/activity/wake rules, patches/hidden tabs,
   modal idle suspension/resume, timer cleanup and shared static/live image-load observer.
 - `test/js/native_modal_test.mjs`: opening/focus, sticky open state, Escape isolation,
-  server-owned dismissal, listener cleanup and focus restoration.
+  server-owned dismissal, listener cleanup and focus restoration (including disabled triggers).
+- `test/js/calendar_agenda_test.mjs`: browser-local midnight/DST boundaries,
+  midnight/resume/reconnect notifications, event local-time/ongoing labels and teardown.
+- `test/lovelace/calendar_test.exs` and `test/lovelace_web/live/calendar_live_test.exs`:
+  account/context/generation fencing, selection, bounded/truncated results, cooldown,
+  freshness/retention, escaped render-local events and exclusive Connections navigation.
+- `test/lovelace/integrations/google_calendar_test.exs` and
+  `test/lovelace_web/controllers/google_calendar_oauth_test.exs`: read-only requests,
+  strict provider parsing, explicit optional scopes, identity/generation-bound consent
+  and refusal of late callbacks across disconnect/reconnect.
 - `test/js/home_readouts_test.mjs`: local greeting/date, timestamp aging, patched failure
   metadata, resume updates and timer/listener teardown.
 - `test/js/mail_reader_test.mjs`: async reader focus/latest-reply handoff, exact return
@@ -214,6 +257,14 @@ actual executed evidence.
   aging fetch freshness, patched attributes and timer/resume-listener cleanup.
 - `test/lovelace_web/live/home_overview_live_test.exs`: distinct connection summaries,
   shared/unattached membership, unknown/zero/stale counts, Home navigation and account isolation.
+- `test/lovelace/stage_designer/bundled_scenes_test.exs`: fresh-database default reads,
+  immutable initialization across connections/restarts and concurrent boots, authorization,
+  pinned JPEG hashes/validation and independence from generated scenes/reservations.
+- `test/lovelace_web/live/scenes_live_test.exs`: exclusive Scenes navigation, truthful
+  empty/missing/unconfirmed states, immediate manual eligibility after success/failure,
+  confirmed-only requests with safe fake-vault failure, paginated access to all saved images,
+  persistent selection and app-wide stage updates. Backend scene/coordination tests cover
+  reservation policy, selection during generation, duplicate output and publication/notification exclusion.
 - `test/lovelace_web/live/home_live_test.exs`: shell, client commands, accessible/decorative
   branding, Lock POST/token structure, image URL allowlist and stage updates.
 - `test/lovelace_web/live/workspaces_live_test.exs`: persistence, validation and unsaved-form
@@ -245,12 +296,19 @@ actual executed evidence.
   keyboard switching with focus retained, mutually exclusive provider interfaces, scenery
   wake preserving selection and credential POSTs returning to Gemini;
   Gemini's ordinary credential POST to a fake vault, empty return form and truthful key state;
+  optional Calendar Home/workspace agendas with safe explicit links, Google-selected and
+  shared-calendar selection, exclusive Calendar Connections and ordinary consent POSTs,
+  desktop/narrow/forced-color Calendar layouts and fixture screenshots;
+  an empty-installation pass with the actual bundled defaults, no generated images,
+  no-JS/static/live parity, decoded JPEGs and unchanged default across reload/navigation/wake;
   scheduled idle expiration with a shortened disposable DOM timer; mid-reveal reduced motion;
   forced colors; desktop/narrow inbox/reader layouts; long-token wrapping and body type;
   native message/metadata disclosures and refresh preservation; reader Escape/wake;
   async Back row-focus/scroll restoration; real delayed loading transparency, stable status
   height and ordinary/reduced-motion/forced-color sweep behavior, including mid-load preference
-  changes; off-origin requests, page errors and CSP events.
+  changes; Scenes keyboard navigation, gallery dates/previews, confirmation Cancel/Escape
+  and focus restoration, read-only refresh, cross-tab selection, reload persistence, narrow
+  and forced-color gallery/dialog layouts; off-origin requests, page errors and CSP events.
 
 The browser gate is separate from `mix check`/hosted CI and requires an installed browser;
 it fails rather than silently skipping when unavailable. See development guidance for its

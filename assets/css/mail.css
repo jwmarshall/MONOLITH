@@ -77,7 +77,7 @@
 .mail-message-meta { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 6px 16px; padding: 12px 0; overflow-wrap: anywhere; }
 .mail-message-meta dt { color: var(--color-secondary); }
 .mail-message-text { max-width: 68ch; white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; font-weight: 400; letter-spacing: normal; line-height: 1.75; tab-size: 4; }
-.mail-panel button:disabled { opacity: 0.45; cursor: wait; }
+.mail-panel button:disabled { opacity: 0.45; cursor: default; }
 @media (max-width: 800px) {
   .mail-inbox-heading { grid-template-columns: minmax(0, 1fr); gap: 16px; }
 }

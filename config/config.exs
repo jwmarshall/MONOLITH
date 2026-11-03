@@ -53,7 +53,13 @@ config :spark,
   ]
 
 config :lovelace,
-  ash_domains: [Lovelace.StageDesigner, Lovelace.Workspaces, Lovelace.Mail, Lovelace.Owner],
+  ash_domains: [
+    Lovelace.StageDesigner,
+    Lovelace.Workspaces,
+    Lovelace.Mail,
+    Lovelace.Calendar,
+    Lovelace.Owner
+  ],
   ecto_repos: [Lovelace.Repo],
   generators: [timestamp_type: :utc_datetime]
 

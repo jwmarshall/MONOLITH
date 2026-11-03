@@ -5,7 +5,7 @@ defmodule Lovelace.StageDesigner.StartupTest do
   import ExUnit.CaptureLog
 
   alias Lovelace.StageDesigner
-  alias Lovelace.StageDesigner.{Image, Settings, Storage}
+  alias Lovelace.StageDesigner.{Image, ReadBackground, Settings, Storage}
   alias Lovelace.TestSupport.{JPEG, PNG}
 
   @actor %{role: :stage_designer}
@@ -80,7 +80,7 @@ defmodule Lovelace.StageDesigner.StartupTest do
     assert response(get(conn, String.replace_suffix(url, ".jpg", ".jpeg")), 404)
   end
 
-  test "retains seven mixed-format images and falls back from a damaged JPEG", %{
+  test "preserves all mixed-format images and falls back through seven recent candidates", %{
     directory: directory
   } do
     for day <- 0..7 do
@@ -91,7 +91,7 @@ defmodule Lovelace.StageDesigner.StartupTest do
 
     state = StageDesigner.get_state!(1, actor: @actor)
     assert length(state.history) == 7
-    assert length(image_files(directory)) == 7
+    assert length(image_files(directory)) == 8
     assert Enum.any?(File.ls!(directory), &String.ends_with?(&1, ".jpg"))
     assert Enum.any?(File.ls!(directory), &String.ends_with?(&1, ".png"))
     assert String.ends_with?(StageDesigner.background!().url, ".jpg")
@@ -215,7 +215,7 @@ defmodule Lovelace.StageDesigner.StartupTest do
     assert {:ok, %{url: nil}} = StageDesigner.background()
   end
 
-  test "retains seven successful images and falls back from corrupt current bytes", %{
+  test "preserves every successful image and falls back from corrupt current bytes", %{
     directory: directory,
     conn: conn
   } do
@@ -229,14 +229,14 @@ defmodule Lovelace.StageDesigner.StartupTest do
 
     state = StageDesigner.get_state!(1, actor: @actor)
     assert length(state.history) == 7
-    assert length(image_files(directory)) == 7
+    assert length(image_files(directory)) == 8
     assert (File.stat!(directory).mode &&& 0o777) == 0o700
 
     for filename <- File.ls!(directory) do
       assert (File.stat!(Path.join(directory, filename)).mode &&& 0o777) == 0o600
     end
 
-    assert response(get(conn, hd(urls)), 404)
+    assert response(get(conn, hd(urls)), 200)
     current = hd(state.history)
     File.write!(Path.join(directory, current <> ".png"), "corrupt")
     expected = Storage.url(Enum.at(state.history, 1))
@@ -395,8 +395,7 @@ defmodule Lovelace.StageDesigner.StartupTest do
     conn: conn,
     directory: directory
   } do
-    settings = %{Settings.get() | retain_count: 2}
-    Application.put_env(:lovelace, :stage_designer, settings)
+    settings = Settings.get()
     a = PNG.image(13, 3)
     b = JPEG.image(13, 3)
     c = PNG.image(14, 3)
@@ -407,7 +406,7 @@ defmodule Lovelace.StageDesigner.StartupTest do
         assert {:ok, :generated} = startup(DateTime.add(@now, day * 86_400))
         history = StageDesigner.get_state!(1, actor: @actor).history
         assert history == Enum.uniq(history)
-        assert length(history) == min(day + 1, 2)
+        assert length(history) == Enum.at([1, 2, 2, 2, 3], day)
 
         if day in [2, 3] do
           assert {:ok, ^b} = Storage.read(settings, List.last(history))
@@ -420,9 +419,12 @@ defmodule Lovelace.StageDesigner.StartupTest do
     assert repeated_a == url_a
     assert repeated_again == url_a
     state = StageDesigner.get_state!(1, actor: @actor)
-    assert Enum.map(state.history, &Storage.url/1) == [url_c, url_a]
-    assert length(image_files(directory)) == 2
-    assert response(get(conn, url_b), 404)
+
+    assert Enum.map(state.history, &ReadBackground.image_url(settings, &1)) ==
+             [url_c, url_a, url_b]
+
+    assert length(image_files(directory)) == 3
+    assert response(get(conn, url_b), 200) == b
     assert response(get(conn, url_a), 200) == a
     assert response(get(conn, url_c), 200) == c
     File.write!(Path.join(directory, hd(state.history) <> ".png"), PNG.image(15, 3))

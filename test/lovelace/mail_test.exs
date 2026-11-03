@@ -34,6 +34,54 @@ defmodule Lovelace.MailTest do
     %{workspace: workspace, a: a, b: b}
   end
 
+  test "Calendar consent reuses the identity and Gmail reconnect requires fresh Calendar consent",
+       %{
+         workspace: w,
+         a: a
+       } do
+    refute a.calendar_enabled
+
+    assert {:ok, enabled} =
+             Connections.accept(
+               w.id,
+               %{subject: a.subject, email: a.email},
+               "calendar-refresh",
+               :calendar,
+               a.generation
+             )
+
+    assert enabled.id == a.id
+    assert enabled.calendar_enabled
+    assert enabled.status == :ready
+    assert {:ok, "calendar-refresh"} = Lovelace.TestMailVault.get(a.id)
+
+    assert {:ok, reconnected} =
+             Connections.accept(w.id, %{subject: a.subject, email: a.email}, "gmail-refresh")
+
+    refute reconnected.calendar_enabled
+    assert reconnected.id == a.id
+  end
+
+  test "late Calendar consent cannot resurrect a disconnected account or overwrite its vault", %{
+    workspace: w,
+    a: a
+  } do
+    assert {:ok, %{local_removed: true}} = Mail.disconnect(a.id, actor: @owner)
+
+    assert {:error, :reconnect} =
+             Connections.accept(
+               w.id,
+               %{subject: a.subject, email: a.email},
+               "late-calendar-refresh",
+               :calendar,
+               a.generation
+             )
+
+    assert {:error, :not_found} = Lovelace.TestMailVault.get(a.id)
+    assert Mail.get_account!(a.id, actor: @owner).status == :disconnected
+    assert Mail.workspace_accounts!(w.id, actor: @owner) |> Enum.all?(&(&1.account_id != a.id))
+  end
+
   test "unreadable prior credentials are never overwritten or treated as absent", %{
     workspace: w,
     a: a

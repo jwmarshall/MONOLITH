@@ -1,6 +1,7 @@
 defmodule LovelaceWeb.Plugs.GoogleOAuthCallback do
   @moduledoc "Consumes OAuth before Phoenix instrumentation; the documented stock Bandit exception remains."
   import Plug.Conn
+  alias Lovelace.Integrations.Google
   alias Lovelace.Mail
   alias Lovelace.Mail.{ConnectionDiagnostics, Connections, OAuth, Operations}
   alias LovelaceWeb.Plugs.SensitivePath
@@ -20,7 +21,8 @@ defmodule LovelaceWeb.Plugs.GoogleOAuthCallback do
 
     target =
       case result do
-        {:ok, workspace} -> "/?gmail=connected&workspace=" <> workspace
+        {:ok, workspace, :calendar} -> "/?calendar=connected&workspace=" <> workspace
+        {:ok, workspace, :gmail} -> "/?gmail=connected&workspace=" <> workspace
         {:error, failure} -> ConnectionDiagnostics.failure_path(failure)
       end
 
@@ -51,17 +53,18 @@ defmodule LovelaceWeb.Plugs.GoogleOAuthCallback do
                LovelaceWeb.GoogleOAuthController.redirect_uri()
              )
            end),
+         :ok <- step(:consent, fn -> capability_scopes(attempt.capability, tokens) end),
          {:ok, identity} <-
            step(:identity, fn -> Operations.provider().identity(tokens.access_token) end),
          :ok <-
            step(:account_binding, fn ->
-             same_account(attempt.expected_account_id, identity.subject)
+             same_account(attempt, identity.subject)
            end),
          {:ok, refresh} <- step(:refresh_token, fn -> refresh_token(tokens, identity.subject) end),
          {:ok, _} <- step(:session, fn -> Lovelace.Owner.verify_session(session) end),
          {:ok, _} <-
-           step(:connection, fn -> Connections.accept(attempt.workspace_id, identity, refresh) end) do
-      {:ok, attempt.workspace_id}
+           step(:connection, fn -> accept(attempt, identity, refresh) end) do
+      {:ok, attempt.workspace_id, attempt.capability}
     end
   rescue
     _ -> ConnectionDiagnostics.failure(:callback, :unexpected)
@@ -70,6 +73,26 @@ defmodule LovelaceWeb.Plugs.GoogleOAuthCallback do
   end
 
   defp complete(_), do: ConnectionDiagnostics.failure(:callback, :invalid_callback)
+
+  defp capability_scopes(:gmail, _), do: :ok
+
+  defp capability_scopes(:calendar, tokens),
+    do: if(Google.calendar_authorized?(tokens), do: :ok, else: {:error, :forbidden})
+
+  defp accept(%{capability: :calendar} = attempt, identity, refresh) do
+    Connections.accept(
+      attempt.workspace_id,
+      identity,
+      refresh,
+      :calendar,
+      attempt.expected_generation
+    )
+  end
+
+  defp accept(attempt, identity, refresh) do
+    Connections.accept(attempt.workspace_id, identity, refresh)
+  end
+
   defp step(stage, fun), do: ConnectionDiagnostics.step(stage, fun)
 
   defp consent(params), do: if(is_nil(params["error"]), do: :ok, else: {:error, :denied})
@@ -84,9 +107,20 @@ defmodule LovelaceWeb.Plugs.GoogleOAuthCallback do
     end
   end
 
-  defp same_account(expected, _) when expected in [nil, ""], do: :ok
+  defp same_account(%{capability: :calendar} = attempt, subject) do
+    case Mail.get_account(attempt.expected_account_id, actor: @owner) do
+      {:ok, %{subject: ^subject, generation: generation, status: status}}
+      when generation == attempt.expected_generation and status != :disconnected ->
+        :ok
 
-  defp same_account(id, subject) do
+      _ ->
+        {:error, :wrong_account}
+    end
+  end
+
+  defp same_account(%{expected_account_id: expected}, _) when expected in [nil, ""], do: :ok
+
+  defp same_account(%{expected_account_id: id}, subject) do
     case Mail.get_account(id, actor: @owner) do
       {:ok, %{subject: ^subject}} -> :ok
       _ -> {:error, :wrong_account}
@@ -97,10 +131,8 @@ defmodule LovelaceWeb.Plugs.GoogleOAuthCallback do
     do: {:ok, token}
 
   defp refresh_token(_, subject) do
-    with {:ok, %{id: id}} <- Mail.find_account(subject, actor: @owner),
-         {:ok, token} <- Operations.vault().get(id) do
-      {:ok, token}
-    else
+    case Mail.find_account(subject, actor: @owner) do
+      {:ok, %{id: _}} -> {:ok, :reuse_existing}
       _ -> {:error, :reconnect}
     end
   end

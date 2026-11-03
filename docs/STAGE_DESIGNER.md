@@ -3,9 +3,11 @@
 ## Behavior
 
 LOVELACE can generate a background through the **server-side Gemini Developer API**
-on application startup. It never generates from a page load, LiveView reconnect, or
-inactivity event. The existing SVG remains underneath locally served generated imagery.
-There is no prompt editor, preview/gallery, browser refresh control, or scheduled worker.
+on application startup when opted in, or through an explicitly confirmed request in
+**Scenes**. It never generates from a page load, LiveView reconnect, gallery/status refresh,
+or inactivity event. One locally bundled JPEG remains underneath locally served generated imagery.
+There is no prompt editor or scheduled worker. Scenes shows the retained local gallery,
+latest attempt status and manual eligibility; unknown legacy image dates are labelled.
 An in-server generation broadcasts updates to connected LiveViews. An operator invocation
 in a separate BEAM process updates files/SQLite but not the running server's local PubSub;
 refresh the homepage to load that result.
@@ -14,22 +16,34 @@ The user selected automatic architectural curation: original quiet brutalist for
 distant landscapes, charcoal and restrained amber light, negative space, no people,
 lettering, logos, busy foregrounds, or private dashboard context. The default is the
 documented stable, high-efficiency `gemini-nano-banana-2.1`, `16:9`, `1K`. 1K is a provider
-tier, not full desktop-native resolution; revisit visual quality after a real generation.
+tier, not full desktop-native resolution or a visual-quality guarantee.
 
 - One asynchronous attempt on an **eligible application-process startup**. Browser
-  requests do not start work. There is no daily timer while the application stays running.
+  loads do not start work. Scenes requests require explicit confirmation of possible API
+  charges and work independently of the startup-enabled setting. There is no daily timer
+  while the application stays running. Manual requests use a supervised, nonretrying task
+  that survives leaving the view. Confirmed manual requests have no daily cooldown,
+  including after failure/success, but refuse any existing unconfirmed (`generating`)
+  reservation to avoid overlapping requests. An old reservation is not presumed dead
+  merely because time elapsed; there is no automatic recovery or guessed retry.
 - SQLite persists an attempt reservation **before** contacting Gemini. The minimum
-  interval is 24 hours, including failed, interrupted, and unknown outcomes. A missing
+  **automatic-startup** interval is 24 hours, including failed, interrupted, and unknown outcomes.
+  Every manual reservation also advances that startup cooldown; it does not impose a manual cooldown. A missing
   image does not bypass that cooldown; neither does restarting the server repeatedly.
 - A version-checked Ash update allows only the winning concurrent claimant to contact
   Google. No database transaction spans HTTP. No automatic HTTP or worker retries.
 - Previous imagery stays visible while generating and on failure. Successful publication
   updates the manifest and open LiveViews through application-wide PubSub, not mailbox topics.
-- Keep the last **seven distinct successful images**, newest first. Invalid/missing current
-  files fall back through retained images, then to the original SVG. There is no gallery UI.
+- Keep **all distinct successful images**, with no total count cap or automatic eviction
+  of published scenes. The Ash scene catalog is authoritative; gallery reads validate at
+  most 20 scenes per page, newest first. Disk use grows with successful generations.
+  The bounded singleton history is only a recent background-fallback cache, not retention
+  authority. Invalid/missing selected files fall back through recent images, then the installation's bundled default.
+  **Use scene** can activate any catalog image, including an older gallery page, without
+  generating or changing cooldowns. The next successful generation becomes active.
 - Storage writes/publication and destructive cleanup share nonexpiring cross-BEAM
-  exclusion on the configured storage root. Cleanup rereads the committed manifest
-  under that exclusion; a delayed publisher's old list is never deletion authority.
+  exclusion on the configured storage root. Cleanup checks the committed catalog
+  under that exclusion; a delayed publisher's old fallback list is never deletion authority.
   Publication commits before a separate pruning critical section, so rollback cannot
   resurrect references to deleted files. HTTP remains outside both sections.
 - Stale unreferenced generated images and interrupted temporary writes are reconciled
@@ -38,6 +52,27 @@ tier, not full desktop-native resolution; revisit visual quality after a real ge
   publication/recovery. See [storage coordination](STORAGE_COORDINATION.md): keep
   the private `.stage-coordination.sqlite3` identity for the lifetime of a shared root;
   never unlink/replace it while any LOVELACE process may use that root.
+
+## Bundled installation default
+
+Three owner-approved existing scenes ship as local JPEG assets in
+`priv/static/images/scenes/`, with provenance and SHA-256 pins recorded there. Their
+private originals are unchanged. A separate Ash `DefaultScene` singleton chooses one
+randomly on first application startup and preserves it across restarts; this happens
+synchronously before the endpoint serves pages, independently of generation opt-in.
+Reinitialization is an immutable upsert, including concurrent application starts.
+Page rendering only reads the choice and never generates or initializes it. If the
+preference is absent/unreadable, the first allowlisted bundled image is a deterministic
+fallback until initialization succeeds. Apply the additive default-scene migration
+before restarting an existing installation.
+
+Static owner pages (including no-JavaScript unlock) and LiveViews share this default
+when no generated scenery is available, and retain it under generated images while
+loading or on image-load failure. It does not change on navigation, reload or scenery
+wake. Generated scene selection/publication still takes precedence. Bundled defaults
+are not catalog entries, do not invent generation dates, and are outside generated
+storage cleanup; an installation without generated images still has an empty Scenes
+gallery. No provider or Keychain access is involved in default choice/rendering.
 
 ## Inactivity / scenery mode
 
@@ -56,14 +91,9 @@ macOS Keychain under the separate `LOVELACE Gemini` service, never alongside Gma
 `GEMINI_API_KEY` is no longer read and has no fallback. The dotenvx decryption key is in
 private `.env.keys`; both environment files are ignored and mode `0600`. `.env.example` is deliberately readable, credential-free, and disabled by default.
 
-Historical setup: local settings enabled startup generation, seven retained images,
-and a three-minute idle timer without restarting the then-running server. A later
-read-only model-metadata check succeeded; one explicitly authorized diagnostic attempt
-returned HTTP 429 / `RESOURCE_EXHAUSTED`, with no automatic follow-up. Subsequently,
-the user restarted with JPEG support and authorized one successful generation, then
-confirmed its display after refreshing. These are separate historical operations, not
-standing authorization for further attempts or actions performed during remediation. Model metadata
-access alone does not establish billing or quota. Eligible restarts may incur a charge.
+Eligible restarts may incur a charge. A previously authorized generation or working
+background is not standing authorization for further provider calls. Model metadata
+access alone does not establish billing or quota.
 
 For a **fresh checkout only**, from the repository root:
 
@@ -102,8 +132,7 @@ dotenvx set LOVELACE_STAGE_ENABLED true -f .env --no-native --no-armor --no-1pas
 chmod 600 .env .env.keys
 ```
 
-Migrate before activating/restarting; the development database migration has already
-been applied in this checkout:
+Migrate before activating/restarting; do not assume a private database is up to date:
 
 ```sh
 LOVELACE_STAGE_ENABLED=false mix ecto.migrate
@@ -142,15 +171,16 @@ argument at save time, never database state, application configuration, or a Liv
 | `LOVELACE_STAGE_MAX_RETRIES` | `0` only |
 | `LOVELACE_STAGE_TIMEOUT_SECONDS` | `120`; range 1–120, includes an overall deadline |
 | `LOVELACE_STAGE_STORAGE_DIR` | `./data/stage-designer`; private, persistent, gitignored; use an absolute release path |
-| `LOVELACE_STAGE_RETAIN_COUNT` | `7`; range 1–7 |
+| `LOVELACE_STAGE_RETAIN_COUNT` | Obsolete and ignored; published scenes have no total storage-count cap |
 | `LOVELACE_STAGE_PROMPT` | Generic architectural brief; 1–8000 bytes, no private information |
 | `LOVELACE_WORKSPACE_IDLE_MINUTES` | `3`; range 1–60 |
 
-Image files and the directory are owner-only. Digest URLs serve only manifest-registered,
+Image files and the directory are owner-only. Digest URLs serve only catalog-registered,
 validated original PNG or JPEG bytes: `.png` / `image/png` and `.jpg` / `image/jpeg`.
 Declared MIME must match the bytes, stored extension, and requested extension. No renamed
 JPEG-as-PNG, transcoding, arbitrary paths, or provider-hosted URLs are allowed. Existing
-PNG manifests remain compatible; mixed-format retention needs no schema migration.
+PNG/JPEG images remain compatible. The additive scene-catalog migration preserves existing
+registered imagery and known timestamps; previously evicted files cannot be recovered.
 
 Images are bounded to 10 MiB, 8192 pixels per side, and 16 million pixels total; streamed
 provider JSON is capped at 16 MiB. PNG checks cover chunks/CRC, static-image structure,
@@ -177,8 +207,7 @@ Do not copy similarly named Imagen `parameters.outputOptions.mimeType` or Vertex
 `imageConfig.imageOutputOptions.mimeType` fields into this Developer API request. The
 [image guide](https://ai.google.dev/gemini-api/docs/image-generation) and examples have
 inconsistent file extensions; the actual MIME and bytes, not a `.png` example filename,
-determine encoding. JPEG mismatch is a plausible explanation for the earlier rejection,
-not a proven observation: its response was not retained.
+determine encoding. Do not infer a rejected response's encoding from a filename.
 
 [PNG section 11.2.3](https://www.w3.org/TR/png-3/#11IDAT) instructs decoders to ignore unused
 bytes after the compressed stream in the final IDAT chunk. The validator now uses OTP's
@@ -196,13 +225,11 @@ logged. See `DEVELOPMENT.md` for native build/licensing and verification notes.
 Consult the current official [model documentation](https://ai.google.dev/gemini-api/docs/models/gemini-nano-banana-2.1),
 [image guide](https://ai.google.dev/gemini-api/docs/image-generation),
 [pricing](https://ai.google.dev/gemini-api/docs/pricing), and
-[terms](https://ai.google.dev/gemini-api/terms) before activation. Public documentation
-was verified; an authorized request reached image handling but failed the former PNG-only
-policy or PNG validation, and its discarded response prevents exact attribution. A
-subsequent explicitly authorized attempt generated and validated a real background;
-the user confirmed its display after refreshing. Broader visual-quality review remains
-open. This model's image generation is paid. Use project quotas and billing alerts independently; alerts are not
-a hard spending cap. No dollar-denominated application budget was selected.
+[terms](https://ai.google.dev/gemini-api/terms) before activation. This model's image
+generation is paid. Use project quotas and billing alerts independently; alerts are not
+a hard spending cap. The application has no dollar-denominated spending cap. Synthetic
+tests do not certify provider availability, billing, visual quality or native Keychain
+signing/migration.
 
 Unpaid Gemini services generally permit product-improvement use and human review;
 regional exceptions apply. Paid terms generally exclude product-improvement use by default,
@@ -233,7 +260,9 @@ mismatches, invalid image contents, and local storage/publication failures.
 
 The previous image remains active on failure. Do not delete/reset the reservation database
 to bypass a cooldown: a timed-out/interrupted request may have been billed. Fix the issue
-and wait until the next eligible startup. There is also an **internal operator-only**
+and wait until the next eligible startup, or make a fresh explicitly confirmed Scenes
+request after a failed/successful outcome. Unconfirmed attempts remain blocked from manual
+requests to avoid overlap; do not reset their state just to retry. There is also an **internal operator-only**
 `retry_failed_startup` Ash action for an explicitly authorized single diagnostic attempt;
 it is never called by startup, a timer, or the browser. It only accepts a prior failed
 state, requires the service actor, reserves a fresh timestamp/version before HTTP, and
@@ -245,25 +274,7 @@ not proof that preparation is currently active; the UI announces an unconfirmed 
 This also honestly describes an in-progress request before its outcome is known. The
 persisted state/timestamp/version are unchanged. There is no automatic job recovery.
 
-## Synthetic mount-time measurement
-
-Remediation profiled the actual disconnected `HomeLive.mount/3` path in a disposable
-test database/storage directory, with seven distinct synthetic JPEGs retained for each
-case, valid current imagery, and 12 sequential mounts per case. Fixture encoding/storage
-were outside the timed section. On the existing local OTP29/Elixir1.20 runtime:
-
-| JPEG size | First mount | Median | Maximum |
-| --- | ---: | ---: | ---: |
-| 2×2 | 22.800 ms | 0.709 ms | 22.800 ms |
-| 1920×1080 | 3.998 ms | 4.473 ms | 4.632 ms |
-| 4000×4000 (pixel cap) | 23.666 ms | 23.497 ms | 24.204 ms |
-
-These include the Ash read, bounded file/hash validation, full native JPEG evaluation,
-and socket assignment. Only the selected current image is decoded, not all seven valid
-retained images. These local observations are not an SLO, browser latency measurement,
-worst-case damaged-file benchmark, or cross-platform guarantee. No caching/async change
-was justified or made; validation and safe serving remain intact. No private imagery
-or running server was used.
+## Verification
 
 Automated tests use fake keys, local PNG/JPEG fixtures, and fake transports, never real Google calls.
 `mix check` includes Ash codegen drift and native Node hook tests. See

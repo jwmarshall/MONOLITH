@@ -5,8 +5,25 @@ defmodule Lovelace.Mail.OAuth do
 
   def start_link(opts), do: GenServer.start_link(__MODULE__, opts, name: __MODULE__)
 
-  def begin(workspace_id, session, expected_account_id \\ nil) do
-    GenServer.call(__MODULE__, {:begin, workspace_id, digest(session), expected_account_id})
+  def begin(
+        workspace_id,
+        session,
+        expected_account_id \\ nil,
+        capability \\ :gmail,
+        expected_generation \\ nil
+      ) do
+    if capability in [:gmail, :calendar] and
+         (capability == :gmail or
+            (is_binary(expected_account_id) and expected_account_id != "" and
+               is_binary(expected_generation) and expected_generation != "")) do
+      GenServer.call(
+        __MODULE__,
+        {:begin, workspace_id, digest(session), expected_account_id, capability,
+         expected_generation}
+      )
+    else
+      {:error, :invalid_request}
+    end
   end
 
   def take(state, session),
@@ -16,7 +33,7 @@ defmodule Lovelace.Mail.OAuth do
   def init(_), do: {:ok, %{}}
 
   @impl true
-  def handle_call({:begin, workspace, session, expected}, _from, attempts) do
+  def handle_call({:begin, workspace, session, expected, capability, generation}, _from, attempts) do
     attempts = live(attempts)
 
     if map_size(attempts) >= 100 do
@@ -28,6 +45,8 @@ defmodule Lovelace.Mail.OAuth do
         workspace_id: workspace,
         session: session,
         expected_account_id: expected,
+        capability: capability,
+        expected_generation: generation,
         verifier: random(),
         expires: System.monotonic_time(:millisecond) + @ttl
       }

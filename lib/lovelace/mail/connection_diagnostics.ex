@@ -58,7 +58,7 @@ defmodule Lovelace.Mail.ConnectionDiagnostics do
     stage = if stage in @stages, do: stage, else: :callback
     reason = if reason in @reasons, do: reason, else: :unavailable
     stage = if reason == :keychain, do: :keychain, else: stage
-    Logger.warning("LOVELACE Gmail connection failed (#{stage}: #{reason}); #{hint(stage)}")
+    Logger.warning("LOVELACE Google connection failed (#{stage}: #{reason}); #{hint(stage)}")
     {:error, {stage, reason}}
   end
 
@@ -69,12 +69,12 @@ defmodule Lovelace.Mail.ConnectionDiagnostics do
 
   def message(stage, reason) when is_binary(stage) and is_binary(reason) do
     case Enum.find(@stages, &(Atom.to_string(&1) == stage)) do
-      nil -> "Gmail connection was not completed. Check setup and try again."
-      known -> "Gmail connection failed (#{known}). " <> hint(known)
+      nil -> "Google connection was not completed. Check setup and try again."
+      known -> "Google connection failed (#{known}). " <> hint(known)
     end
   end
 
-  def message(_, _), do: "Gmail connection was not completed. Check setup and try again."
+  def message(_, _), do: "Google connection was not completed. Check setup and try again."
 
   defp hint(:session), do: "Unlock LOVELACE at localhost and start a new connection."
 
@@ -83,7 +83,7 @@ defmodule Lovelace.Mail.ConnectionDiagnostics do
       "The connection attempt expired or belongs to another session. Start again without restarting the app during consent."
 
   defp hint(:consent),
-    do: "Google consent was not completed. Start again and grant read-only Gmail access."
+    do: "Google consent was not completed. Start again and grant the requested read-only access."
 
   defp hint(:code), do: "Start a new connection from LOVELACE; do not reuse a callback URL."
 

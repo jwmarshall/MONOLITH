@@ -1,5 +1,5 @@
 defmodule Lovelace.StageDesigner.State do
-  @moduledoc "Durable singleton reservation and seven-image manifest; never stores credentials."
+  @moduledoc "Durable singleton reservation and bounded recent fallback candidates; not a catalog."
   use Ash.Resource,
     domain: Lovelace.StageDesigner,
     data_layer: AshSqlite.DataLayer,
@@ -32,9 +32,15 @@ defmodule Lovelace.StageDesigner.State do
     update :publish do
       require_atomic? false
       atomic_upgrade? false
-      accept [:history, :generated_at]
+      accept [:history, :generated_at, :selected_digest, :scene_dates]
       change set_attribute(:status, :ready)
       change optimistic_lock(:version)
+    end
+
+    # Selection must not invalidate an already reserved generation. Storage
+    # serializes this single-column update with publication and cleanup.
+    update :select_scene do
+      accept [:selected_digest]
     end
 
     update :fail do
@@ -48,6 +54,7 @@ defmodule Lovelace.StageDesigner.State do
 
   policies do
     policy always() do
+      access_type :strict
       authorize_if actor_attribute_equals(:role, :stage_designer)
     end
   end
@@ -72,6 +79,15 @@ defmodule Lovelace.StageDesigner.State do
 
     attribute :last_attempt_at, :utc_datetime_usec
     attribute :generated_at, :utc_datetime_usec
+
+    attribute :selected_digest, :string do
+      constraints match: ~r/\A[0-9a-f]{64}\z/
+    end
+
+    attribute :scene_dates, :map do
+      allow_nil? false
+      default %{}
+    end
 
     attribute :history, {:array, :string} do
       allow_nil? false

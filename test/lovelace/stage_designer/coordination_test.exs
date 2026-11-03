@@ -5,7 +5,7 @@ defmodule Lovelace.StageDesigner.CoordinationTest do
 
   alias Lovelace.Repo
   alias Lovelace.StageDesigner
-  alias Lovelace.StageDesigner.{Coordination, Settings, Storage}
+  alias Lovelace.StageDesigner.{Coordination, Scene, Settings, Startup, Storage}
   alias Lovelace.TestSupport.{DisposableStageRepo, PNG}
 
   @actor %{role: :stage_designer}
@@ -17,8 +17,7 @@ defmodule Lovelace.StageDesigner.CoordinationTest do
 
     settings = %Settings{
       enabled: true,
-      storage_dir: Path.join(directory, "images"),
-      retain_count: 1
+      storage_dir: Path.join(directory, "images")
     }
 
     previous = Application.get_env(:lovelace, :stage_designer)
@@ -36,7 +35,7 @@ defmodule Lovelace.StageDesigner.CoordinationTest do
     Map.put(repos, :settings, settings)
   end
 
-  test "A's delayed cleanup cannot delete B's committed retention-one image", context do
+  test "A's delayed cleanup preserves every catalog-registered publication", context do
     %{first: first, second: second, settings: settings} = context
     parent = self()
 
@@ -54,8 +53,8 @@ defmodule Lovelace.StageDesigner.CoordinationTest do
     assert Task.await(a, 2_000) == :ok
     assert StageDesigner.get_state!(1, actor: @actor).history == b.history
     assert_image(settings, hd(b.history), PNG.image(3, 2))
-    refute File.exists?(image_path(settings, hd(stale_history)))
-    assert length(image_files(settings)) == 1
+    assert File.exists?(image_path(settings, hd(stale_history)))
+    assert length(image_files(settings)) == 2
   end
 
   test "stale reconciliation rereads authority and preserves five-minute orphan/temp grace", %{
@@ -75,7 +74,7 @@ defmodule Lovelace.StageDesigner.CoordinationTest do
     File.touch!(recent, now - 299)
 
     assert :ok = Storage.reconcile(settings, old.history, now)
-    refute File.exists?(old_path)
+    assert File.exists?(old_path)
     refute File.exists?(temporary)
     assert File.exists?(recent)
     assert File.exists?(unrelated)
@@ -105,9 +104,92 @@ defmodule Lovelace.StageDesigner.CoordinationTest do
       send(pid, :commit)
       assert {:ok, published} = Task.await(task, 2_000)
       assert :ok = on_repo(second, fn -> Storage.prune(settings, original.history) end)
-      assert published.history == [digest]
+      assert published.history == [digest | original.history]
       assert_image(settings, digest, bytes)
     end
+  end
+
+  test "selection shares publication exclusion and uses the durable catalog", %{
+    first: first,
+    second: second,
+    settings: settings
+  } do
+    original = publish!(settings, PNG.image(2, 2), @now)
+    selected = hd(original.history)
+    reserved = reserve!(later(1))
+    task = paused_publication(first, settings, reserved, PNG.image(3, 2), later(1))
+    assert_receive {:publication_paused, pid}, 2_000
+
+    assert {:error, :coordination_error} =
+             on_repo(second, fn -> Storage.select(settings, selected) end)
+
+    send(pid, :commit)
+    assert {:ok, published} = Task.await(task, 2_000)
+
+    # A later publication does not expire old gallery selections.
+    assert {:ok, :selected} = on_repo(second, fn -> Storage.select(settings, selected) end)
+
+    assert StageDesigner.get_state!(1, actor: @actor).selected_digest == selected
+    assert :ok = Storage.prune(settings, published.history)
+    assert File.exists?(image_path(settings, selected))
+  end
+
+  test "notification snapshots exclude publication until synchronous dispatch completes", %{
+    first: first,
+    second: second,
+    settings: settings
+  } do
+    Phoenix.PubSub.subscribe(Lovelace.PubSub, "stage_designer")
+    original = publish!(settings, PNG.image(2, 2), @now)
+    reserved = reserve!(later(1))
+    parent = self()
+    handler = {__MODULE__, make_ref()}
+    on_exit(fn -> :telemetry.detach(handler) end)
+
+    notification =
+      worker(first, fn ->
+        :telemetry.attach(
+          handler,
+          [:lovelace, :repo, :query],
+          &__MODULE__.pause_manifest/4,
+          {self(), parent}
+        )
+
+        try do
+          Startup.notify()
+        after
+          :telemetry.detach(handler)
+        end
+      end)
+
+    assert_receive {:manifest_paused, pid}, 2_000
+    bytes = PNG.image(3, 2)
+
+    assert {:error, {:storage, :storage_error}} =
+             on_repo(second, fn ->
+               Storage.store_and_publish(settings, bytes, reserved, later(1))
+             end)
+
+    assert {:error, :coordination_error} =
+             on_repo(second, fn ->
+               Storage.select(settings, hd(original.history))
+             end)
+
+    send(pid, :continue_cleanup)
+    assert Task.await(notification, 2_000) == :ok
+    assert_receive {:stage_background, %{url: old_url}}, 1_000
+    assert old_url == Storage.url(hd(original.history))
+
+    {:ok, published} =
+      on_repo(second, fn ->
+        Storage.store_and_publish(settings, bytes, reserved, later(1))
+      end)
+
+    assert :ok = on_repo(second, &Startup.notify/0)
+    assert_receive {:stage_background, %{url: new_url}}, 1_000
+    assert new_url == Storage.url(hd(published.history))
+    assert new_url != old_url
+    refute_receive {:stage_background, _}
   end
 
   test "publication process death rolls back SQL, retains prior files and releases the writer lock",
@@ -131,6 +213,7 @@ defmodule Lovelace.StageDesigner.CoordinationTest do
     current = on_repo(second, fn -> StageDesigner.get_state!(1, actor: @actor) end)
     assert current == reserved
     assert current.history == original.history
+    assert {:ok, false} = Scene.registered(hash(aborted_bytes))
     assert_image(settings, hd(original.history), PNG.image(2, 2))
 
     # The interrupted paid attempt remains reserved and cannot be retried by
@@ -143,6 +226,7 @@ defmodule Lovelace.StageDesigner.CoordinationTest do
              Storage.store_and_publish(settings, stale_bytes, reserved, later(1))
 
     refute File.exists?(image_path(settings, hash(stale_bytes)))
+    assert {:ok, false} = Scene.registered(hash(stale_bytes))
 
     now = DateTime.to_unix(later(2))
     File.touch!(image_path(settings, hash(aborted_bytes)), now - 600)
@@ -157,6 +241,7 @@ defmodule Lovelace.StageDesigner.CoordinationTest do
     original = publish!(settings, PNG.image(2, 2), @now)
     reserved = reserve!(later(1))
     {:ok, digest} = Storage.store(settings, PNG.image(3, 2))
+    File.touch!(image_path(settings, digest), System.system_time(:second) - 600)
 
     assert {:error, :nested_storage_transaction} =
              Repo.transaction(fn ->
@@ -176,13 +261,13 @@ defmodule Lovelace.StageDesigner.CoordinationTest do
     refute File.exists?(image_path(settings, digest))
   end
 
-  test "normal distinct retention and lock acquisition do not modify reservations", %{
-    settings: base
+  test "distinct catalog preservation and lock acquisition do not modify reservations", %{
+    settings: settings
   } do
-    settings = %{base | retain_count: 3}
     before = StageDesigner.get_state!(1, actor: @actor)
     assert :ok = Storage.reconcile(settings, [], DateTime.to_unix(@now))
-    assert {:ok, _} = Storage.store(settings, PNG.image(9, 2))
+    assert {:ok, orphan} = Storage.store(settings, PNG.image(9, 2))
+    File.touch!(image_path(settings, orphan), System.system_time(:second) - 600)
     assert StageDesigner.get_state!(1, actor: @actor) == before
 
     histories =
@@ -193,8 +278,8 @@ defmodule Lovelace.StageDesigner.CoordinationTest do
       end
 
     assert Enum.at(histories, 2) == [hash(PNG.image(2, 2)), hash(PNG.image(3, 2))]
-    assert List.last(histories) == Enum.map([5, 4, 2], &hash(PNG.image(&1, 2)))
-    assert length(image_files(settings)) == 3
+    assert List.last(histories) == Enum.map([5, 4, 2, 3], &hash(PNG.image(&1, 2)))
+    assert length(image_files(settings)) == 4
   end
 
   test "substantive cleanup errors are returned and startup warns without undoing publication", %{
@@ -220,6 +305,7 @@ defmodule Lovelace.StageDesigner.CoordinationTest do
   } do
     original = publish!(settings, PNG.image(2, 2), @now)
     {:ok, orphan} = Storage.store(settings, PNG.image(3, 2))
+    File.touch!(image_path(settings, orphan), System.system_time(:second) - 600)
     parent = self()
     handler = {__MODULE__, make_ref()}
     on_exit(fn -> :telemetry.detach(handler) end)
@@ -347,6 +433,7 @@ defmodule Lovelace.StageDesigner.CoordinationTest do
     publish!(settings, PNG.image(2, 2), @now)
     {:ok, orphan} = Storage.store(settings, PNG.image(3, 2))
     path = image_path(settings, orphan)
+    File.touch!(path, System.system_time(:second) - 600)
     parent = self()
 
     task =

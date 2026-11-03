@@ -97,6 +97,14 @@ test("save/cancel teardown closes and restores a patched trigger without scrolli
   assert.equal(closed, 1)
 })
 
+test("a disabled trigger falls back to the heading after a confirmed request", () => {
+  const {hook, document, frames, focused} = fixture()
+  document.opener.disabled = true
+  hook.destroyed()
+  frames.shift()()
+  assert.equal(focused.at(-1)[0], "heading")
+})
+
 test("missing trigger falls back to the heading; another modal never loses focus", () => {
   const {hook, document, frames, focused} = fixture()
   document.opener = null

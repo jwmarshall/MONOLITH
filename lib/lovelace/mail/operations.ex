@@ -434,6 +434,7 @@ defmodule Lovelace.Mail.Operations do
           %{
             expected_generation: account.generation,
             status: :disconnected,
+            calendar_enabled: false,
             generation: Ash.UUID.generate(),
             inbox_unread_count: nil,
             inbox_unread_at: nil,
@@ -459,6 +460,7 @@ defmodule Lovelace.Mail.Operations do
         true
       end)
 
+    Lovelace.Calendar.clear(account.id)
     deleted = vault().delete(account.id) == :ok
 
     current = Mail.get_account!(account.id, actor: actor)

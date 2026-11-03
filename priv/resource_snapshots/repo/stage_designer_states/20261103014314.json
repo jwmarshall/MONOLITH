@@ -1,0 +1,101 @@
+{
+  "attributes": [
+    {
+      "default": "nil",
+      "size": null,
+      "type": "bigint",
+      "source": "id",
+      "references": null,
+      "generated?": false,
+      "allow_nil?": false,
+      "primary_key?": true
+    },
+    {
+      "default": "nil",
+      "size": null,
+      "type": "bigint",
+      "source": "version",
+      "references": null,
+      "generated?": false,
+      "allow_nil?": false,
+      "primary_key?": false
+    },
+    {
+      "default": "nil",
+      "size": null,
+      "type": "text",
+      "source": "status",
+      "references": null,
+      "generated?": false,
+      "allow_nil?": false,
+      "primary_key?": false
+    },
+    {
+      "default": "nil",
+      "size": null,
+      "type": "utc_datetime_usec",
+      "source": "last_attempt_at",
+      "references": null,
+      "generated?": false,
+      "allow_nil?": true,
+      "primary_key?": false
+    },
+    {
+      "default": "nil",
+      "size": null,
+      "type": "utc_datetime_usec",
+      "source": "generated_at",
+      "references": null,
+      "generated?": false,
+      "allow_nil?": true,
+      "primary_key?": false
+    },
+    {
+      "default": "nil",
+      "size": null,
+      "type": "text",
+      "source": "selected_digest",
+      "references": null,
+      "generated?": false,
+      "allow_nil?": true,
+      "primary_key?": false
+    },
+    {
+      "default": "%{}",
+      "size": null,
+      "type": "map",
+      "source": "scene_dates",
+      "references": null,
+      "generated?": false,
+      "allow_nil?": false,
+      "primary_key?": false
+    },
+    {
+      "default": "[]",
+      "size": null,
+      "type": [
+        "array",
+        "text"
+      ],
+      "source": "history",
+      "references": null,
+      "generated?": false,
+      "allow_nil?": false,
+      "primary_key?": false
+    }
+  ],
+  "table": "stage_designer_states",
+  "hash": "57923C84BAF86612369F8CDFC00710CBA451AB44254107DEE4425C0835249037",
+  "multitenancy": {
+    "global": null,
+    "attribute": null,
+    "strategy": null
+  },
+  "identities": [],
+  "repo": "Elixir.Lovelace.Repo",
+  "strict?": false,
+  "custom_indexes": [],
+  "base_filter": null,
+  "custom_statements": [],
+  "has_create_action": true
+}

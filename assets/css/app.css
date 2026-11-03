@@ -3,6 +3,8 @@
 @import "./mail.css";
 @import "./workspaces.css";
 @import "./home.css";
+@import "./calendar.css";
+@import "./scenes.css";
 @import "./modals.css";
 @source "../css";
 @source "../js";
@@ -108,7 +110,7 @@
   position: absolute;
   z-index: -1;
   inset: -24px;
-  background: #514c40 url("/images/distant-shore.svg") center / cover no-repeat;
+  background: #514c40 var(--workspace-default-background) center / cover no-repeat;
   filter: blur(0);
   transition: filter var(--workspace-focus-duration) var(--workspace-focus-easing);
   pointer-events: none;
@@ -298,7 +300,7 @@
 }
 
 /* Owner unlock/setup uses the same edge-to-edge glass, not a floating card.
-   It remains focused and usable without JavaScript, with the local SVG fallback. */
+   It remains focused and usable without JavaScript, with the bundled JPEG default. */
 .stage-static {
   .workspace-background { filter: blur(var(--workspace-scenery-blur)); }
   .workspace-glass { background: rgb(12 17 16 / 58%); }
@@ -362,7 +364,7 @@
 .workspace-directory h2:focus { outline: none; }
 .workspace-action { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 44px; padding: 10px 16px; border: 1px solid rgb(233 239 236 / 24%); border-radius: 4px; background: rgb(20 25 24 / 38%); font-size: 13px; line-height: 1.4; color: var(--color-base-content); cursor: pointer; transition: color 160ms, background 160ms, border-color 160ms; text-shadow: none; }
 .workspace-action:hover { color: var(--color-primary-hover); background: rgb(139 203 193 / 10%); border-color: var(--color-primary); }
-.workspace-action:disabled { opacity: 0.4; cursor: wait; }
+.workspace-action:disabled { opacity: 0.4; cursor: default; }
 .workspace-directory-heading > .workspace-action { flex-shrink: 0; }
 .workspace-back { margin-bottom: 24px; color: #eeebe1; }
 .workspace-editor { max-width: 480px; margin-bottom: 32px; padding: 24px 0; border-top: 1px solid rgb(238 237 229 / 25%); border-bottom: 1px solid rgb(238 237 229 / 18%); }

@@ -3,6 +3,8 @@ defmodule LovelaceWeb.HomeLiveTest do
 
   import Phoenix.LiveViewTest
 
+  alias Lovelace.StageDesigner.BundledScenes
+
   setup %{conn: conn}, do: {:ok, conn: authenticate_owner(conn)}
 
   test "renders the LOVELACE shell over HTTP", %{conn: conn} do
@@ -201,7 +203,7 @@ defmodule LovelaceWeb.HomeLiveTest do
     assert has_element?(view, "#stage-background-status.sr-only[role=status][aria-live=polite]")
   end
 
-  test "receives local stage updates through PubSub with original scenery as fallback", %{
+  test "receives local stage updates through PubSub with bundled scenery as fallback", %{
     conn: conn
   } do
     {:ok, view, _html} = live(conn, ~p"/")
@@ -227,6 +229,7 @@ defmodule LovelaceWeb.HomeLiveTest do
     broadcast_background(%{url: nil, status: :failed})
     refute has_element?(view, "#workspace-background img")
     assert has_element?(view, "#workspace-background[aria-hidden=true]")
+    assert has_element?(view, "#workspace-background[style*=\"/images/scenes/\"]")
   end
 
   test "an interrupted attempt is not announced as active preparation on mount", %{conn: conn} do
@@ -319,11 +322,12 @@ defmodule LovelaceWeb.HomeLiveTest do
     assert content_type =~ "font/woff2"
   end
 
-  test "serves the scenery locally", %{conn: conn} do
-    conn = get(conn, ~p"/images/distant-shore.svg")
-
-    assert response(conn, 200) =~ "<svg"
-    assert [content_type] = get_resp_header(conn, "content-type")
-    assert content_type =~ "image/svg+xml"
+  test "serves all bundled default scenes locally without a scene catalog", %{conn: conn} do
+    for digest <- BundledScenes.digests() do
+      scene = get(conn, "/images/scenes/#{digest}.jpg")
+      assert <<0xFF, 0xD8, _::binary>> = response(scene, 200)
+      assert get_resp_header(scene, "content-type") == ["image/jpeg"]
+      assert Base.encode16(:crypto.hash(:sha256, scene.resp_body), case: :lower) == digest
+    end
   end
 end

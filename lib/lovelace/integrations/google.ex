@@ -20,6 +20,7 @@ defmodule Lovelace.Integrations.Google do
   Exchange/refresh return token maps (expiry is seconds); an omitted refresh token
   is absent, not nil. Preserve a vault token only after matching the same subject.
   A returned scope list must include Gmail readonly and no unrelated scopes.
+  Calendar is explicit opt-in; returned `:scopes` supplies consent evidence.
   Lists return at most 20 metadata summaries and an optional next-page token.
   Full threads are capped at 100 messages; MIME is capped at depth 10, 100 parts,
   256 KiB decoded text and 2 MiB encoded text per message. Attachments are omitted.
@@ -29,6 +30,10 @@ defmodule Lovelace.Integrations.Google do
   alias Lovelace.Integrations.Google.{Message, Transport}
 
   @scope "openid email https://www.googleapis.com/auth/gmail.readonly"
+  @calendar_scopes [
+    "https://www.googleapis.com/auth/calendar.calendarlist.readonly",
+    "https://www.googleapis.com/auth/calendar.events.readonly"
+  ]
   @callback_path "/oauth/google/callback"
   @max_body 10 * 1024 * 1024
   @safe_errors [
@@ -49,7 +54,8 @@ defmodule Lovelace.Integrations.Google do
   @type tokens :: %{
           required(:access_token) => binary(),
           required(:expires_in) => pos_integer(),
-          optional(:refresh_token) => binary()
+          optional(:refresh_token) => binary(),
+          optional(:scopes) => [binary()]
         }
   @type failure :: {:error, atom()}
   @type summary :: %{
@@ -78,13 +84,14 @@ defmodule Lovelace.Integrations.Google do
            {:ok, client_id} <- secret("GOOGLE_CLIENT_ID"),
            %{state: state, verifier: verifier, redirect_uri: redirect} <- params,
            true <- valid_state?(state) and valid_verifier?(verifier),
+           {:ok, scope} <- authorization_scope(Map.get(params, :capability, :gmail)),
            :ok <- validate_redirect(redirect, config.redirect_uri) do
         query =
           URI.encode_query(%{
             client_id: client_id,
             redirect_uri: redirect,
             response_type: "code",
-            scope: @scope,
+            scope: scope,
             state: state,
             code_challenge: :crypto.hash(:sha256, verifier) |> Base.url_encode64(padding: false),
             code_challenge_method: "S256",
@@ -99,6 +106,20 @@ defmodule Lovelace.Integrations.Google do
       end
     end)
   end
+
+  defp authorization_scope(:gmail), do: {:ok, @scope}
+  defp authorization_scope(:calendar), do: {:ok, Enum.join([@scope | @calendar_scopes], " ")}
+  defp authorization_scope(_), do: {:error, :invalid_request}
+
+  @doc false
+  def calendar_authorized?(%{scopes: scopes}) when is_list(scopes),
+    do:
+      Enum.all?(
+        ["https://www.googleapis.com/auth/gmail.readonly" | @calendar_scopes],
+        &(&1 in scopes)
+      )
+
+  def calendar_authorized?(_), do: false
 
   @spec exchange_code(binary(), binary(), binary()) :: {:ok, tokens()} | failure()
   def exchange_code(code, verifier, redirect_uri) do
@@ -280,6 +301,27 @@ defmodule Lovelace.Integrations.Google do
         token
       )
 
+  @doc false
+  def calendar_get(token, path, query) do
+    bounded(fn config ->
+      if is_binary(path) and byte_size(path) <= 4096 and
+           Regex.match?(
+             ~r"\A/(?:users/me/calendarList|calendars/[A-Za-z0-9._~%+-]+/events)\z",
+             path
+           ) and
+           not String.contains?(path, ["/../", "/./"]) and is_list(query) do
+        get(
+          config,
+          "www.googleapis.com",
+          "/calendar/v3" <> path <> "?" <> URI.encode_query(query),
+          token
+        )
+      else
+        {:error, :invalid_request}
+      end
+    end)
+  end
+
   defp get(config, host, path, token) do
     if valid_token?(token) do
       request(config, "GET", host, path, [{"authorization", "Bearer " <> token}], "", :json)
@@ -392,7 +434,14 @@ defmodule Lovelace.Integrations.Google do
          data["token_type"] in ["Bearer", "bearer"] and scope_allowed?(data["scope"]) and
          valid_refresh?(refresh) do
       result = %{access_token: access, expires_in: expires}
-      {:ok, if(refresh, do: Map.put(result, :refresh_token, refresh), else: result)}
+      result = if refresh, do: Map.put(result, :refresh_token, refresh), else: result
+
+      result =
+        if is_binary(data["scope"]),
+          do: Map.put(result, :scopes, String.split(data["scope"])),
+          else: result
+
+      {:ok, result}
     else
       {:error, :invalid_response}
     end
@@ -404,7 +453,10 @@ defmodule Lovelace.Integrations.Google do
   defp scope_allowed?(nil), do: true
 
   defp scope_allowed?(scope) when is_binary(scope) do
-    allowed = String.split(@scope) ++ ["https://www.googleapis.com/auth/userinfo.email"]
+    allowed =
+      String.split(@scope) ++
+        @calendar_scopes ++ ["https://www.googleapis.com/auth/userinfo.email"]
+
     scopes = String.split(scope)
 
     "https://www.googleapis.com/auth/gmail.readonly" in scopes and

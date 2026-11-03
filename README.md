@@ -3,21 +3,21 @@
 A private, desktop-first workspace for deliberate work, with warm cinematic minimalism
 and a nearly transparent glass interface.
 
-The first product slice is an account-separated, read-only Gmail workspace.
+The current product slice is an account-separated, read-only Gmail workspace with
+optional Google Calendar agendas for today on Home and in workspaces.
 Local owner unlock, reusable workspace/account connections, inbox/search/conversations,
-and background polling are implemented. **Google setup and a manual real-account
-connection are still required for a new installation. The user has confirmed a working
-connection; automated verification uses fakes, not a real mailbox.**
-Projects and mailbox writes remain deferred.
+calendar selection and background polling are implemented. **Google setup and a manual real-account
+connection are required for a new installation. Automated tests use fakes, not a real
+mailbox or calendar.** Projects, mailbox writes and calendar writes are outside current scope.
 
 ## Start here
 
-- [Current handoff: implementation, open work and verification](docs/HANDOFF.md)
 - [Visual and interaction contract: shared stage, navigation and accessibility](docs/UI_CONTRACT.md)
 - [Read-only Gmail: Google setup, local unlock, Keychain and privacy](docs/GMAIL.md)
+- [Optional Google Calendar: consent, selection and today's agenda](docs/CALENDAR.md)
 - [Development tooling and testing conventions](docs/DEVELOPMENT.md)
 - [Focused reviewer skills, routing, and Scopewright creation prompts](docs/REVIEWERS.md)
-- [Stage designer: encrypted configuration and agreed direction](docs/STAGE_DESIGNER.md)
+- [Stage designer: setup, credentials, costs and safeguards](docs/STAGE_DESIGNER.md)
 - [Repository working instructions](AGENTS.md)
 - [Dependency-supplied agent guidance](DEPENDENCY_RULES.md) (requires fetched dependencies)
 
@@ -117,9 +117,12 @@ are required for tests. Dependency downloads and the online audit require networ
   private encrypted `.env`, private `.env.keys`, and a public, secret-free `.env.example`.
   Start with `dotenvx run --strict -f .env -- mix phx.server` to inject the environment;
   plain Mix does not load dotenv files. Generation is opt-in, server-side, and asynchronous:
-  once per eligible app startup with a persistent 24-hour attempt cooldown, no retries,
-  seven retained local PNG/JPEG images, and previous-image/SVG fallback. No API key is needed when
-  disabled. Enter the Gemini API key in Connections; it is stored in the macOS Keychain
+  once per opted-in eligible app startup or an explicitly confirmed request in Scenes,
+  with a persistent 24-hour cooldown for automatic startup only, no automatic retries, an uncapped catalog of
+  published local PNG/JPEG images, and previous-image/SVG fallback. Scenes lets you browse
+  20 images per page and activate any saved image; the next successful generation becomes active.
+  Confirmed manual requests have no daily cooldown, but cannot overlap an unconfirmed attempt. No API key is needed
+  to view existing scenery. Enter the Gemini API key in Connections; it is stored in the macOS Keychain
   and is never returned to the browser. `GEMINI_API_KEY` is no longer read. See the guide
   for activation/costs and migration from the former environment setup.
 - `.env*` (except `.env.example`), `secrets/`, generated `data/stage-designer/` content,
@@ -132,14 +135,17 @@ For a production-mode local release, `config/runtime.exs` requires
 `DATABASE_PATH` and `SECRET_KEY_BASE`; Ash pagination signing derives a separate key
 from the latter. Releases also require built assets and an explicit server start
 (`PHX_SERVER=true`). Build the native Keychain helper on the target Mac before release
-assembly. Desktop packaging and signed-installer/credential migration remain future work.
+assembly. Desktop packaging and signed-installer/credential migration are not provided.
 
 ## Current foundation
 
 `/` mounts the owner-protected `LovelaceWeb.HomeLive`: glass entrance, saved workspace
 directory, workspace-specific account list and separate read-only Gmail views. There is
-no fake mail. `Lovelace.Workspaces`, `Lovelace.Owner` and `Lovelace.Mail` own their Ash
+no fake mail. Optional `Lovelace.Calendar` agendas reuse Google connections with explicit
+read-only consent and independent freshness. `Lovelace.Workspaces`, `Lovelace.Owner`,
+`Lovelace.Calendar` and `Lovelace.Mail` own their Ash
 resources/actions/policies and schema artifacts. `Lovelace.StageDesigner` retains the
 independent startup scenery workflow. Read [the Gmail guide](docs/GMAIL.md) before enabling
-Google access and [the handoff](docs/HANDOFF.md#recorded-verification-and-operational-limits) for
-current verification and remaining limits.
+Google access; it also documents recovery and verification limits. There is no standing
+roadmap or handoff backlog. Future work starts with an explicit user request; verify current
+implementation in code and run the relevant checks rather than relying on old completion logs.

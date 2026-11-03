@@ -3,9 +3,17 @@
 import assert from "node:assert/strict"
 import {spawn} from "node:child_process"
 import {once} from "node:events"
+import {chmod, mkdtemp, writeFile} from "node:fs/promises"
+import {tmpdir} from "node:os"
 import path from "node:path"
 
-const [browser, root, origin, workspaceId, accountId, unattachedId] = process.argv.slice(2)
+const [browser, root, origin, workspaceId, accountId, unattachedId, mode] = process.argv.slice(2)
+// Keep disposable-fixture and bundled-public-artwork evidence outside the app root removed by the BEAM
+// fixture. A fresh owner-only directory avoids overwriting any existing files.
+const artifacts = await mkdtemp(path.join(tmpdir(), "lovelace-ui-artifacts-"))
+await chmod(artifacts, 0o700)
+assert.ok(path.relative(root, artifacts).startsWith(`..${path.sep}`), "screenshots survive disposable-root cleanup")
+console.log(`UI screenshot directory (disposable fixtures and bundled artwork): ${artifacts}`)
 const chrome = spawn(browser, [
   "--headless", "--remote-debugging-address=127.0.0.1", "--remote-debugging-port=0",
   `--user-data-dir=${path.join(root, "chrome")}`, "--no-first-run", "--no-default-browser-check",
@@ -42,16 +50,16 @@ function send(method, params = {}, session = sessionId) {
   })
 }
 
-async function evaluate(expression) {
-  const response = await send("Runtime.evaluate", {expression, returnByValue: true, awaitPromise: true})
+async function evaluate(expression, session = sessionId) {
+  const response = await send("Runtime.evaluate", {expression, returnByValue: true, awaitPromise: true}, session)
   assert.equal(response.exceptionDetails, undefined, "browser evaluation must not throw")
   return response.result.value
 }
 
-async function waitFor(expression, label, timeout = 8_000) {
+async function waitFor(expression, label, timeout = 8_000, session = sessionId) {
   const end = Date.now() + timeout
   while (Date.now() < end) {
-    if (await evaluate(expression)) return
+    if (await evaluate(expression, session)) return
     await new Promise(resolve => setTimeout(resolve, 25))
   }
   throw new Error(`Timed out: ${label}`)
@@ -74,14 +82,169 @@ async function click(selector) {
   return scrollTop
 }
 
-async function key(key, text) {
+async function key(key, text, modifiers = 0) {
   const enter = key === "Enter" ? {code: "Enter", windowsVirtualKeyCode: 13, nativeVirtualKeyCode: 13, text: "\r", unmodifiedText: "\r"} : {}
-  await send("Input.dispatchKeyEvent", {type: "keyDown", key, ...enter, ...(text ? {text} : {})})
-  await send("Input.dispatchKeyEvent", {type: "keyUp", key, ...enter})
+  await send("Input.dispatchKeyEvent", {type: "keyDown", key, modifiers, ...enter, ...(text ? {text} : {})})
+  await send("Input.dispatchKeyEvent", {type: "keyUp", key, modifiers, ...enter})
 }
 
 async function media(features = []) {
   await send("Emulation.setEmulatedMedia", {features})
+}
+
+async function screenshot(name) {
+  await evaluate("document.fonts.ready.then(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve(true)))))")
+  const {data} = await send("Page.captureScreenshot", {format: "png", fromSurface: true, captureBeyondViewport: false})
+  const file = path.join(artifacts, `${name}.png`)
+  await writeFile(file, Buffer.from(data, "base64"), {flag: "wx", mode: 0o600})
+  console.log(`UI screenshot: ${file}`)
+}
+
+async function bundledBackground(selector) {
+  await waitFor(`document.querySelector(${JSON.stringify(selector)}) && getComputedStyle(document.querySelector(${JSON.stringify(selector)})).backgroundImage.includes('/images/scenes/')`, 'styled bundled background')
+  const background = await evaluate(`getComputedStyle(document.querySelector(${JSON.stringify(selector)})).backgroundImage`)
+  assert.match(background, /\/images\/scenes\/[0-9a-f]{64}\.jpg/, 'bundled JPEG replaces the original SVG')
+  const url = background.match(/^url\("(.+)"\)$/)?.[1]
+  assert.ok(url?.startsWith(`${origin}/images/scenes/`), 'bundled imagery is same-origin')
+  assert.equal(await evaluate(`(async () => {
+    const image = new Image(); image.src = ${JSON.stringify(url)};
+    await image.decode(); return image.naturalWidth > 0 && image.naturalHeight > 0;
+  })()`), true, 'the actual bundled default decodes in Chrome')
+  return background
+}
+
+async function verifyEmptyInstallation() {
+  const initial = await bundledBackground('#owner-stage-background')
+  assert.equal(await evaluate("!!document.querySelector('#owner-stage-background img')"), false, 'no generated image exists')
+  await screenshot('bundled-default-unlock')
+  await send('Page.reload')
+  await waitFor("!!document.querySelector('#owner-unlock-form')", 'unlock after reload')
+  assert.equal(await bundledBackground('#owner-stage-background'), initial)
+  await send('Emulation.setScriptExecutionDisabled', {value: true})
+  await send('Page.reload')
+  await waitFor("!!document.querySelector('#owner-unlock-form')", 'unlock without JavaScript')
+  assert.equal(await bundledBackground('#owner-stage-background'), initial, 'default imagery works without JavaScript')
+  await send('Emulation.setScriptExecutionDisabled', {value: false})
+  await send('Page.reload')
+  await waitFor("!!document.querySelector('#owner-unlock-form')", 'unlock before login')
+  await evaluate(`document.querySelector('#owner-unlock-form input[type=password]').value = 'synthetic browser owner password'; document.querySelector('#owner-unlock-form').requestSubmit()`)
+  await waitFor("!!document.querySelector('#home-overview') && window.liveSocket?.getSocket().isConnected()", 'empty installation Home')
+  await media([{name: 'prefers-reduced-motion', value: 'reduce'}])
+  await click('#workspace-pane')
+  await focused()
+  assert.equal(await bundledBackground('#workspace-background'), initial, 'static and live default choices agree')
+  assert.equal(await evaluate("!!document.querySelector('#workspace-background img')"), false)
+  await key('Escape')
+  await landscape()
+  await screenshot('bundled-default-scenery')
+  await key('a', 'a')
+  await focused()
+  await click('#show-scenes')
+  await waitFor("!!document.querySelector('#scenes-empty') && document.querySelector('#scenes-panel')?.getAttribute('aria-busy') === 'false'", 'honest empty gallery')
+  assert.match(await evaluate("document.querySelector('#scenes-empty').textContent"), /Bundled scenery remains available/)
+  assert.equal(await evaluate("!!document.querySelector('#scene-gallery')"), false, 'bundled assets are not presented as generated scenes')
+  assert.equal(await bundledBackground('#workspace-background'), initial)
+  await screenshot('bundled-default-empty-scenes')
+  await click('#home-link')
+  await send('Page.reload')
+  await waitFor("!!document.querySelector('#home-overview') && window.liveSocket?.getSocket().isConnected()", 'empty Home reload')
+  assert.equal(await bundledBackground('#workspace-background'), initial, 'reload retains the installation default')
+  assert.deepEqual(cspViolations, [])
+  assert.deepEqual(errors, [])
+  assert.deepEqual(external, [])
+  console.log('PASS bundled default without generated scenes: static/no-JS/live, image decoding, empty gallery and stable reload/navigation/wake')
+}
+
+async function scenesLoaded(count = 20, active = 1) {
+  await waitFor(`document.querySelector('#scenes-panel')?.getAttribute('aria-busy') === 'false' &&
+    document.title === 'Scenes · LOVELACE' &&
+    document.querySelector('#directory-heading')?.textContent.trim() === 'Scenes' &&
+    document.querySelectorAll('#scene-gallery > li.scene-card').length === ${count} &&
+    document.querySelectorAll('#scene-gallery > .scene-card[data-active=true]').length === ${active} &&
+    Array.from(document.querySelectorAll('#scene-gallery img')).length === ${count} &&
+    Array.from(document.querySelectorAll('#scene-gallery img')).every(image => image.dataset.loaded === 'true' && image.naturalWidth > 0)`, `${count} loaded synthetic scene thumbnails with ${active} active on this page`)
+  assert.equal(await evaluate("document.querySelector('#directory-heading').textContent.trim()"), "Scenes")
+  assert.equal(await evaluate("document.title"), "Scenes · LOVELACE")
+  assert.deepEqual(await evaluate("Array.from(document.querySelectorAll('#center-nav [aria-current=page]'), button => button.id)"), ["show-scenes"])
+  assert.equal(await evaluate("!!document.querySelector('#home-overview, #home-inbox, #workspace-list, #workspace-landing, #connections-panel, #gemini-connection, #mail-panel')"), false, "Scenes is an exclusive view, not an overlay on mail or Connections")
+  assert.equal(await evaluate("document.querySelectorAll('#scene-gallery > .scene-card[data-active=true]').length"), active)
+  assert.equal(await evaluate("/Generation is available|Recent scenery is ready/.test(document.querySelector('#scenes-panel .scene-status').textContent)"), false, 'status omits redundant generation availability and ready copy')
+}
+
+async function sceneManifest() {
+  return evaluate(`({
+    attempts: Array.from(document.querySelectorAll('#scenes-panel .scene-toolbar > .scene-status time'), time => time.dateTime),
+    scenes: Array.from(document.querySelectorAll('#scene-gallery > .scene-card'), card => ({
+      id: card.id, active: card.dataset.active, generatedAt: card.querySelector('time')?.dateTime,
+      src: card.querySelector('img').getAttribute('src')
+    }))
+  })`)
+}
+
+async function refreshScenes() {
+  // Require the real async status round trip, not a pre-response DOM snapshot.
+  await evaluate(`(() => {
+    window.uiScenesRefreshed = false;
+    const observer = new MutationObserver(records => {
+      if (records.some(record => record.attributeName === 'aria-busy' && record.oldValue === 'true') &&
+          document.querySelector('#scenes-panel')?.getAttribute('aria-busy') === 'false') {
+        window.uiScenesRefreshed = true;
+        observer.disconnect();
+      }
+    });
+    observer.observe(document.querySelector('#scenes-panel'), {attributes: true, attributeOldValue: true, attributeFilter: ['aria-busy']});
+  })()`)
+  await click("#scenes-refresh")
+  await waitFor("window.uiScenesRefreshed", "read-only scene status refresh completes")
+  await scenesLoaded()
+}
+
+async function sceneModal() {
+  await waitFor("document.querySelector('#scene-generation-modal')?.matches(':modal') && document.activeElement.id === 'scene-generation-cancel'", "native scene confirmation defaults to safe Cancel")
+  assert.equal(await evaluate("document.querySelector('#scene-generation-modal').getAttribute('aria-labelledby')"), "scene-generation-modal-title")
+  assert.match(await evaluate("document.querySelector('#scene-generation-modal').textContent"), /may incur.*charges/i)
+  assert.equal(await evaluate("document.querySelector('#scene-generation-confirm').disabled"), false)
+}
+
+async function scenesLayout(width, forced) {
+  const layout = await evaluate(`(() => {
+    const panel = document.querySelector('#scenes-panel');
+    const gallery = document.querySelector('#scene-gallery');
+    const pane = document.querySelector('#workspace-content');
+    const buttons = Array.from(panel.querySelectorAll('button'), button => button.getBoundingClientRect());
+    const nav = Array.from(document.querySelectorAll('#center-nav > button'), button => button.getBoundingClientRect());
+    return {pageOverflow: document.documentElement.scrollWidth > innerWidth,
+      paneOverflow: pane.scrollWidth > pane.clientWidth + 1,
+      panelOverflow: panel.scrollWidth > panel.clientWidth + 1,
+      galleryOverflow: gallery.scrollWidth > gallery.clientWidth + 1,
+      statusCard: (() => {
+        const status = panel.querySelector('.scene-status.connection-card');
+        const style = status && getComputedStyle(status);
+        return !!status && style.borderTopStyle === 'solid' && parseFloat(style.borderTopWidth) >= 1 &&
+          parseFloat(style.paddingTop) >= 20 && status.getBoundingClientRect().width <= panel.clientWidth;
+      })(),
+      statusPlacement: (() => {
+        const status = panel.querySelector('.scene-toolbar > .scene-status').getBoundingClientRect();
+        const actions = panel.querySelector('.scene-toolbar > .mail-actions').getBoundingClientRect();
+        return {sameRow: Math.abs(status.top - actions.top) <= 1 && status.right <= actions.left,
+          stacked: status.bottom <= actions.top};
+      })(),
+      columns: getComputedStyle(gallery).gridTemplateColumns.split(' ').length,
+      disabledCursors: Array.from(panel.querySelectorAll('button:disabled'), button => getComputedStyle(button).cursor),
+      usable: buttons.every(rect => rect.height >= 44 && rect.width >= 44 && rect.left >= 0 && rect.right <= innerWidth),
+      navFits: nav.every(rect => rect.left >= 0 && rect.right <= innerWidth && rect.height >= 44),
+      forced: matchMedia('(forced-colors: active)').matches};
+  })()`)
+  assert.equal(layout.pageOverflow || layout.paneOverflow || layout.panelOverflow || layout.galleryOverflow, false,
+    `Scenes has no horizontal overflow at ${width}px (forced colors: ${forced}): ${JSON.stringify(layout)}`)
+  assert.equal(layout.statusCard, true, 'generation status is contained in a padded Gemini-style card')
+  assert.equal(width > 640 ? layout.statusPlacement.sameRow : layout.statusPlacement.stacked, true,
+    'status sits beside the action buttons on desktop and stacks above them on narrow screens')
+  assert.equal(await evaluate("document.querySelector('#scenes-panel').textContent.includes('App-wide scenery · All saved scenes')"), false, 'redundant subheading is removed')
+  assert.equal(layout.columns, width <= 640 ? 1 : 2)
+  assert.ok(layout.disabledCursors.every(cursor => cursor === 'default'), 'disabled controls never imply work with a waiting/spinner cursor')
+  assert.equal(layout.usable && layout.navFits, true, "scene and navigation controls remain usable within the viewport")
+  assert.equal(layout.forced, forced)
 }
 
 async function focused() {
@@ -186,7 +349,7 @@ async function home() {
   assert.equal(await evaluate("document.querySelector('#home-link').textContent.trim()"), "Home")
   assert.equal(await evaluate("document.querySelector('#workspace-monogram').closest('a, button') === null && document.querySelector('#workspace-monogram').getAttribute('aria-hidden') === 'true' && document.querySelector('#workspace-monogram').getAttribute('focusable') === 'false' && getComputedStyle(document.querySelector('#workspace-monogram')).pointerEvents === 'none'"), true, "corner monogram is decoration only")
   assert.equal(await evaluate("location.pathname + location.search + location.hash"), "/", "navigation stays in-page")
-  assert.equal(await evaluate("!!document.querySelector('#workspace-list, #home-inbox, #connections-panel')"), false)
+  assert.equal(await evaluate("!!document.querySelector('#workspace-list, #home-inbox, #connections-panel, #scenes-panel')"), false)
   const orientation = await evaluate(`(() => {
     const now = new Date();
     const hour = now.getHours();
@@ -234,12 +397,12 @@ try {
     } else if (message.method === "Fetch.requestPaused") {
       const {requestId, request} = message.params
       if (failStageImages && request.url.startsWith(`${origin}/stage/background/`)) {
-        send("Fetch.failRequest", {requestId, errorReason: "Failed"}).catch(() => {})
+        send("Fetch.failRequest", {requestId, errorReason: "Failed"}, message.sessionId).catch(() => {})
       } else if (request.url.startsWith(`${origin}/`) || request.url.startsWith("data:")) {
-        send("Fetch.continueRequest", {requestId}).catch(() => {})
+        send("Fetch.continueRequest", {requestId}, message.sessionId).catch(() => {})
       } else {
         external.push("Off-origin page request blocked")
-        send("Fetch.failRequest", {requestId, errorReason: "BlockedByClient"}).catch(() => {})
+        send("Fetch.failRequest", {requestId, errorReason: "BlockedByClient"}, message.sessionId).catch(() => {})
       }
     }
   })
@@ -253,9 +416,13 @@ try {
   await send("Runtime.addBinding", {name: "uiCspViolation"})
   await send("Page.addScriptToEvaluateOnNewDocument", {source:
     "document.addEventListener('securitypolicyviolation', () => window.uiCspViolation('CSP violation'));"})
+  await send("Emulation.setTimezoneOverride", {timezoneId: "UTC"})
   await send("Emulation.setDeviceMetricsOverride", {width: 1440, height: 1000, deviceScaleFactor: 1, mobile: false})
   await send("Page.navigate", {url: `${origin}/unlock`})
   await waitFor("!!document.querySelector('#owner-unlock-form') && getComputedStyle(document.documentElement).getPropertyValue('--workspace-scenery-blur').trim() !== ''", "styled static unlock")
+  if (mode === 'bundled-default') {
+    await verifyEmptyInstallation()
+  } else {
   assert.equal(await evaluate("document.querySelector('#owner-stage [phx-hook], #owner-stage [inert]') === null"), true)
   await waitFor("Number(getComputedStyle(document.querySelector('#owner-stage-monogram')).opacity) > 0.8", "static owner corner")
   assert.notEqual(await evaluate("getComputedStyle(document.querySelector('#owner-stage-background')).filter"), "none")
@@ -292,7 +459,7 @@ try {
   console.log("PASS ordinary entrance, static stage, corner/Home/Lock visibility and gate/focus handoff")
 
   await home()
-  assert.deepEqual(await evaluate("Array.from(document.querySelectorAll('#center-nav > button'), button => button.id)"), ["home-link", "show-workspaces", "show-connections"])
+  assert.deepEqual(await evaluate("Array.from(document.querySelectorAll('#center-nav > button'), button => button.id)"), ["home-link", "show-workspaces", "show-connections", "show-scenes"])
   assert.equal(await evaluate("document.querySelectorAll('#home-accounts > li').length"), 5, "one Home row per connection, not per membership")
   for (const [id, count] of [[accountId, "7"], [unattachedId, "0"]]) {
     assert.equal(await evaluate(`document.querySelectorAll('#home-account-${id}').length`), 1)
@@ -304,6 +471,197 @@ try {
   assert.match(memberships, /Browser studio/)
   assert.match(memberships, /Synthetic space 1/)
   assert.match(await evaluate(`document.querySelector('#home-account-${unattachedId}').textContent`), /Not in a workspace/)
+
+  await waitFor("document.querySelector('#calendar-agenda')?.textContent.includes('Synthetic focus time')", "browser-local Calendar cache renders")
+  assert.equal(await evaluate("document.querySelectorAll('#calendar-agenda .calendar-account').length"), 1, "Calendar remains opt-in per account")
+  assert.match(await evaluate("document.querySelector('#calendar-agenda').textContent"), /All day/)
+  assert.equal(await evaluate("document.querySelector('#calendar-agenda a').hostname"), "calendar.google.com")
+  assert.equal(await evaluate("document.querySelector('#calendar-agenda a').rel"), "noopener noreferrer")
+  await evaluate("document.querySelector('#calendar-agenda').scrollIntoView({block:'center'})")
+  await screenshot("calendar-home-desktop")
+  await click("#show-connections")
+  await waitFor("!!document.querySelector('#connections-calendar')", "Calendar provider navigation mounted")
+  await click("#connections-calendar")
+  await waitFor("!!document.querySelector('#calendar-connections') && !document.querySelector('#connections-panel, #gemini-connection')", "exclusive Calendar connection provider")
+  await click(`#calendar-connections-selection-${accountId} summary`)
+  assert.equal(await evaluate(`document.querySelector('#calendar-connections-select-${accountId} input[value=primary]').checked`), true, "Google-selected default calendar")
+  assert.equal(await evaluate(`document.querySelector('#calendar-connections-select-${accountId} input[value="shared@example.test"]').checked`), false, "shared calendar is available but not implicitly selected")
+  const optionalConsent = await evaluate(`(() => {
+    const form = document.querySelector('#calendar-connections-authorize-${unattachedId}');
+    return {method:form.method, action:new URL(form.action).pathname,
+      capability:form.querySelector('[name=capability]').value,
+      account:form.querySelector('[name=expected_account_id]').value,
+      required:form.querySelector('select').required};
+  })()`)
+  assert.deepEqual(optionalConsent, {method:"post", action:"/oauth/google/start", capability:"calendar", account:unattachedId, required:true})
+  await screenshot("calendar-connections-desktop")
+  await click("#home-link")
+  console.log("PASS optional account-scoped Calendar agenda, all-day/local times, safe links and shared-calendar selection")
+
+  await evaluate("document.querySelector('#show-scenes').focus()")
+  await key("Enter")
+  await scenesLoaded()
+  await waitFor("document.activeElement.id === 'directory-heading'", "keyboard Scenes navigation transfers heading focus")
+  const initialScenes = await sceneManifest()
+  assert.equal(initialScenes.attempts.length, 1, "fixture exposes its actual last attempt")
+  assert.equal(initialScenes.scenes.length, 20, "the first gallery page is bounded to 20 scenes")
+  assert.equal(new Set(initialScenes.scenes.map(scene => scene.id)).size, 20)
+  assert.ok(initialScenes.scenes.every(scene => Number.isFinite(Date.parse(scene.generatedAt)) && Date.parse(scene.generatedAt) < Date.now() - 86_400_000), "every synthetic scene has an honest generation timestamp older than the cooldown")
+  assert.ok(initialScenes.scenes.every((scene, index, scenes) => index === 0 || Date.parse(scenes[index - 1].generatedAt) > Date.parse(scene.generatedAt)), "retained scenes are newest first")
+  assert.ok(Date.parse(initialScenes.attempts[0]) > Date.now() - 60_000, 'the failed fixture attempt is recent, not an expired cooldown')
+  assert.equal(await evaluate("document.querySelector('#scene-generate').disabled"), false, "manual confirmation remains available immediately after failure, even with startup disabled")
+  assert.equal(await evaluate("Array.from(document.querySelectorAll('#scene-gallery > .scene-card')).every(card => { const digest = card.id.slice(6); const image = card.querySelector('img'); const button = card.querySelector('button'); return /^[0-9a-f]{64}$/.test(digest) && image.id === 'scene-preview-' + digest && image.getAttribute('phx-hook') === 'StageBackground' && !!image.alt && button.id === 'use-scene-' + digest && button.disabled === (card.dataset.active === 'true'); })"), true, "digest IDs, loaded hook thumbnails, accessible names and selection availability agree")
+  assert.equal(await evaluate("document.querySelector('#scene-generate').textContent.trim()"), 'Generate scene', 'primary label has no ellipsis')
+  assert.equal(await evaluate("!!document.querySelector('#scene-generate [aria-hidden=true] .hero-sparkles') && getComputedStyle(document.querySelector('#scene-generate .hero-sparkles')).maskImage !== 'none'"), true, 'primary button renders the local Gemini sparkles icon')
+  assert.equal(await evaluate("document.querySelector('#scenes-panel').textContent.includes('API charges') || !!document.querySelector('.scene-policy')"), false, 'no persistent API-charges warning')
+  await scenesLayout(1440, false)
+  await screenshot("scenes-desktop")
+
+  assert.equal(await evaluate("document.querySelector('#scenes-panel').dataset.page"), "1")
+  assert.equal(await evaluate("document.querySelector('#scene-pagination').getAttribute('aria-label')"), "Scene gallery pages")
+  assert.deepEqual(await evaluate("['newer', 'older'].map(direction => { const button = document.querySelector('#scenes-' + direction); return {direction: button.getAttribute('phx-value-direction'), disabled: button.disabled}; })"), [
+    {direction: "newer", disabled: true}, {direction: "older", disabled: false},
+  ])
+  assert.deepEqual(await evaluate("Array.from(document.querySelectorAll('#scene-gallery button'), button => button.getAttribute('aria-label'))"),
+    Array.from({length: 20}, (_, index) => `Use scene ${index + 1} as background`), "scene labels begin at one on the newest page")
+  await click("#scenes-older")
+  await waitFor("document.querySelector('#scenes-panel')?.dataset.page === '2'", "real older-page response")
+  await scenesLoaded(3, 0)
+  const olderScenes = await sceneManifest()
+  const allScenes = [...initialScenes.scenes, ...olderScenes.scenes]
+  assert.equal(new Set(allScenes.map(scene => scene.id)).size, 23, "paging retains all 23 distinct archived scenes, not only the recent fallback window")
+  assert.equal(new Set(allScenes.map(scene => scene.src)).size, 23, "every archived fixture has its own served image")
+  assert.ok(allScenes.every((scene, index, scenes) => Number.isFinite(Date.parse(scene.generatedAt)) &&
+    Date.parse(scene.generatedAt) < Date.now() - 86_400_000 &&
+    (index === 0 || Date.parse(scenes[index - 1].generatedAt) > Date.parse(scene.generatedAt))), "generation timestamps remain honest and newest-first across page boundaries")
+  assert.deepEqual(olderScenes.attempts, initialScenes.attempts, "paging does not reserve generation")
+  assert.deepEqual(await evaluate("['newer', 'older'].map(direction => document.querySelector('#scenes-' + direction).disabled)"), [false, true], "the final page enables only Newer")
+  assert.deepEqual(await evaluate("Array.from(document.querySelectorAll('#scene-gallery button'), button => button.getAttribute('aria-label'))"),
+    [21, 22, 23].map(index => `Use scene ${index} as background`), "older-page scene labels use global indices")
+  const oldestScene = olderScenes.scenes.at(-1)
+  const oldestDigest = oldestScene.id.slice(6)
+  await click(`#use-scene-${oldestDigest}`)
+  await waitFor(`document.querySelector('#scene-${oldestDigest}')?.dataset.active === 'true' &&
+    document.querySelector('#workspace-background img')?.getAttribute('src') === ${JSON.stringify(oldestScene.src)} &&
+    document.querySelector('#workspace-background img')?.dataset.loaded === 'true'`, "an archived scene outside the recent seven is served and selectable")
+  await scenesLoaded(3)
+  assert.equal(await evaluate("document.querySelector('#scenes-panel').dataset.page"), "2", "selection retains the older gallery page")
+  await scenesLayout(1440, false)
+  await screenshot("scenes-older-selected")
+  await click("#scenes-newer")
+  await waitFor("document.querySelector('#scenes-panel')?.dataset.page === '1'", "return to the newer gallery page")
+  await scenesLoaded(20, 0)
+  assert.deepEqual(await sceneManifest(), {...initialScenes, scenes: initialScenes.scenes.map(scene => ({...scene, active: "false"}))}, "returning to newer scenes preserves dates and the off-page selection")
+  assert.equal(await evaluate("document.querySelector('#workspace-background img').getAttribute('src')"), oldestScene.src, "paging never changes the selected background")
+  const originalScene = initialScenes.scenes.find(scene => scene.active === "true")
+  await click(`#use-scene-${originalScene.id.slice(6)}`)
+  await waitFor(`document.querySelector('#workspace-background img')?.getAttribute('src') === ${JSON.stringify(originalScene.src)} &&
+    document.querySelector('#workspace-background img')?.dataset.loaded === 'true'`, "restore the original scene before consent and cross-tab checks")
+  await scenesLoaded()
+  assert.deepEqual(await sceneManifest(), initialScenes, "archive selection and paging do not change generation attempts or image dates")
+  console.log("PASS real 20 + 3 scene pagination, global labels, archived image serving/selection and return to newer scenes")
+
+  // First verify safe cancellation. After these checks, Confirm is exercised
+  // only against the disposable fixture's empty fake vault: no provider HTTP.
+  await evaluate("document.querySelector('#scene-generate').focus()")
+  await key("Enter")
+  await sceneModal()
+  assert.equal(await evaluate("(() => { document.querySelector('#home-link').focus(); return document.activeElement.id; })()"), "scene-generation-cancel", "native scene dialog prevents focus escaping to navigation")
+  await key("Tab", undefined, 8)
+  assert.equal(await evaluate("document.activeElement.id"), "scene-generation-confirm", "Shift+Tab reaches the explicit charge-bearing action")
+  await key("Tab")
+  assert.equal(await evaluate("document.activeElement.id"), "scene-generation-cancel")
+  for (let index = 0; index < 5; index++) {
+    await key("Tab")
+    assert.equal(await evaluate("document.activeElement === document.body || document.querySelector('#scene-generation-modal').contains(document.activeElement)"), true, "native scene dialog contains keyboard traversal")
+  }
+  await evaluate("document.querySelector('#scene-generation-cancel').focus()")
+  await screenshot("scene-confirmation")
+  await key("Escape")
+  await waitFor("!document.querySelector('#scene-generation-modal') && document.activeElement.id === 'scene-generate'", "scene Escape dismisses only confirmation and restores Generate")
+  await focused()
+  assert.deepEqual(await sceneManifest(), initialScenes, "opening and Escape do not reserve generation or change scenery")
+  await key("Enter")
+  await sceneModal()
+  await key("Enter") // Safe default: Cancel, not the charge-bearing Confirm.
+  await waitFor("!document.querySelector('#scene-generation-modal') && document.activeElement.id === 'scene-generate'", "default keyboard Cancel restores Generate")
+  await refreshScenes()
+  assert.deepEqual(await sceneManifest(), initialScenes, "Cancel and Refresh are read-only, including attempt timestamps and selection")
+  assert.equal(await evaluate("document.querySelector('#scene-generate').disabled"), false, "cancelled consent leaves manual requests available")
+
+  // A second authenticated tab uses this same disposable profile/database. Its
+  // Home remains untouched while app-wide selection arrives through real PubSub.
+  const {targetId: sharedTargetId} = await send("Target.createTarget", {url: "about:blank"}, null)
+  try {
+    const {sessionId: sharedSession} = await send("Target.attachToTarget", {targetId: sharedTargetId, flatten: true}, null)
+    await send("Page.enable", {}, sharedSession)
+    await send("Runtime.enable", {}, sharedSession)
+    await send("Emulation.setTimezoneOverride", {timezoneId: "UTC"}, sharedSession)
+    await send("Fetch.enable", {patterns: [{urlPattern: "*"}]}, sharedSession)
+    await send("Runtime.addBinding", {name: "uiCspViolation"}, sharedSession)
+    await send("Page.addScriptToEvaluateOnNewDocument", {source: "document.addEventListener('securitypolicyviolation', () => window.uiCspViolation('CSP violation'));"}, sharedSession)
+    await send("Page.navigate", {url: `${origin}/`}, sharedSession)
+    await waitFor("!!document.querySelector('#home-overview') && window.liveSocket?.getSocket().isConnected() && document.querySelector('#workspace-background img')?.dataset.loaded === 'true'", "second disposable Home is connected", 8_000, sharedSession)
+    // createTarget activates the new tab; foreground the driving tab so Chrome
+    // does not defer LiveView's animation-frame title/focus work while hidden.
+    await send("Target.activateTarget", {targetId}, null)
+    const chosen = initialScenes.scenes.find(scene => scene.active === "false")
+    const digest = chosen.id.slice(6)
+    await click(`#use-scene-${digest}`)
+    await waitFor(`document.querySelector('#scene-${digest}')?.dataset.active === 'true' &&
+      document.querySelector('#workspace-background img')?.getAttribute('src') === ${JSON.stringify(chosen.src)} &&
+      document.querySelector('#workspace-background img')?.dataset.loaded === 'true'`, "selection updates the shared stage and active card")
+    await scenesLoaded()
+    await waitFor(`document.querySelector('#workspace-background img')?.getAttribute('src') === ${JSON.stringify(chosen.src)} &&
+      document.querySelector('#workspace-background img')?.dataset.loaded === 'true'`, "other tab receives app-wide stage selection", 8_000, sharedSession)
+    assert.equal(await evaluate("!!document.querySelector('#home-overview') && !document.querySelector('#scenes-panel') && document.querySelector('#main-content').dataset.entered !== 'true'", sharedSession), true, "a stage update does not navigate or wake another tab")
+    assert.deepEqual((await sceneManifest()).attempts, initialScenes.attempts, "selection does not reserve generation")
+    assert.equal(await evaluate(`document.querySelector('#use-scene-${digest}').disabled`), true)
+    assert.equal(await evaluate("document.querySelectorAll('#scene-gallery button:not(:disabled)').length"), 19)
+    const selectedScenes = await sceneManifest()
+    await refreshScenes()
+    assert.deepEqual(await sceneManifest(), selectedScenes, "read-only Refresh preserves manual selection and dates")
+
+    const sceneScroll = await evaluate("document.querySelector('#workspace-content').scrollTop")
+    await key("Escape")
+    await landscape()
+    assert.equal(await evaluate("!!document.querySelector('#scenes-panel') && !document.querySelector('#scene-generation-modal')"), true)
+    await key("a", "a")
+    await focused()
+    assert.equal(await evaluate("document.querySelector('#workspace-content').scrollTop"), sceneScroll)
+    assert.deepEqual(await sceneManifest(), selectedScenes, "scenery Escape/wake retains the Scenes view, selection and reservation")
+
+    await media([{name: "prefers-reduced-motion", value: "reduce"}])
+    await send("Page.reload")
+    await waitFor(`!!document.querySelector('#home-overview') && window.liveSocket?.getSocket().isConnected() &&
+      document.querySelector('#workspace-background img')?.getAttribute('src') === ${JSON.stringify(chosen.src)} &&
+      document.querySelector('#workspace-background img')?.dataset.loaded === 'true'`, "reload returns Home with the persisted chosen background")
+    await home()
+    await click("#workspace-pane")
+    await focused()
+    await click("#show-scenes")
+    await scenesLoaded()
+    assert.deepEqual(await sceneManifest(), selectedScenes, "manual scene selection and timestamps survive a real page reload")
+    assert.equal(await evaluate("document.querySelector('#scene-generate').disabled"), false, "navigation, stage broadcasts and reload preserve manual availability")
+  } finally {
+    await send("Target.closeTarget", {targetId: sharedTargetId}, null)
+  }
+  // The fake vault has no key here. Confirm really submits, then fails locally;
+  // it must not disable manual generation for another 24 hours.
+  const beforeConfirmedAttempt = (await sceneManifest()).attempts[0]
+  await click('#scene-generate')
+  await sceneModal()
+  await click('#scene-generation-confirm')
+  await waitFor(`!document.querySelector('#scene-generation-modal') &&
+    document.querySelector('#scenes-panel')?.getAttribute('aria-busy') === 'false' &&
+    document.querySelector('#scene-generate')?.disabled === false &&
+    document.querySelector('#scenes-panel .scene-status time')?.dateTime !== ${JSON.stringify(beforeConfirmedAttempt)} &&
+    document.querySelector('#scenes-panel .scene-status')?.textContent.includes('last generation failed')`, 'confirmed fake-vault failure leaves manual Generate enabled')
+  await screenshot('scenes-after-confirmed-failure')
+  await click("#home-link")
+  await home()
+  await media([])
+  console.log("PASS Scenes keyboard navigation, confirmation with local fake-vault failure and immediate manual availability, cross-tab selection, Escape/wake and reload persistence")
 
   await click(`#open-home-account-${accountId}`)
   await waitFor("document.querySelector('#home-inbox #mail-threads')?.getAttribute('aria-busy') === 'false'", "Home row opens separate account inbox")
@@ -561,6 +919,8 @@ try {
 
   await click(`#open-${workspaceId}`)
   await waitFor("!!document.querySelector('#mail-accounts') && document.activeElement.id === 'directory-heading'", "workspace navigation focus")
+  await waitFor(`document.querySelector('#workspace-landing #calendar-agenda-account-${accountId}')?.textContent.includes('Synthetic focus time')`, "workspace shows attached account Calendar")
+  assert.equal(await evaluate(`!!document.querySelector('#workspace-landing #calendar-agenda-account-${unattachedId}')`), false, "workspace Calendar excludes unattached Google accounts")
   await click("#add-integration")
   await waitFor("!!document.querySelector('#integration-add-panel')", "Add integration panel")
   await click("#close-add-integration")
@@ -590,7 +950,7 @@ try {
   await landscape()
   assert.equal(await evaluate("document.querySelector('#workspace-content').inert"), true)
   assert.equal(await evaluate("getComputedStyle(document.querySelector('#workspace-background img')).opacity"), "0")
-  assert.match(await evaluate("getComputedStyle(document.querySelector('#workspace-background')).backgroundImage"), /distant-shore\.svg/)
+  await bundledBackground('#workspace-background')
   failStageImages = false
   await click("#workspace-pane")
   await media([{name: "prefers-reduced-motion", value: "reduce"}])
@@ -621,6 +981,11 @@ try {
       })()`)
       assert.ok(homeDimensions.rowWidth > 200 && homeDimensions.rowHeight >= 44 && homeDimensions.homeWidth >= 44 && homeDimensions.homeHeight >= 44,
         `usable Home targets at ${width}px (forced colors: ${forced}): ${JSON.stringify(homeDimensions)}`)
+      await waitFor("document.querySelector('#calendar-agenda')?.textContent.includes('Synthetic focus time')", "Calendar remains available after navigation")
+      await evaluate("document.querySelector('#calendar-agenda').scrollIntoView({block:'center'})")
+      assert.equal(await evaluate("document.querySelector('#calendar-agenda').scrollWidth <= document.querySelector('#calendar-agenda').clientWidth"), true, "Calendar agenda has no horizontal overflow")
+      if (width === 390 && !forced) await screenshot("calendar-home-narrow")
+      if (width === 1440 && forced) await screenshot("calendar-home-forced-colors")
       await click(`#open-home-account-${accountId}`)
       await waitFor("document.querySelector('#home-inbox #mail-threads')?.getAttribute('aria-busy') === 'false'", "inbox for search layout checks")
       const searchDimensions = await evaluate(`(() => {
@@ -704,12 +1069,46 @@ try {
           label: document.querySelector('#connections-subnav').getAttribute('aria-label')};
       })()`)
       assert.equal(providerNav.label, "Connection providers")
-      assert.equal(providerNav.sameRow, true, "provider subnav shares the Connections title row")
+      if (width >= 640) assert.equal(providerNav.sameRow, true, "provider subnav shares the desktop Connections title row")
+      else assert.equal(providerNav.sameRow, false, "three-provider navigation wraps below the heading on narrow screens")
+      await click("#connections-calendar")
+      await waitFor("!!document.querySelector('#calendar-connections') && !document.querySelector('#connections-panel, #gemini-connection')", "Calendar only at each width/preference")
+      assert.equal(await evaluate("document.documentElement.scrollWidth <= innerWidth && document.querySelector('#calendar-connections').scrollWidth <= document.querySelector('#calendar-connections').clientWidth"), true, "Calendar Connections has no horizontal overflow")
+      if (width === 390 && !forced) await screenshot("calendar-connections-narrow")
+      if (width === 1440 && forced) await screenshot("calendar-connections-forced-colors")
       await click("#connections-gemini")
       await waitFor("!!document.querySelector('#gemini-connection') && !document.querySelector('#connections-panel')", "Gemini only at each width/preference")
       assert.equal(await evaluate("document.documentElement.scrollWidth <= innerWidth"), true, "provider subnav/Gemini has no horizontal overflow")
       await click("#connections-gmail")
       await waitFor("!!document.querySelector('#connections-panel') && !document.querySelector('#gemini-connection')", "Gmail only at each width/preference")
+      await click("#show-scenes")
+      await scenesLoaded()
+      await scenesLayout(width, forced)
+      const beforeSceneDialog = await sceneManifest()
+      assert.equal(await evaluate("document.querySelector('#scene-generate').disabled"), false, "unconfirmed dialogs, unrelated credential saves and reloads never reserve generation")
+      if (!forced && width === 390) await screenshot("scenes-narrow")
+      if (forced && width === 1440) await screenshot("scenes-forced-colors")
+      await evaluate("document.querySelector('#scenes-refresh').focus()")
+      await key("Tab")
+      assert.equal(await evaluate("document.activeElement.id"), "scene-generate", "keyboard reaches generation from read-only Refresh")
+      if (forced) assert.notEqual(await evaluate("getComputedStyle(document.activeElement).outlineStyle"), "none", "forced-color scene controls retain visible keyboard focus")
+      await key("Enter")
+      await sceneModal()
+      const sceneDialogLayout = await evaluate(`(() => {
+        const dialog = document.querySelector('#scene-generation-modal');
+        const rect = dialog.getBoundingClientRect();
+        return {overflow: dialog.scrollWidth > dialog.clientWidth + 1,
+          withinViewport: rect.left >= 0 && rect.right <= innerWidth && rect.top >= 0 && rect.bottom <= innerHeight,
+          usable: Array.from(dialog.querySelectorAll('button')).every(button => button.getBoundingClientRect().height >= 44)};
+      })()`)
+      assert.equal(sceneDialogLayout.overflow, false, "scene consent copy and controls wrap without horizontal overflow")
+      assert.equal(sceneDialogLayout.withinViewport && sceneDialogLayout.usable, true, `usable scene dialog at ${width}px (forced colors: ${forced})`)
+      if (width === 390) await click("#scene-generation-cancel")
+      else await key("Escape")
+      await waitFor("!document.querySelector('#scene-generation-modal') && document.activeElement.id === 'scene-generate'", "scene cancellation restores Generate at each width/preference")
+      await focused()
+      await refreshScenes()
+      assert.deepEqual(await sceneManifest(), beforeSceneDialog, "narrow/forced-color dialog cancellation and Refresh leave cooldown and selected imagery unchanged")
       await click("#show-workspaces")
       await waitFor(`!!document.querySelector('#open-${workspaceId}')`, "directory for card layout checks")
       const workspaceBounds = await evaluate(`(() => {
@@ -756,11 +1155,13 @@ try {
   assert.deepEqual(cspViolations, [], "CSP evidence accumulates across all navigations/reloads")
   assert.deepEqual(errors, [])
   assert.deepEqual(external, [])
-  console.log("PASS Home reload, reduced motion, forced colors, desktop/narrow Home/card/inbox search/reader layout and no off-origin requests/page errors")
+  console.log("PASS Home reload, reduced motion, forced colors, desktop/narrow Home/card/inbox/reader/Scenes/dialog layout and no off-origin requests/page errors")
+  }
 } catch (error) {
   console.error(error.message)
   if (socket?.readyState === WebSocket.OPEN) {
-    console.error(await evaluate(`JSON.stringify({title: document.title, home: !!document.querySelector('#home-overview'), current: document.querySelector('#home-link')?.getAttribute('aria-current'), inbox: !!document.querySelector('#home-inbox'), active: document.activeElement?.id, heading: document.querySelector('#directory-heading')?.textContent.trim()})`).catch(() => "Browser state unavailable"))
+    await screenshot("failure").catch(() => console.error("Failure screenshot unavailable"))
+    console.error(await evaluate(`JSON.stringify({title: document.title, home: !!document.querySelector('#home-overview'), current: document.querySelector('#home-link')?.getAttribute('aria-current'), inbox: !!document.querySelector('#home-inbox'), active: document.activeElement?.id, heading: document.querySelector('#directory-heading')?.textContent.trim(), sceneBusy: document.querySelector('#scenes-panel')?.getAttribute('aria-busy'), sceneCards: document.querySelectorAll('#scene-gallery > li.scene-card').length, sceneImages: Array.from(document.querySelectorAll('#scene-gallery img'), image => ({id: image.id, loaded: image.dataset.loaded, width: image.naturalWidth}))})`).catch(() => "Browser state unavailable"))
   }
   process.exitCode = 1
 } finally {

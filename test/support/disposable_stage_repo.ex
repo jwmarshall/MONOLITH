@@ -6,23 +6,24 @@ defmodule Lovelace.TestSupport.DisposableStageRepo do
 
   alias Lovelace.Repo
 
-  def start!(directory) do
+  def start!(directory, opts \\ []) do
     File.mkdir_p!(directory)
     database = Path.join(directory, "coordination.db")
     {first, first_connection} = start_pool!(database)
 
-    Code.require_file(
-      Path.expand("../../priv/repo/migrations/20261102020618_create_stage_designer.exs", __DIR__)
-    )
+    migrations = [
+      {20_261_102_020_618, "20261102020618_create_stage_designer.exs",
+       Lovelace.Repo.Migrations.CreateStageDesigner},
+      {20_261_103_014_313, "20261103014313_add_scene_selection.exs",
+       Lovelace.Repo.Migrations.AddSceneSelection},
+      {20_261_103_040_753, "20261103040753_add_scene_catalog.exs",
+       Lovelace.Repo.Migrations.AddSceneCatalog}
+    ]
 
-    Ecto.Migrator.run(
-      Repo,
-      [{20_261_102_020_618, Lovelace.Repo.Migrations.CreateStageDesigner}],
-      :up,
-      all: true,
-      dynamic_repo: first,
-      log: false
-    )
+    count = %{initial: 1, selection: 2, catalog: 3}[Keyword.get(opts, :through, :catalog)]
+    migrations = Enum.take(migrations, count)
+
+    migrate!(first, migrations)
 
     {second, second_connection} = start_pool!(database)
 
@@ -32,6 +33,18 @@ defmodule Lovelace.TestSupport.DisposableStageRepo do
       first_connection: first_connection,
       second_connection: second_connection
     }
+  end
+
+  def migrate!(repo, migrations) do
+    versions =
+      Enum.map(migrations, fn {version, file, module} ->
+        unless Code.ensure_loaded?(module),
+          do: Code.require_file(Path.expand("../../priv/repo/migrations/" <> file, __DIR__))
+
+        {version, module}
+      end)
+
+    Ecto.Migrator.run(Repo, versions, :up, all: true, dynamic_repo: repo, log: false)
   end
 
   defp start_pool!(database) do

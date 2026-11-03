@@ -17,6 +17,7 @@ defmodule Lovelace.Mail.SweepWorker do
       end
     end)
 
+    Lovelace.Calendar.sweep()
     :ok
   end
 end

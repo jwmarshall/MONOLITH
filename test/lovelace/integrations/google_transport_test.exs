@@ -58,6 +58,40 @@ defmodule Lovelace.Integrations.Google.TransportTest do
              )
   end
 
+  test "Calendar allows only bounded GETs to the fixed host and list/events paths" do
+    for path <- [
+          "/calendar/v3/users/me/calendarList?maxResults=100",
+          "/calendar/v3/calendars/primary/events?singleEvents=true",
+          "/calendar/v3/calendars/fake%40example.invalid/events?maxResults=100",
+          "/calendar/v3/calendars/team%2Bspecial%2F%40group/events"
+        ] do
+      assert :ok = Transport.validate(request(%{host: "www.googleapis.com", path: path}))
+    end
+
+    for overrides <- [
+          %{host: "calendar.google.com", path: "/calendar/v3/users/me/calendarList"},
+          %{host: "www.googleapis.com.evil.invalid", path: "/calendar/v3/users/me/calendarList"},
+          %{
+            host: "www.googleapis.com",
+            path: "/calendar/v3/users/me/calendarList",
+            method: "POST"
+          },
+          %{host: "www.googleapis.com", path: "/calendar/v3/calendars/primary/events/evt1"},
+          %{host: "www.googleapis.com", path: "/calendar/v3/calendars/../events"},
+          %{host: "www.googleapis.com", path: "/calendar/v3/calendars/./events"},
+          %{host: "www.googleapis.com", path: "/calendar/v3/calendars/primary/acl"},
+          %{host: "www.googleapis.com", path: "/calendar/v3/calendars/a/b/events"},
+          %{host: "www.googleapis.com", path: "/calendar/v3/calendars/bad%ZZ/events"},
+          %{host: "www.googleapis.com", path: "/calendar/v3/users/me/calendarList#fragment"},
+          %{
+            host: "www.googleapis.com",
+            path: "/calendar/v3/users/me/calendarList?" <> String.duplicate("x", 24 * 1024)
+          }
+        ] do
+      assert {:error, :invalid_request} = Transport.validate(request(overrides))
+    end
+  end
+
   test "passive private loopback seam exercises Mint without real provider access" do
     port =
       server(fn socket ->

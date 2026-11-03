@@ -49,7 +49,7 @@ All six reference reviewers were read:
   replace BME-specific archival, export, and PostgreSQL contracts.
 
 Account isolation, provider reliability, and regression-test reliability get explicit
-attention because they are central to LOVELACE's next implementation slices.
+attention because they protect account-bearing behavior and provider side effects.
 
 ## Invocation and output target
 
@@ -82,24 +82,32 @@ provided. Generate the portable skill only for Pi; inherit the parent session's
 provider/model/authentication, with no model fields in the skill. Inspect output
 paths first; obtain explicit approval before overwriting anything.
 
-Read AGENTS.md, docs/HANDOFF.md completely, docs/DEVELOPMENT.md, mix.exs,
-mix.lock, .tool-versions, and relevant links in DEPENDENCY_RULES.md to ground
-creation. Read docs/STAGE_DESIGNER.md for stage-related reviewers. Never read
+Use AGENTS.md and relevant operational guides as the project standards source.
+Read docs/DEVELOPMENT.md, mix.exs, mix.lock, .tool-versions, and relevant links
+in DEPENDENCY_RULES.md to ground creation. Read docs/GMAIL.md for Gmail-related
+reviewers and docs/STAGE_DESIGNER.md for stage-related reviewers. Do not require
+a handoff/status document or turn unresolved historical plans into requirements;
+unselected plans are retired, not a replacement roadmap. Never read
 .env, .env.keys, private databases/sidecars, generated images, credentials, real
 mail, or ignored private backups. .env.example is safe project context.
 
-Project facts to embed as context, not immutable version pins:
+Project grounding to embed without frozen capability or version inventories:
 - LOVELACE is uppercase in prose/UI; :lovelace, Lovelace/LovelaceWeb, lovelace
   paths/config/database names. Personal local-only desktop web app; loopback
   listeners in dev/prod. Phoenix LiveView, Ash/AshSqlite over Ecto/SQLite,
-  Tailwind dark/amber tokens, Req, local assets. Read current manifests for
-  exact versions and runtime targets; do not import BME's conventions.
+  Tailwind charcoal/sea-glass tokens, Req, local assets. Direct reviewers to
+  current manifests for dependency versions and user-owned runtime targets;
+  do not embed creation-time version inventories or import BME's conventions.
 - Business behavior belongs in lib/lovelace/ as Ash domains/resources/actions/
   policies, UI in lib/lovelace_web/. No parallel hand-written Ecto contexts.
-- The glass shell and app-wide Gemini stage designer exist. Account/project/mail
-  schemas, Gmail/OAuth, token storage, durable jobs, and owner login do not yet.
-  AshAuthentication libraries are installed, not configured login behavior.
-  Verify current code before relying on this status as the project evolves.
+- Verify schemas, Gmail/OAuth, credential storage, jobs, owner authentication and
+  stage behavior in current code. Installed packages alone do not establish
+  configured or operational behavior; do not embed a frozen capabilities list.
+- Current scope is read-only Gmail in reusable workspaces, with bounded on-demand
+  caching rather than a full mirror. Mailbox writes and projects require a fresh
+  request and design discussion, not an implicit two-way or project roadmap.
+  Gmail owns mail state; LOVELACE owns workspace data and, if projects are
+  introduced, explicit/manual thread membership.
 - Multiple Gmail accounts must never share an inbox. Each project belongs to
   exactly one account. Stage scenery is intentionally app-wide, not mail data.
 - Do not expand scope into a public/multi-user service, unified inbox, full mail
@@ -199,8 +207,9 @@ LOVELACE product-scope drift, Ash boundaries, and unnecessary infrastructure.
 
 S: Specialize in a personal modular-monolith Phoenix/Ash application, not a
 public SaaS. Accept plans as target files as well as implementation. Ground
-rules in AGENTS.md and current confirmed requirements in docs/HANDOFF.md;
-consult docs/DEVELOPMENT.md, manifests and relevant dependency guidance.
+rules in AGENTS.md and relevant operational guides, including docs/GMAIL.md
+for Gmail behavior; consult docs/DEVELOPMENT.md, manifests and relevant
+dependency guidance. Verify implementation in current code.
 
 C: Reject new business behavior implemented as parallel Ecto contexts or embedded
 in LiveViews/controllers instead of Ash actions/domains; provider HTTP or
@@ -217,9 +226,11 @@ namespace/convention/style drift is advisory unless it breaks wiring.
 Accept small feature-grounded modules and justified dependencies, not empty
 framework layers. Do not require every proposed future namespace immediately.
 Generic Ash actions and focused helper modules are legitimate; do not demand
-all code live in a resource DSL. Framework-only owner auth is deliberate;
-connected Gmail identities are not LOVELACE users. A read-only first vertical
-slice is consistent with the eventual two-way goal. StageDesigner is app-wide.
+all code live in a resource DSL. Verify owner authentication in current code;
+connected Gmail identities are separate from LOVELACE owner identity. Current
+scope is read-only Gmail in reusable workspaces. Mailbox writes and projects
+require a fresh request and design discussion; do not infer a two-way roadmap.
+StageDesigner is app-wide.
 
 O: Return a source- or plan-grounded verdict on whether the change preserves
 LOVELACE's confirmed product direction and application boundaries.
@@ -307,7 +318,8 @@ When OAuth/token storage is introduced, check state/CSRF, identity/account bindi
 redirect handling, scopes, refresh/revoke/disconnect and separately protected key
 management against the supplied approved design. No secure design/code evidence
 for a newly activated private-mail path is a prerequisite gap, not approval.
-Do not demand an auth strategy for the disconnected loopback foundation.
+Evaluate owner-auth requirements against current standards and the actual
+affected trust boundary; do not invent an authentication strategy.
 
 Reject raw hostile email HTML, unsafe URL schemes/scripts, silent remote tracking
 content, unsafe redirects/outbound targets, secret forwarding, traversal/symlink
@@ -343,13 +355,14 @@ provider, exploit an endpoint or assume loopback eliminates hostile content.
 ```text
 /scopewright:create
 Create lovelace-integration-reliability-reviewer using the shared creation contract.
-Description: Review provider calls, stage startup, future sync/jobs and mail sends
+Description: Review provider calls, stage startup, sync/jobs and mail sends
 for bounded work, durable intent, safe retries and honest recovery states.
 
 S: Inspect the concrete lifecycle from user/startup intent through reservation,
 HTTP, validation, persistence, publication and UI notification. Read current
 supervision/config, Req options, diagnostics and tests. Stage startup is an
-asynchronous supervised attempt, not a durable queue. No job engine is assumed.
+asynchronous supervised attempt, not a durable queue. Verify configured Gmail
+jobs and their lifecycle in current code rather than assuming an engine.
 
 C: Reject provider work in browser callbacks, unbounded time/bytes/retries,
 accidental credential forwarding through redirects, side effects before required
@@ -358,10 +371,12 @@ Trace transaction boundaries: companion DB writes intended to roll back with a
 parent are not external side effects. Check fake transport injection reaches
 the actual HTTP boundary, including process ownership.
 
-For StageDesigner, preserve one attempt per eligible startup, persistent minimum
-24-hour attempt cooldown even after failure/crash/unknown outcome, no automatic
-HTTP/task retries, reservation committed before HTTP, retained-image/SVG fallback,
-last seven distinct successful images and concurrency-safe publication/cleanup.
+For StageDesigner, preserve one attempt per eligible opted-in startup or explicitly
+confirmed Scenes request, persistent minimum 24-hour startup-only cooldown even
+after failure/crash/unknown outcome, no manual daily cooldown, refusal of overlapping
+or unconfirmed manual work, no automatic HTTP/task retries, reservation
+committed before HTTP, saved-image/bundled-default fallback, an uncapped published-scene catalog
+with bounded gallery reads, and concurrency-safe publication/cleanup.
 The five-minute orphan/temp grace protects in-flight work. No page/reconnect/idle
 trigger, hidden daily timer or automatic retry of interrupted generating state.
 The separate operator-only failed-attempt diagnostic action is permitted only
@@ -373,8 +388,9 @@ pending durable work, unsafe pagination/history-expiry handling, absent bounded
 rate-limit/backoff/reconciliation behavior, and claims work executes while the
 machine sleeps. Check restart/resume and account-scoped progress/events. Verify
 the chosen durable engine's actual SQLite/version/migration compatibility;
-missing implementation today is not a defect. Gmail owns mail state; LOVELACE
-owns manual project membership. Linking must not silently change Gmail labels.
+unrequested functionality is not a defect. Gmail owns mail state; LOVELACE owns
+workspace data and, if projects are introduced, manual project membership.
+Linking must not silently change Gmail labels.
 
 For writes, require explicit account/sender and user intent. Never blindly retry
 an email send after an unknown result; require persisted intent and reconciliation
@@ -422,7 +438,7 @@ business content hidden inside decorative phx-update=ignore subtrees. Verify
 appropriate async ownership and stale-result handling rather than recommending
 bare Task.async from a LiveView. Keep provider/business logic outside callbacks.
 
-Use shared dark/sea-glass tokens and self-hosted Space Grotesk; keep uppercase
+Use shared charcoal/sea-glass tokens and self-hosted Space Grotesk; keep uppercase
 LOVELACE identity and readable practical mail typography rather than wordmark
 tracking on long content. Exact token values are not an immutable style guide.
 Reject concrete mandatory design-contract contradictions; subjective polish is
@@ -471,8 +487,8 @@ writers, crash/partial failure, provider timeouts/rate limits, invalid MIME and
 payload bounds, local-file membership/symlink/tamper handling, hook patch/teardown,
 unknown-send outcomes, and account-switch races when those behaviors are touched.
 Use two accounts with reused provider IDs for isolation changes. Do not demand
-all future-feature tests in today's disconnected foundation or blanket 100%
-coverage. Missing edge-case polish without a material risk is advisory.
+tests for unrequested functionality or blanket 100% coverage. Missing edge-case
+polish without a material risk is advisory.
 
 Reject removal/bypass of relevant quality gates or claiming checks ran/passed
 without matching evidence. mix check includes format, warnings-as-errors,
@@ -508,7 +524,7 @@ S: Treat connected Gmail identities as distinct from LOVELACE owner identity.
 Trace explicit account identity through routes/params, Ash actions/policies,
 queries, keys/constraints, credential lookup, HTTP, persisted state, jobs,
 PubSub subscriptions and LiveView results. Stage scenery is intentionally app-wide.
-No accounts/mailboxes exist in the initial foundation; assess only introduced
+Verify account/mailbox implementation in current code; assess only introduced
 or actually affected account-bearing paths.
 
 C: Reject reads/writes/cache entries/provider IDs/cursors/job uniqueness keys
@@ -581,8 +597,8 @@ sites. Work through this checklist, marking applicability and evidence:
 
 A name/comment/report asserting safety is not proof. Intentional divergence is
 acceptable only when it actually preserves the governing requirement; a comment
-cannot waive a safety rule. Do not impose all future Gmail/job contracts on the
-present shell or mistake a separate BEAM's local PubSub for distributed delivery.
+cannot waive a safety rule. Do not impose unrequested Gmail/job functionality
+or mistake a separate BEAM's local PubSub for distributed delivery.
 Single-dimension concerns are handoffs, but retain any confirmed blocker so it
 cannot disappear between reviewers. Prior approvals cannot override new evidence.
 

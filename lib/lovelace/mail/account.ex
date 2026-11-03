@@ -23,13 +23,14 @@ defmodule Lovelace.Mail.Account do
     end
 
     create :connect do
-      accept [:id, :subject, :email, :generation]
+      accept [:id, :subject, :email, :generation, :calendar_enabled]
       upsert? true
       upsert_identity :google_subject
 
       upsert_fields [
         :email,
         :generation,
+        :calendar_enabled,
         :status,
         :last_error,
         :next_poll_at,
@@ -55,6 +56,7 @@ defmodule Lovelace.Mail.Account do
         :last_success_at,
         :next_poll_at,
         :generation,
+        :calendar_enabled,
         :inbox_unread_count,
         :inbox_unread_at,
         :inbox_unread_error
@@ -84,6 +86,7 @@ defmodule Lovelace.Mail.Account do
     attribute :subject, :string, allow_nil?: false, sensitive?: true
     attribute :email, :string, allow_nil?: false, sensitive?: true
     attribute :generation, :uuid, allow_nil?: false
+    attribute :calendar_enabled, :boolean, allow_nil?: false, default: false
 
     attribute :status, :atom do
       allow_nil? false

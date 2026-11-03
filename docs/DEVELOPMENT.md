@@ -91,13 +91,32 @@ Encrypted `.env` and plaintext private `.env.keys` remain ignored and owner-only
 `.env.example` is a readable, secret-free public template. Plain Mix does not load it.
 
 Stage settings now control an opt-in asynchronous startup generator, persisted 24-hour
-attempt cooldown, and seven-image history. `Lovelace.StageDesigner` is the first production
+attempt cooldown, and an uncapped published-scene catalog. `Lovelace.StageDesigner` is the first production
 Ash domain; provider work never runs in LiveView callbacks. `LOVELACE_WORKSPACE_IDLE_MINUTES`
-controls the client-only screensaver (default three minutes). No gallery/editor exists.
+controls the client-only screensaver (default three minutes). Scenes exposes the saved
+catalog through bounded 20-image pages, persistent background selection, and confirmed potentially billable manual
+requests without a manual daily cooldown. Automatic startup alone uses the persisted
+24-hour cooldown; manual work refuses another unconfirmed reservation. No prompt editor exists.
 Do not inject real Google credentials into tests or CI. Test runtime forces real startup
 generation off; focused provider tests inject fake keys/`Req.Test`. For maintenance commands,
 force `LOVELACE_STAGE_ENABLED=false` to avoid an unintended application-startup request.
 The workspace UI still runs without dotenvx or an API key when generation is disabled.
+Three owner-approved bundled JPEGs replace the default SVG; an independent Ash singleton
+chooses one once at application startup and preserves it across restarts. Apply the
+additive `add_bundled_scene_default` migration before restarting an existing installation.
+Static/live rendering only reads that preference; it does not reserve or generate scenes.
+See `priv/static/images/scenes/README.md` for artwork provenance and checksum pins.
+
+## Calendar
+
+Optional read-only Google Calendar shares existing Google identities and Keychain credentials,
+with explicit additional consent and independent account-scoped day/selection/cache state.
+See [CALENDAR.md](CALENDAR.md) before changing its scopes, polling or retention. It adds no
+runtime dependency or external service infrastructure. Calendar's Ash domain owns day
+preparation, selection, reads and jobs; the browser supplies local midnight boundaries and
+renders minimal cached event text without retaining events in socket assigns. The existing
+minute sweep also discovers due Calendar work. Tests must inject fake Calendar providers,
+never real Google responses or private calendar data.
 
 ## Saved workspaces
 
@@ -147,7 +166,7 @@ covers those lifecycle contracts; LiveView tests cover server search/page/contex
 `HomeComponents` supplies the local daily heading, account readout and freshness components.
 `DailyOrientation` and `ObservationTime` hooks own only their ignored readout subtrees and
 clean up timers/resume listeners. Default navigation is Home; the center navigation contains
-Home, Workspaces and Connections. The corner monogram is decorative only, and Escape/idle
+Home, Workspaces, Connections and Scenes. The corner monogram is decorative only, and Escape/idle
 preserve the current destination. Direct
 Home inbox reads use explicit owner-only account actions, not relaxed workspace membership
 checks.
@@ -243,6 +262,9 @@ The alias rebuilds deployed assets (including compressed copies, avoiding stale 
 then `test/support/ui_browser.exs` starts a separate test-only app on an ephemeral loopback
 port with a new disposable SQLite database, scenery directory and Chrome profile.
 Migrations and synthetic owner/workspaces/account/image fixtures are local to that run.
+Before publishing synthetic scenes, the runner also verifies the genuinely empty gallery
+with the public bundled default artwork, including no-JS unlock, decoded image loading,
+and the same default across static/live views, navigation, scenery wake and reload.
 Gmail/vault responses are fake, Oban is manual, real transports/vault are refused by test
 builds and generation is disabled. It does not reuse a user's server/profile/private data.
 
@@ -374,26 +396,18 @@ runs. It can execute Elixir and SQL with the process's access to local data.
 - Future real-mail development sessions must consider tools' access to message bodies,
   credentials, logs, and query results. Avoid sharing sensitive output with agents.
 
-## CI and intentionally deferred tools
+## CI and tooling scope
 
 `.github/workflows/ci.yml` runs on pushes and pull requests with read-only repository
 permissions. It reads Elixir/OTP from `.tool-versions`, caches dependencies/builds,
 installs asset binaries, and runs `mix check` plus `mix audit` in the test environment.
 It also installs Node LTS for the native hook tests; no npm install or external application
-service is required. `.tool-versions` remains unchanged. The hosted workflow must still
-be verified on GitHub; local runs do not prove runner/runtime availability.
+service is required. Local runs do not prove hosted runner/runtime availability;
+verify the relevant GitHub run before claiming hosted CI passed.
 
-Deferred until justified:
-
-- A broader browser framework (e.g. PhoenixTestPlaywright), cross-browser automation and
-  hosted browser CI beyond the explicit dependency-free `mix test.ui` regression gate.
-- Dialyzer/Dialyxir for a maintained static type-analysis workflow and PLT caching.
-- Dedicated property suites and mutation tests beyond Ash's existing generator support.
-- Mox, ExMachina, ExCoveralls, extra frontend test runners, and documentation generators.
-- Ash job extensions beyond the currently configured Oban SQLite polling jobs.
-
-Do not add infrastructure just because a package is conventional. Owner unlock, Gmail
-read-only authorization and Oban jobs now exist; sending/projects/packaging remain deferred.
+Current tooling is defined by `mix.exs` and the CI workflow, not a wishlist of deferred
+packages. Do not add infrastructure just because a package is conventional. New tooling
+needs a concrete requirement from the current task, not an old plan.
 
 ## Private mail instrumentation
 
