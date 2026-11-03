@@ -82,7 +82,7 @@ if config_env() == :prod do
   config :lovelace, :dns_cluster_query, System.get_env("DNS_CLUSTER_QUERY")
 
   config :lovelace, LovelaceWeb.Endpoint,
-    url: [host: host, port: String.to_integer(System.get_env("PORT", "4000")), scheme: "http"],
+    url: [host: host, port: String.to_integer(System.get_env("PORT", "4321")), scheme: "http"],
     # LOVELACE is local-only. Network exposure requires a separate security design.
     http: [ip: {127, 0, 0, 1}],
     secret_key_base: secret_key_base
