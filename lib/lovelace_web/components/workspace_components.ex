@@ -16,7 +16,6 @@ defmodule LovelaceWeb.WorkspaceComponents do
         aria-label={"Open #{@workspace.name}"}
         aria-describedby={"workspace-health-#{@workspace.id}"}
       >
-        <span class="workspace-card-eyebrow">Workspace</span>
         <span class="workspace-card-name">{@workspace.name}</span>
         <span id={"workspace-health-#{@workspace.id}"} class="workspace-card-health">
           <%= cond do %>
@@ -25,7 +24,7 @@ defmodule LovelaceWeb.WorkspaceComponents do
             <% @health.total == 0 -> %>
               <span>No integrations yet</span>
             <% @health.problems == [] -> %>
-              <span>No reported connection problems</span>
+              <span>No reported problems</span>
             <% true -> %>
               <span class="connection-warning">Connection needs attention</span>
               <span :for={account <- @health.problems} class="workspace-card-problem">

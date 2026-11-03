@@ -27,7 +27,7 @@ defmodule LovelaceWeb.SceneComponents do
         >
           <p :if={@loading}>Loading scene status…</p>
           <p :if={@error}>
-            Scenes couldn’t be loaded. Refresh status to try again; no generation was requested.
+            Scenes couldn’t be loaded. Refresh status to retry. No generation was requested.
           </p>
           <p :if={@notice != ""}>{@notice}</p>
           <p :if={@data && !@error && @data.status != :ready}>{status_text(@data.status)}</p>
@@ -35,7 +35,7 @@ defmodule LovelaceWeb.SceneComponents do
             Last attempt: <.timestamp value={@data.last_attempt_at} />
           </p>
           <p :if={@data && !@data.eligible} id="scene-generation-availability">
-            Another attempt is unconfirmed. A new request is blocked to avoid overlap; refresh status after it resolves.
+            New requests are blocked to avoid overlap. Refresh status after this attempt resolves.
           </p>
         </div>
         <div class="mail-actions">
@@ -139,8 +139,10 @@ defmodule LovelaceWeb.SceneComponents do
         return_focus="#scene-generate"
       >
         <p class="scene-confirmation-copy">
-          This sends generic art direction to Google Gemini and may incur API charges. No mail or workspace content is sent.
-          Each request may be billed even if it fails or its outcome is unknown. Manual requests have no daily cooldown and are never retried automatically. Existing scenery stays until a new image succeeds; that image then becomes active.
+          Google Gemini may incur API charges, even if this request fails or its outcome is unknown.
+          Only generic art direction is sent, never mail or workspace content.
+          No automatic retries or manual daily cooldown. A successful image replaces the current scenery;
+          otherwise it stays unchanged.
         </p>
         <div class="workspace-editor-actions">
           <button
@@ -188,12 +190,11 @@ defmodule LovelaceWeb.SceneComponents do
   defp parse_date(_), do: nil
 
   defp status_text(:uncertain),
-    do:
-      "An attempt is reserved; its outcome is not yet confirmed. It may still be running or have been interrupted."
+    do: "Generation outcome unconfirmed. It may still be running or have been interrupted."
 
   defp status_text(:failed),
     do:
-      "The last generation failed. Existing scenery is unchanged. Check Gemini in Connections before making another confirmed request."
+      "The last generation failed. Existing scenery is unchanged. Check Gemini in Connections before retrying."
 
   defp status_text(:unavailable),
     do: "Scene state is unavailable. Refresh status before requesting a generation."

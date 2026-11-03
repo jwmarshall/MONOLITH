@@ -38,6 +38,17 @@ defmodule LovelaceWeb.GeminiConnectionLiveTest do
     assert has_element?(view, "#gemini-connection", "Saving a key does not generate")
     assert has_element?(view, "#gemini-connection", "Startup generation is disabled")
 
+    assert has_element?(
+             view,
+             "#gemini-generation-help:not([open]) > summary",
+             "Scenery & billing"
+           )
+
+    assert has_element?(view, "#gemini-generation-help", "Each request may incur API charges")
+    assert has_element?(view, "#gemini-generation-help", "No automatic retries")
+    assert has_element?(view, "#gemini-generation-help", "cannot cancel an in-progress request")
+    refute has_element?(view, "#gemini-generation-help #gemini-status")
+
     GeminiVault.put("unused", "synthetic-key-never-rendered")
     view |> element("[phx-click='gemini:check']") |> render_click()
     html = render_async(view)

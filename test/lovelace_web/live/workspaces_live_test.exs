@@ -55,7 +55,7 @@ defmodule LovelaceWeb.WorkspacesLiveTest do
     assert has_element?(
              view,
              "#workspace > #main-content.workspace-glass #workspace-content #mail-accounts",
-             "No accounts attached yet"
+             "No Gmail accounts attached yet"
            )
 
     refute has_element?(view, "#workspace-list")

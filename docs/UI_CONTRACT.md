@@ -12,8 +12,11 @@ Verify implementation in code; the coverage map below is not evidence that check
 - One edge-to-edge, nearly transparent glass stage spans unlock/setup, workspace and mail
   views, including empty/error states. Do not turn the shell into a centered dashboard card.
 - Charcoal, restrained sea-glass teal, pale neutral text, strong geometry, fine dividers,
-  deliberate negative space and practical working density. Semantic warnings/errors remain
-  distinct. **Sea-glass supersedes the original amber UI**; warm colors in scenery are not
+  deliberate negative space and practical working density. Use a consistent compact gap below
+  navigation across primary views, shallow workspace/integration cards and restrained list spacing;
+  do not fill spare stage space with explanatory copy. Keep health, freshness and actionable warnings
+  visible; occasional setup, billing-policy and disconnect guidance can use native disclosures.
+  Billing confirmation remains explicit before generation. Semantic warnings/errors remain distinct. **Sea-glass supersedes the original amber UI**; warm colors in scenery are not
   UI palette violations. Shared CSS tokens are the implementation source of truth.
 - Self-host Space Grotesk with system fallbacks. Keep the name **LOVELACE** uppercase and
   the original double-cursive-`l` monogram. Wordmark tracking/light weight must not leak
@@ -327,7 +330,8 @@ historical results do not certify a new change.
   help without credential disclosure or horizontal overflow; five compact Gmail rows
   and the new-connection modal's required workspace choice,
   Cancel/Escape focus and desktop/narrow/forced-color layout; title-row provider subnav,
-  keyboard switching with focus retained, mutually exclusive provider interfaces, scenery
+  keyboard switching with focus retained, mutually exclusive provider interfaces, compact primary-view
+  spacing and cards, keyboard-accessible provider help disclosures with visible health, scenery
   wake preserving selection and credential POSTs returning to Gemini;
   Gemini's ordinary credential POST to a fake vault, empty return form and truthful key state;
   compact side-by-side Home readouts at desktop/laptop widths, stacked tablet/narrow readouts,

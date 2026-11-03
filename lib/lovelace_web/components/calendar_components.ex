@@ -66,7 +66,7 @@ defmodule LovelaceWeb.CalendarComponents do
           >
             {if snapshot.selected_ids == [],
               do: "No calendars selected in LOVELACE.",
-              else: "No events today in the selected calendars."}
+              else: "No events today in selected calendars."}
           </p>
           <ul :if={snapshot.events != []} class="calendar-events">
             <li
@@ -121,7 +121,7 @@ defmodule LovelaceWeb.CalendarComponents do
     <section id={@id} class="calendar-connections" aria-labelledby={"#{@id}-heading"}>
       <header class="calendar-heading">
         <h3 id={"#{@id}-heading"} class="mail-section-title">Calendar</h3>
-        <p class="calendar-muted">Optional read-only access on an existing Google connection.</p>
+        <p class="calendar-muted">Read-only · Uses your Google connections</p>
       </header>
       <p :if={@accounts == []} class="calendar-message">
         Connect Gmail first to add Calendar to the same Google account.
@@ -193,11 +193,18 @@ defmodule LovelaceWeb.CalendarComponents do
           >Refresh Calendar</button>
         </div>
       </article>
-      <p id={"#{@id}-disconnect-help"} class="calendar-muted calendar-disconnect-help">
-        Calendar shares this Google connection. There is no separate Calendar disconnect.
-        Disconnect everywhere removes the shared connection from every workspace.
-        <.link patch="/connections/gmail" class="workspace-action">Manage Google connection in Gmail</.link>
-      </p>
+      <details
+        id={"#{@id}-disconnect-help"}
+        class="calendar-muted calendar-disconnect-help connection-help"
+        phx-mounted={JS.ignore_attributes("open")}
+      >
+        <summary>Shared Google connection</summary>
+        <p>
+          Calendar has no separate disconnect. Disconnect everywhere removes the shared Google
+          connection from every workspace.
+        </p>
+        <.link patch="/connections/gmail" class="workspace-action">Manage in Gmail</.link>
+      </details>
     </section>
     """
   end

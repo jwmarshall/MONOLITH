@@ -5,18 +5,17 @@
 .workspace-nav-link { min-width: 44px; min-height: 44px; padding: 10px 0; border-bottom: 1px solid transparent; font-size: 13px; color: var(--color-secondary); cursor: pointer; }
 .workspace-nav-link:hover, .workspace-nav-link[aria-current="page"] { color: var(--color-base-content); border-bottom-color: var(--color-primary); }
 .workspace-nav-link:disabled { opacity: 0.5; cursor: default; }
-.workspace-directory.workspace-directory-home { margin-top: clamp(28px, 4vh, 40px); }
-.daily-heading { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 12px 24px; margin-bottom: 32px; }
+.daily-heading { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 12px 24px; margin-bottom: 24px; }
 .workspace-directory .daily-heading h2 { font-size: clamp(28px, 3vw, 36px); font-weight: 300; letter-spacing: -0.045em; }
 .daily-date { min-height: 24px; font-size: 14px; color: var(--color-secondary); }
-.home-readouts { display: grid; grid-template-columns: minmax(0, 0.95fr) minmax(0, 1.05fr); gap: 48px; align-items: start; }
+.home-readouts { display: grid; grid-template-columns: minmax(0, 0.95fr) minmax(0, 1.05fr); gap: 32px; align-items: start; }
 .home-readouts > * { min-width: 0; }
 .home-eyebrow { font-size: 11px; line-height: 1.6; text-transform: uppercase; letter-spacing: 0.13em; color: var(--color-secondary); }
 .home-section-heading { display: flex; align-items: baseline; min-height: 38px; padding-bottom: 16px; }
 .home-accounts { list-style: none; margin: 0; padding: 0; }
-.home-account { border-top: 1px solid rgb(233 239 236 / 24%); padding-bottom: 12px; }
+.home-account { border-top: 1px solid rgb(233 239 236 / 24%); padding-bottom: 8px; }
 .home-account:last-child { border-bottom: 1px solid rgb(233 239 236 / 24%); }
-.home-account-open { display: grid; grid-template-columns: minmax(0, 1fr) auto 16px; gap: 16px; align-items: center; width: 100%; min-height: 72px; padding: 12px 4px 8px; text-align: left; border-radius: 2px; cursor: pointer; }
+.home-account-open { display: grid; grid-template-columns: minmax(0, 1fr) auto 16px; gap: 16px; align-items: center; width: 100%; min-height: 68px; padding: 10px 4px 6px; text-align: left; border-radius: 2px; cursor: pointer; }
 .home-account-open:hover { background: rgb(139 203 193 / 6%); }
 .home-account-identity { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .home-account-email { font-size: 16px; line-height: 1.5; overflow-wrap: anywhere; }
@@ -35,7 +34,7 @@
   .home-readouts { grid-template-columns: minmax(0, 1fr); gap: 32px; }
 }
 @media (max-width: 640px) {
-  .workspace-topline:has(.center-nav) { grid-template-columns: 1fr auto; row-gap: 20px; }
+  .workspace-topline:has(.center-nav) { grid-template-columns: 1fr auto; row-gap: 12px; }
   .workspace-topline #owner-lock-form { grid-column: 2; grid-row: 1; }
   .center-nav { grid-column: 1 / -1; grid-row: 2; justify-self: center; }
   .daily-heading { gap: 8px; margin-bottom: 24px; }

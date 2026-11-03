@@ -9,7 +9,7 @@ defmodule LovelaceWeb.ConnectionComponents do
         <.icon name="hero-envelope" class="size-6" />
         <span class="connection-provider-copy">
           <span class="connection-provider-name">Gmail</span>
-          <span class="mail-muted">Read-only mail accounts</span>
+          <span class="mail-muted">Read-only mail</span>
         </span>
         <.icon name="hero-arrow-up-right" class="size-5" />
       </.link>
@@ -17,7 +17,7 @@ defmodule LovelaceWeb.ConnectionComponents do
         <.icon name="hero-calendar-days" class="size-6" />
         <span class="connection-provider-copy">
           <span class="connection-provider-name">Calendar</span>
-          <span class="mail-muted">Optional read-only agendas</span>
+          <span class="mail-muted">Read-only agendas</span>
         </span>
         <.icon name="hero-arrow-up-right" class="size-5" />
       </.link>
@@ -25,7 +25,7 @@ defmodule LovelaceWeb.ConnectionComponents do
         <.icon name="hero-sparkles" class="size-6" />
         <span class="connection-provider-copy">
           <span class="connection-provider-name">Gemini</span>
-          <span class="mail-muted">App-wide scenery credentials</span>
+          <span class="mail-muted">Scenery API key</span>
         </span>
         <.icon name="hero-arrow-up-right" class="size-5" />
       </.link>

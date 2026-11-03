@@ -30,9 +30,12 @@ defmodule LovelaceWeb.MailComponents do
       data-mail-thread={@mail.thread_id || ""}
       data-mail-loaded={to_string(@mail.data_loaded && !@payload_expired)}
     >
-      <div class={["mail-heading", @account && "mail-inbox-heading"]}>
+      <div class={[
+        "mail-heading",
+        if(@account, do: "mail-inbox-heading", else: "mail-integration-heading")
+      ]}>
         <div class="mail-account-identity">
-          <p class="mail-eyebrow">Read-only Gmail</p>
+          <p :if={@account} class="mail-eyebrow">Read-only Gmail</p>
           <h3 id="mail-heading" tabindex="-1">
             {if @account, do: @account.email, else: "Integrations"}
           </h3>
@@ -68,17 +71,14 @@ defmodule LovelaceWeb.MailComponents do
 
       <p :if={@mail.notice} id="mail-notice" class="mail-notice" role="status">{@mail.notice}</p>
       <div :if={@mail.directory_error} class="mail-notice" role="alert">
-        <p>Accounts could not be loaded. No mailbox changes were made.</p>
+        <p>Accounts couldn’t be loaded.</p>
         <button type="button" class="workspace-action" phx-click="mail:reload_accounts">Try again</button>
       </div>
 
       <div :if={!@account && !@mail.directory_error && @mail.scope != :home} id="mail-accounts">
         <div :if={@mail.memberships == []} class="integration-empty">
           <.icon name="hero-squares-plus" class="size-7" />
-          <p>No accounts attached yet.</p>
-          <p class="mail-muted">
-            Add Gmail to bring a separate, read-only inbox into this workspace.
-          </p>
+          <p>No Gmail accounts attached yet.</p>
         </div>
         <div class="integration-grid">
           <.integration_tile
@@ -281,7 +281,7 @@ defmodule LovelaceWeb.MailComponents do
         aria-describedby={"integration-status-#{@account.id}"}
       >
         <.icon name="hero-envelope" class="integration-icon size-6" />
-        <span class="mail-eyebrow">Gmail</span>
+        <span class="mail-eyebrow">Gmail · Read-only</span>
         <span class="integration-name">{@account.email}</span>
         <span
           id={"integration-status-#{@account.id}"}
@@ -331,7 +331,7 @@ defmodule LovelaceWeb.MailComponents do
         <div>
           <h4 id="integration-add-heading" tabindex="-1" phx-mounted={JS.focus()}>Add integration</h4>
           <p class="mail-muted">
-            Reuse a connection or connect another Google account for read-only Gmail. Manage app-wide Gemini scenery in Connections.
+            Add an existing account or connect Google.
           </p>
         </div>
         <.link
@@ -381,7 +381,7 @@ defmodule LovelaceWeb.MailComponents do
       <div class="mail-connect">
         <.connect workspace={@workspace} busy={!!@mail.command} />
         <p class="mail-muted">
-          Google grants read-only access. Existing connections can be reused in more than one workspace.
+          Read-only Gmail. Reusable across workspaces.
         </p>
       </div>
     </section>
@@ -411,11 +411,11 @@ defmodule LovelaceWeb.MailComponents do
         </button>
       </div>
       <p class="mail-muted">
-        Reusable Google accounts · read-only Gmail. Each inbox stays separate.
+        Read-only · Separate inboxes
       </p>
       <p :if={@mail.notice} id="mail-notice" class="mail-notice" role="status">{@mail.notice}</p>
       <div :if={@mail.directory_error} class="mail-notice" role="alert">
-        <p>Connections could not be loaded. No mailbox changes were made.</p>
+        <p>Connections couldn’t be loaded.</p>
         <button type="button" class="workspace-action" phx-click="mail:reload_accounts">Try again</button>
       </div>
       <p :if={!@mail.directory_error && @mail.accounts == []} class="integration-empty">
@@ -468,7 +468,7 @@ defmodule LovelaceWeb.MailComponents do
         initial_focus="#mail-workspace-new"
       >
         <p id="gmail-connection-hint" class="mail-muted">
-          Choose the workspace to receive this read-only Gmail connection. You can reuse it elsewhere later.
+          Choose a workspace for this read-only account. Reuse it elsewhere anytime.
         </p>
         <.connect workspace_options={@workspace_options} busy={!!@mail.command} />
         <button
@@ -479,7 +479,7 @@ defmodule LovelaceWeb.MailComponents do
       </LovelaceWeb.ModalComponents.modal>
       <details
         id="gmail-keychain-help"
-        class="mail-muted connection-explanation"
+        class="mail-muted connection-help"
         phx-mounted={JS.ignore_attributes("open")}
       >
         <summary>About Keychain access</summary>
@@ -497,9 +497,17 @@ defmodule LovelaceWeb.MailComponents do
           repair. Reconnect Google only for a missing credential or expired Google authorization.
         </p>
       </details>
-      <p class="mail-muted connection-explanation">
-        Remove from workspace only removes that workspace link. Disconnect everywhere removes all workspace links, local cached mail and credentials, and attempts Google revocation. Your Gmail mailbox is not changed.
-      </p>
+      <details
+        id="gmail-disconnect-help"
+        class="mail-muted connection-help"
+        phx-mounted={JS.ignore_attributes("open")}
+      >
+        <summary>Removal &amp; disconnecting</summary>
+        <p>
+          Remove from workspace only detaches that link. Disconnect everywhere removes all workspace links,
+          cached mail and credentials, and attempts Google revocation. Your Gmail mailbox is unchanged.
+        </p>
+      </details>
     </section>
     """
   end

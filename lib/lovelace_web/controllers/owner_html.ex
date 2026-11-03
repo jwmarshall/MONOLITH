@@ -19,7 +19,7 @@ defmodule LovelaceWeb.OwnerHTML do
             id="owner-unlock-form"
             action="/unlock"
             method="post"
-            class="space-y-4"
+            class="owner-unlock-form"
           >
             <input type="hidden" name="_csrf_token" value={@csrf_token} />
             <label for="owner-password" class="block">Password</label>

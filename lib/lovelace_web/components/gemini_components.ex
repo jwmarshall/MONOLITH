@@ -17,16 +17,15 @@ defmodule LovelaceWeb.GeminiComponents do
       <div class="connection-identity">
         <.icon name="hero-sparkles" class="integration-icon size-6" />
         <div class="mail-account-identity">
-          <p class="mail-eyebrow">App-wide · Scenery</p>
+          <p class="mail-eyebrow">Scenery</p>
           <h3 id="gemini-heading">Google Gemini</h3>
           <p id="gemini-status" class="mail-muted" role="status">{status_text(@status)}</p>
         </div>
       </div>
       <p class="mail-muted">
         {if @enabled,
-          do: "Startup generation is enabled.",
-          else:
-            "Startup generation is disabled. Enable LOVELACE_STAGE_ENABLED in your local settings and restart to opt in."} Eligible restarts may incur API charges. Saving a key does not generate an image or verify Google access.
+          do: "Startup generation is enabled. Eligible restarts may incur API charges.",
+          else: "Startup generation is disabled."} Saving a key does not generate an image or verify Google access.
       </p>
       <p :if={@status in [:locked, :unavailable]} class="connection-warning">
         Check the macOS login keychain and this item’s access. Rebuilding the helper can
@@ -73,7 +72,7 @@ defmodule LovelaceWeb.GeminiComponents do
               aria-describedby="gemini-key-hint"
             />
             <p id="gemini-key-hint" class="mail-muted">
-              Stored in the macOS Keychain on this device, not in workspace data. Use a Gemini Developer API key from Google AI Studio.
+              Use a Gemini Developer API key from Google AI Studio. Stored in this device’s macOS Keychain.
             </p>
             <button type="submit" class="workspace-action workspace-action-primary">Save API key</button>
           </.form>
@@ -95,11 +94,26 @@ defmodule LovelaceWeb.GeminiComponents do
           </button>
         </.form>
       </div>
-      <p class="mail-muted gemini-safety">
-        Scenery is shared across LOVELACE, not added to workspaces. Only generic art direction is sent; no mail is shared.
-        Request a generation in Scenes, or opt into startup generation. Manual requests have no daily cooldown; automatic startup keeps a persisted minimum 24-hour cooldown. No automatic retries.
-        Removing a key keeps existing scenery and cooldowns; it cannot cancel a request already in progress.
-      </p>
+      <details
+        id="gemini-generation-help"
+        class="connection-help gemini-safety mail-muted"
+        phx-mounted={JS.ignore_attributes("open")}
+      >
+        <summary>Scenery &amp; billing</summary>
+        <p>
+          Scenery is app-wide. Only generic art direction is sent to Google; no mail is shared.
+          Request images in Scenes with cost confirmation, or opt into startup generation with
+          <code>LOVELACE_STAGE_ENABLED=true</code>
+          in local settings and restart.
+        </p>
+        <p>
+          Each request may incur API charges. Manual requests have no daily cooldown;
+          automatic startup has a persisted 24-hour minimum. No automatic retries.
+        </p>
+        <p>
+          Removing a key keeps scenery and cooldowns, and cannot cancel an in-progress request.
+        </p>
+      </details>
     </section>
     """
   end

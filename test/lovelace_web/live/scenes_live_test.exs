@@ -210,7 +210,7 @@ defmodule LovelaceWeb.ScenesLiveTest do
     assert has_element?(
              view,
              "#scene-generation-availability",
-             "Another attempt is unconfirmed. A new request is blocked to avoid overlap; refresh status after it resolves."
+             "New requests are blocked to avoid overlap. Refresh status after this attempt resolves."
            )
 
     render_click(view, "scenes:request", %{})

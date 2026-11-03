@@ -1133,6 +1133,12 @@ try {
         `usable Home targets at ${width}px (forced colors: ${forced}): ${JSON.stringify(homeDimensions)}`)
       await waitFor("document.querySelector('#calendar-agenda')?.textContent.includes('Synthetic focus time')", "Calendar remains available after navigation")
       await homeLayout(width, forced)
+      const directorySpacing = await evaluate(`(() => {
+        const directory = document.querySelector('.workspace-directory').getBoundingClientRect();
+        const nav = document.querySelector('.workspace-topline').getBoundingClientRect();
+        return directory.top - nav.bottom;
+      })()`)
+      assert.ok(directorySpacing >= 20 && directorySpacing <= 40, 'shared content starts close to navigation without crowding it')
       if (width === 390 && !forced) await screenshot('home-narrow')
       if (width === 390) await evaluate("document.querySelector('#calendar-agenda').scrollIntoView({block:'center'})")
       assert.equal(await evaluate("document.querySelector('#calendar-agenda').scrollWidth <= document.querySelector('#calendar-agenda').clientWidth"), true, "Calendar agenda has no horizontal overflow")
@@ -1158,6 +1164,9 @@ try {
       assert.equal(searchDimensions.inputFont, searchDimensions.buttonFont, "search input/button font sizes match")
       assert.ok(searchDimensions.buttonHeight >= 44, "search remains a usable target")
       assert.equal(searchDimensions.overflow, false, "inbox has no horizontal overflow")
+      const inboxRowHeight = await evaluate("document.querySelector('.mail-thread').getBoundingClientRect().height")
+      assert.ok(inboxRowHeight >= 80 && inboxRowHeight <= 104, 'compact inbox rows retain sender, subject and preview')
+      if (!forced) await screenshot(`inbox-${width}`)
       assert.ok(width > 800 ? searchDimensions.searchLeft >= searchDimensions.identityRight : searchDimensions.searchTop >= searchDimensions.identityBottom,
         `identity/search split on desktop and stack on narrow screens: ${JSON.stringify(searchDimensions)}`)
       assert.equal(await evaluate("document.querySelector('#mail-search input').getAttribute('aria-label')"), "Search Gmail")
@@ -1167,6 +1176,7 @@ try {
       await loadingStatus(forced, true)
       await readerLoaded()
       await readerLayout(width, forced)
+      if (!forced) await screenshot(`reader-${width}`)
       if (forced) {
         await evaluate("document.querySelector('#mail-message-synthetic-message-1 > summary.mail-message-summary').focus()")
         await key("Enter")
@@ -1194,6 +1204,12 @@ try {
         assert.ok(gmailRows.every(row => row.height <= 100 && row.sideBySide), `compact desktop Gmail rows: ${JSON.stringify(gmailRows)}`)
       }
       assert.equal(await evaluate("document.querySelector('#connections-panel').scrollWidth <= document.querySelector('#connections-panel').clientWidth"), true, "Gmail rows do not overflow their container")
+      assert.equal(await evaluate("document.querySelector('#gmail-disconnect-help').open"), false, 'occasional disconnect guidance starts collapsed')
+      await evaluate("document.querySelector('#gmail-disconnect-help summary').focus()")
+      await key('Enter')
+      assert.equal(await evaluate("document.querySelector('#gmail-disconnect-help').open"), true, 'disconnect help is keyboard accessible')
+      assert.match(await evaluate("document.querySelector('#gmail-disconnect-help').textContent"), /mailbox is unchanged/)
+      if (!forced) await screenshot(`gmail-connections-${width}`)
       await click("#new-gmail-connection")
       await waitFor("document.querySelector('#gmail-connection-modal')?.matches(':modal') && document.activeElement.id === 'mail-workspace-new'", "Gmail modal at each width/preference")
       assert.equal(await evaluate("document.querySelector('#gmail-connection-modal').scrollWidth <= document.querySelector('#gmail-connection-modal').clientWidth"), true, "Gmail modal has no horizontal overflow")
@@ -1216,6 +1232,7 @@ try {
       await click(`#check-credentials-${accountId}`)
       await waitFor(`document.querySelector('#credential-check-${accountId} time')?.getAttribute('datetime') !== ${JSON.stringify(priorCheckTime)} && !!document.querySelector('#credential-check-${accountId} time')`, "explicit repeat check records a new observation")
       assert.equal(await evaluate("document.querySelector('#gmail-keychain-help').open"), true, "Keychain help survives diagnostic patches")
+      assert.equal(await evaluate("document.querySelector('#gmail-disconnect-help').open"), true, 'disconnect disclosure survives diagnostic patches')
       assert.equal(await evaluate("document.querySelector('#connections-panel').scrollWidth <= document.querySelector('#connections-panel').clientWidth"), true, "credential diagnostics and help do not overflow")
       const providerNav = await evaluate(`(() => {
         const heading = document.querySelector('#directory-heading').getBoundingClientRect();
@@ -1229,11 +1246,27 @@ try {
       await click("#connections-calendar")
       await waitFor("!!document.querySelector('#calendar-connections') && !document.querySelector('#connections-panel, #gemini-connection')", "Calendar only at each width/preference")
       assert.equal(await evaluate("document.documentElement.scrollWidth <= innerWidth && document.querySelector('#calendar-connections').scrollWidth <= document.querySelector('#calendar-connections').clientWidth"), true, "Calendar Connections has no horizontal overflow")
+      await evaluate("document.querySelector('#calendar-connections-disconnect-help summary').focus()")
+      await key('Enter')
+      assert.equal(await evaluate("document.querySelector('#calendar-connections-disconnect-help').open"), true, 'shared Google connection help is keyboard accessible')
+      assert.match(await evaluate("document.querySelector('#calendar-connections-disconnect-help').textContent"), /every workspace/)
       if (width === 390 && !forced) await screenshot("calendar-connections-narrow")
       if (width === 1440 && forced) await screenshot("calendar-connections-forced-colors")
       await click("#connections-gemini")
       await waitFor("!!document.querySelector('#gemini-connection') && !document.querySelector('#connections-panel')", "Gemini only at each width/preference")
       assert.equal(await evaluate("document.documentElement.scrollWidth <= innerWidth"), true, "provider subnav/Gemini has no horizontal overflow")
+      await waitFor("!document.querySelector('#gemini-status').textContent.includes('Checking')", 'Gemini status settles before disclosure check')
+      assert.equal(await evaluate("document.querySelector('#gemini-generation-help').open"), false, 'billing policy starts collapsed')
+      assert.equal(await evaluate("document.querySelector('#gemini-generation-help').contains(document.querySelector('#gemini-status'))"), false, 'credential health stays outside help')
+      if (!forced) await screenshot(`gemini-compact-${width}`)
+      await evaluate("document.querySelector('#gemini-generation-help summary').focus()")
+      await key('Enter')
+      assert.equal(await evaluate("document.querySelector('#gemini-generation-help').open"), true, 'billing policy opens with keyboard')
+      assert.match(await evaluate("document.querySelector('#gemini-generation-help').textContent"), /Each request may incur API charges/)
+      await click('#gemini-connection button[phx-click="gemini:check"]')
+      await waitFor("!document.querySelector('#gemini-status').textContent.includes('Checking')", 'explicit fake-vault check completes')
+      assert.equal(await evaluate("document.querySelector('#gemini-generation-help').open"), true, 'billing disclosure survives status patches')
+      assert.equal(await evaluate("document.querySelector('#gemini-connection').scrollWidth <= document.querySelector('#gemini-connection').clientWidth"), true, 'expanded billing guidance wraps')
       await click("#connections-gmail")
       await waitFor("!!document.querySelector('#connections-panel') && !document.querySelector('#gemini-connection')", "Gmail only at each width/preference")
       await click("#show-scenes")
@@ -1277,14 +1310,35 @@ try {
         const card = document.querySelector('#open-${workspaceId}').getBoundingClientRect();
         const menu = document.querySelector('#workspace-menu-${workspaceId} summary').getBoundingClientRect();
         const lock = document.querySelector('#owner-lock-form button').getBoundingClientRect();
-        return {card: card.width, menu: menu.width, menuHeight: menu.height, lock: lock.height};
+        return {card: card.width, cardHeight: card.height, menu: menu.width, menuHeight: menu.height, lock: lock.height};
       })()`)
       assert.ok(dimensions.card > 200 && dimensions.menu >= 44 && dimensions.menuHeight >= 44 && dimensions.lock >= 44,
         `usable card/menu/Lock targets at ${width}px (forced colors: ${forced}): ${JSON.stringify(dimensions)}`)
+      assert.ok(dimensions.cardHeight >= 120 && dimensions.cardHeight <= 160, 'workspace cards are shallow but retain generous native targets')
+      assert.equal(await evaluate("!!document.querySelector('.workspace-card-eyebrow')"), false, 'cards omit the redundant Workspace label')
+      if (!forced) await screenshot(`workspaces-${width}`)
       if (width === 390) {
         assert.equal(await evaluate("getComputedStyle(document.querySelector('#workspace-list')).gridTemplateColumns.split(' ').length"), 1)
         await click(`#open-${workspaceId}`)
         await waitFor("!!document.querySelector('#mail-accounts .integration-tile')", "narrow integration tiles")
+        const tileHeight = await evaluate("document.querySelector('.integration-tile-open').getBoundingClientRect().height")
+        assert.ok(tileHeight >= 120 && tileHeight <= 180, 'integration tile has no oversized reserved space')
+        assert.equal(await evaluate("getComputedStyle(document.querySelector('.mail-integration-heading h3')).fontSize"), '18px', 'secondary integration heading stays quiet')
+        if (!forced) await screenshot('workspace-detail-narrow')
+        const longIdentity = await evaluate(`(() => {
+          const name = document.querySelector('.integration-name');
+          const original = name.textContent;
+          name.textContent = 'long-synthetic-account-identity-for-layout-checks@example.test';
+          const menu = document.querySelector('#mail-accounts .workspace-menu summary');
+          menu.focus();
+          const target = menu.getBoundingClientRect();
+          const range = document.createRange(); range.selectNodeContents(name);
+          const clear = Array.from(range.getClientRects()).every(rect =>
+            rect.bottom <= target.top - 6 || rect.top >= target.bottom + 6 || rect.right <= target.left - 6);
+          name.textContent = original;
+          return {clear, focused: document.activeElement === menu};
+        })()`)
+        assert.equal(longIdentity.clear && longIdentity.focused, true, 'long account names clear the focused management target and its outline')
         assert.equal(await evaluate("document.documentElement.scrollWidth <= innerWidth"), true)
         await click("#mail-accounts .workspace-menu summary")
         assert.equal(await evaluate("document.querySelector('#mail-accounts details').open"), true)

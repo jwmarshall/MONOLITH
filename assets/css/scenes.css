@@ -1,17 +1,17 @@
 /* Retained local scenery, on the same glass and content plane as the directory. */
 .scenes-panel { font-size: 14px; line-height: 1.7; }
-.scene-toolbar { display: flex; align-items: flex-start; justify-content: space-between; flex-wrap: wrap; gap: 16px 24px; margin-bottom: 32px; }
+.scene-toolbar { display: flex; align-items: flex-start; justify-content: space-between; flex-wrap: wrap; gap: 16px 24px; margin-bottom: 24px; }
 .scene-toolbar > .mail-actions { flex-shrink: 0; }
 .scene-status { flex: 1 1 320px; max-width: 80ch; color: var(--color-secondary); }
 .scene-status p + p { margin-top: 6px; }
-.scene-gallery { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 28px 24px; list-style: none; margin: 0; padding: 0; }
+.scene-gallery { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px 24px; list-style: none; margin: 0; padding: 0; }
 .scene-card { min-width: 0; border-bottom: 1px solid rgb(233 239 236 / 24%); }
 .scene-preview { position: relative; aspect-ratio: 16 / 9; overflow: hidden; background: rgb(20 25 24 / 32%); }
 .scene-preview-fallback { position: absolute; inset: 0; display: grid; place-items: center; color: var(--color-secondary); font-size: 12px; }
 .scene-preview img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; visibility: hidden; }
 .scene-preview img[data-loaded="true"] { visibility: visible; }
 .scene-preview:has(img[data-loaded="true"]) .scene-preview-fallback { visibility: hidden; }
-.scene-caption { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; padding-block: 16px 20px; }
+.scene-caption { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; padding-block: 12px 16px; }
 .scene-caption h3 { font-size: 16px; font-weight: 400; }
 .scene-caption p { font-size: 12px; }
 .scene-current { color: var(--color-primary); }

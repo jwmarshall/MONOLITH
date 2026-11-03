@@ -190,7 +190,7 @@ defmodule LovelaceWeb.ConnectionsLiveTest do
     assert has_element?(
              view,
              "#workspace-health-#{ctx.workspace.id}",
-             "No reported connection problems"
+             "No reported problems"
            )
 
     refute has_element?(view, "#workspace-health-#{ctx.workspace.id} .workspace-card-problem")
