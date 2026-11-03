@@ -1,0 +1,68 @@
+{
+  "attributes": [
+    {
+      "default": "nil",
+      "size": null,
+      "type": "bigint",
+      "source": "id",
+      "references": null,
+      "allow_nil?": false,
+      "primary_key?": true,
+      "generated?": false
+    },
+    {
+      "default": "nil",
+      "size": null,
+      "type": "text",
+      "source": "subject",
+      "references": null,
+      "allow_nil?": false,
+      "primary_key?": false,
+      "generated?": false
+    },
+    {
+      "default": "nil",
+      "size": null,
+      "type": "text",
+      "source": "setting",
+      "references": null,
+      "allow_nil?": false,
+      "primary_key?": false,
+      "generated?": false
+    },
+    {
+      "default": "nil",
+      "size": null,
+      "type": "text",
+      "source": "light",
+      "references": null,
+      "allow_nil?": false,
+      "primary_key?": false,
+      "generated?": false
+    },
+    {
+      "default": "nil",
+      "size": null,
+      "type": "text",
+      "source": "palette",
+      "references": null,
+      "allow_nil?": false,
+      "primary_key?": false,
+      "generated?": false
+    }
+  ],
+  "table": "stage_designer_directions",
+  "hash": "62EE20E6AC94BD94B359DB3598A745A5353BC522A6E9FEDB8665CD09FF6D01B4",
+  "multitenancy": {
+    "global": null,
+    "attribute": null,
+    "strategy": null
+  },
+  "identities": [],
+  "repo": "Elixir.Lovelace.Repo",
+  "strict?": false,
+  "custom_indexes": [],
+  "base_filter": null,
+  "custom_statements": [],
+  "has_create_action": true
+}

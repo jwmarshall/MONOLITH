@@ -185,6 +185,53 @@ async function scenesLoaded(count = 20, active = 1) {
   assert.equal(await evaluate("/Generation is available|Recent scenery is ready/.test(document.querySelector('#scenes-panel .scene-status').textContent)"), false, 'status omits redundant generation availability and ready copy')
 }
 
+async function guidedSceneDirection() {
+  await waitFor("!!document.querySelector('#scene-direction-form')", "guided direction loads")
+  const before = await sceneManifest()
+  const originalPrompt = await evaluate("document.querySelector('#scene-direction-prompt').textContent")
+  await click('#scene-prompt-preview summary')
+  assert.equal(await evaluate("document.querySelector('#scene-prompt-preview').open"), true)
+  await evaluate(`(() => {
+    const field = document.querySelector('#scene-direction-subject');
+    field.focus();
+    field.value = 'landscape';
+    field.dispatchEvent(new Event('change', {bubbles: true}));
+  })()`)
+  await waitFor("!!document.querySelector('#scene-direction-discard') && document.querySelector('#scene-generate').disabled", "draft requires explicit save")
+  assert.notEqual(await evaluate("document.querySelector('#scene-direction-prompt').textContent"), originalPrompt)
+  assert.equal(await evaluate("document.querySelector('#scene-prompt-preview').open"), true, "live preview preserves expanded disclosure")
+  await refreshScenes()
+  assert.equal(await evaluate("document.querySelector('#scene-direction-subject').value"), 'landscape', "status refresh preserves unsaved direction")
+  await key('Escape')
+  await landscape()
+  await key('a', 'a')
+  await focused()
+  assert.equal(await evaluate("document.querySelector('#scene-direction-subject').value"), 'landscape', "scenery wake preserves unsaved direction")
+  await click('#scene-direction-discard')
+  await waitFor("!document.querySelector('#scene-direction-discard') && !document.querySelector('#scene-generate').disabled", "discard restores active prompt")
+  assert.equal(await evaluate("document.querySelector('#scene-direction-prompt').textContent"), originalPrompt)
+  await evaluate(`(() => {
+    const choices = {subject: 'landscape', setting: 'coast', light: 'dawn', palette: 'sea_glass'};
+    for (const [key, value] of Object.entries(choices)) document.querySelector('#scene-direction-' + key).value = value;
+    document.querySelector('#scene-direction-palette').dispatchEvent(new Event('change', {bubbles: true}));
+  })()`)
+  await waitFor("!!document.querySelector('#scene-direction-discard')", "new guided choices update preview")
+  const prompt = await evaluate("document.querySelector('#scene-direction-prompt').textContent")
+  await evaluate("document.querySelector('#scene-direction-save').focus()")
+  await key('Enter')
+  await waitFor("!!document.querySelector('#scene-direction-notice') && document.querySelector('#scene-direction-save').disabled && !document.querySelector('#scene-generate').disabled", "keyboard save completes without generating")
+  assert.deepEqual(await sceneManifest(), before, "editing and saving never reserves or changes the background")
+  await screenshot('scene-direction-desktop')
+  await click('#scene-generate')
+  await sceneModal()
+  assert.equal(await evaluate("document.querySelector('#scene-confirmation-prompt p').textContent"), prompt, "cost confirmation pins exact previewed prompt")
+  await key('Escape')
+  await waitFor("!document.querySelector('#scene-generation-modal')", "cancel stays free")
+  await click('#scene-prompt-preview summary')
+  await evaluate("document.querySelector('#workspace-content').scrollTop = 0")
+  return prompt
+}
+
 async function sceneManifest() {
   return evaluate(`({
     attempts: Array.from(document.querySelectorAll('#scenes-panel .scene-toolbar > .scene-status time'), time => time.dateTime),
@@ -746,6 +793,7 @@ try {
   assert.equal(await evaluate("document.querySelector('#scenes-panel').textContent.includes('API charges') || !!document.querySelector('.scene-policy')"), false, 'no persistent API-charges warning')
   await scenesLayout(1440, false)
   await screenshot("scenes-desktop")
+  const savedDirectionPrompt = await guidedSceneDirection()
 
   assert.equal(await evaluate("document.querySelector('#scenes-panel').dataset.page"), "1")
   assert.equal(await evaluate("document.querySelector('#scene-pagination').getAttribute('aria-label')"), "Scene gallery pages")
@@ -870,6 +918,9 @@ try {
     await focused()
     await scenesLoaded()
     assert.deepEqual(await sceneManifest(), selectedScenes, "manual scene selection and timestamps survive a real page reload")
+    await waitFor("!!document.querySelector('#scene-direction-form')", "saved direction loads after real reload")
+    assert.equal(await evaluate("document.querySelector('#scene-direction-prompt').textContent"), savedDirectionPrompt, "saved direction survives real reload")
+    assert.equal(await evaluate("document.querySelector('#scene-direction-setting').value"), 'coast')
     assert.equal(await evaluate("document.querySelector('#scene-generate').disabled"), false, "navigation, stage broadcasts and reload preserve manual availability")
   } finally {
     await send("Target.closeTarget", {targetId: sharedTargetId}, null)
@@ -1355,7 +1406,13 @@ try {
       await scenesLayout(width, forced)
       const beforeSceneDialog = await sceneManifest()
       assert.equal(await evaluate("document.querySelector('#scene-generate').disabled"), false, "unconfirmed dialogs, unrelated credential saves and reloads never reserve generation")
-      if (!forced && width === 390) await screenshot("scenes-narrow")
+      if (!forced && width === 390) {
+        await click('#scene-prompt-preview summary')
+        await evaluate("document.querySelector('#scene-direction').scrollIntoView({block: 'start'})")
+        await screenshot("scene-direction-narrow")
+        await click('#scene-prompt-preview summary')
+        await screenshot("scenes-narrow")
+      }
       if (forced && width === 1440) await screenshot("scenes-forced-colors")
       await evaluate("document.querySelector('#scenes-refresh').focus()")
       await key("Tab")

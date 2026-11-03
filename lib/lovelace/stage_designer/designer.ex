@@ -45,6 +45,11 @@ defmodule Lovelace.StageDesigner.Designer do
     end
 
     action :request_scene_generation, :atom do
+      argument :expected_prompt, :string do
+        default nil
+        constraints trim?: false, allow_empty?: true
+      end
+
       run {Lovelace.StageDesigner.Startup, manual?: true}
     end
 

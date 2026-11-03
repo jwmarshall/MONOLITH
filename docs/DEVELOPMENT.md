@@ -96,7 +96,12 @@ Ash domain; provider work never runs in LiveView callbacks. `LOVELACE_WORKSPACE_
 controls the client-only screensaver (default three minutes). Scenes exposes the saved
 catalog through bounded 20-image pages, persistent background selection, and confirmed potentially billable manual
 requests without a manual daily cooldown. Automatic startup alone uses the persisted
-24-hour cooldown; manual work refuses another unconfirmed reservation. No prompt editor exists.
+24-hour cooldown; manual work refuses another unconfirmed reservation. Scenes also saves
+app-wide guided scene direction (subject, setting, light, palette), with an exact prompt
+preview. Saving is local-only and never generates or changes startup opt-in. The saved
+direction overrides the configured prompt for future manual/startup attempts; apply the
+additive scene-direction migration first. Unsaved edits block manual generation until
+saved/discarded, and confirmation refuses a concurrently changed saved prompt.
 Do not inject real Google credentials into tests or CI. Test runtime forces real startup
 generation off; focused provider tests inject fake keys/`Req.Test`. For maintenance commands,
 force `LOVELACE_STAGE_ENABLED=false` to avoid an unintended application-startup request.

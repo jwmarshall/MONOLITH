@@ -221,6 +221,15 @@ Verify implementation in code; the coverage map below is not evidence that check
   shift retained content. Reduced motion (including changes mid-load) and forced colors stop the
   orbit, preserving its static shape. Keep polite accessible status names and separate unfilled
   warning edges for actionable errors/stale states.
+- Scenes opens with guided **Scene direction** choices for subject, setting, light and
+  palette. Save persists the app-wide default for future manual and already opted-in startup
+  generations; it never generates, probes credentials or changes startup opt-in. An expandable
+  exact prompt updates with edits and preserves its open state across patches. Unsaved edits
+  remain distinct from the active default and must be saved or discarded before generating.
+  Refresh/status/background patches and Escape/idle wake preserve the draft. Show save/load
+  failures inline; never silently generate with a different fallback. The initial configured
+  prompt stays active until the first explicit save. Confirmation exposes and pins the exact
+  reviewed prompt, refusing a changed default without reserving or requesting generation.
 - Scenes keeps all published local images, with no total count cap; the gallery shows
   20 per page with native Newer/Older controls. Dates when known, the actual active background
   and latest-attempt states stay honest. Refresh status only reads local state.
@@ -319,7 +328,8 @@ historical results do not certify a new change.
 - `test/lovelace_web/live/scenes_live_test.exs`: exclusive Scenes navigation, truthful
   empty/missing/unconfirmed states, immediate manual eligibility after success/failure,
   confirmed-only requests with safe fake-vault failure, paginated access to all saved images,
-  persistent selection and app-wide stage updates. Backend scene/coordination tests cover
+  persistent selection and app-wide stage updates; guided prompt preview/save/discard,
+  reload persistence, draft-safe refresh and stale-confirmation refusal. Backend scene/coordination tests cover
   reservation policy, selection during generation, duplicate output and publication/notification exclusion.
 - `test/lovelace_web/live/home_live_test.exs`: shell, client commands, accessible/decorative
   branding, Lock POST/token structure, image URL allowlist and stage updates.
@@ -370,7 +380,9 @@ historical results do not certify a new change.
   navigation, obsolete-query cleanup and direct Gemini reload, workspace reload and copied conversation/search/page links; real delayed loading transparency, stable status
   height and ordinary/reduced-motion/forced-color SVG activity behavior, including mid-load preference
   changes; compact health detail focus/hover, Escape-only dismissal, static health shapes and
-  desktop/narrow/forced-color tooltip screenshots; Scenes keyboard navigation, gallery dates/previews, confirmation Cancel/Escape
+  desktop/narrow/forced-color tooltip screenshots; Scenes guided direction preview/save/discard,
+  draft preservation through refresh and scenery wake, exact confirmation prompt and saved
+  direction reload, desktop/narrow editor screenshots; Scenes keyboard navigation, gallery dates/previews, confirmation Cancel/Escape
   and focus restoration, read-only refresh, cross-tab selection, reload persistence, narrow
   and forced-color gallery/dialog layouts; off-origin requests, page errors and CSP events.
 

@@ -89,6 +89,100 @@ defmodule LovelaceWeb.ScenesLiveTest do
     assert has_element?(view, "#home-overview")
   end
 
+  test "guided direction previews, saves and survives reload without generating", %{conn: conn} do
+    {:ok, view, _} = live(conn, "/scenes")
+    render_async(view)
+    assert has_element?(view, "#scene-direction-form")
+    assert has_element?(view, "#scene-prompt-preview summary", "View generation prompt")
+    assert has_element?(view, "#scene-direction-prompt", Settings.get().prompt)
+    assert has_element?(view, "#scene-direction-guidance", "Configured prompt in use")
+    assert StageDesigner.get_state!(1, actor: @actor) == nil
+
+    values = %{
+      "subject" => "landscape",
+      "setting" => "coast",
+      "light" => "dawn",
+      "palette" => "sea_glass"
+    }
+
+    view |> form("#scene-direction-form", direction: values) |> render_change()
+    assert has_element?(view, "#scene-direction-guidance", "Unsaved changes")
+    assert has_element?(view, "#scene-generate[disabled]")
+    assert has_element?(view, "#scene-prompt-preview summary", "Preview unsaved prompt")
+    prompt = :sys.get_state(view.pid).socket.assigns.scene_direction.prompt
+    assert prompt != Settings.get().prompt
+
+    view |> element("#scenes-refresh") |> render_click()
+    render_async(view)
+    assert :sys.get_state(view.pid).socket.assigns.scene_direction.prompt == prompt
+    assert has_element?(view, "#scene-direction-subject option[value=landscape][selected]")
+    render_click(view, "scenes:request", %{})
+    refute has_element?(view, "#scene-generation-modal")
+
+    view |> form("#scene-direction-form", direction: values) |> render_submit()
+
+    assert has_element?(
+             view,
+             "#scene-direction-notice",
+             "Direction saved. No generation requested."
+           )
+
+    assert has_element?(view, "#scene-direction-save[disabled]")
+    assert has_element?(view, "#scene-generate:not([disabled])")
+    assert StageDesigner.get_state!(1, actor: @actor) == nil
+    {:ok, reloaded, _} = live(conn, "/scenes")
+    render_async(reloaded)
+    assert has_element?(reloaded, "#scene-direction-subject option[value=landscape][selected]")
+    assert :sys.get_state(reloaded.pid).socket.assigns.scene_direction.prompt == prompt
+    reloaded |> element("#scene-generate") |> render_click()
+    assert has_element?(reloaded, "#scene-confirmation-prompt", prompt)
+    assert StageDesigner.get_state!(1, actor: @actor) == nil
+  end
+
+  test "discard restores the exact active prompt and invalid direction cannot be saved", %{
+    conn: conn
+  } do
+    {:ok, view, _} = live(conn, "/scenes")
+    render_async(view)
+    original = :sys.get_state(view.pid).socket.assigns.scene_direction.prompt
+
+    values = %{
+      "subject" => "abstract",
+      "setting" => "forest",
+      "light" => "moonlight",
+      "palette" => "mist"
+    }
+
+    view |> form("#scene-direction-form", direction: values) |> render_change()
+    view |> element("#scene-direction-discard") |> render_click()
+    assert :sys.get_state(view.pid).socket.assigns.scene_direction.prompt == original
+    refute has_element?(view, "#scene-direction-discard")
+
+    render_submit(view, "scenes:direction-save", %{
+      "direction" => Map.put(values, "subject", "forged")
+    })
+
+    assert has_element?(view, "#scene-direction-error[role=alert]", "available options")
+    assert StageDesigner.scene_direction!(actor: %{role: :local_owner}).saved? == false
+    assert StageDesigner.get_state!(1, actor: @actor) == nil
+  end
+
+  test "a direction changed after cost confirmation refuses generation", %{conn: conn} do
+    {:ok, view, _} = live(conn, "/scenes")
+    render_async(view)
+    view |> element("#scene-generate") |> render_click()
+
+    StageDesigner.save_scene_direction!(
+      %{subject: "abstract", setting: "forest", light: "moonlight", palette: "mist"},
+      actor: %{role: :local_owner}
+    )
+
+    view |> element("#scene-generation-confirm") |> render_click()
+    render_async(view)
+    assert has_element?(view, "#scenes-panel", "saved direction changed")
+    assert StageDesigner.get_state!(1, actor: @actor) == nil
+  end
+
   test "confirmed requests reserve once and surface safe failures without calling Google", %{
     conn: conn
   } do

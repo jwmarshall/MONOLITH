@@ -95,8 +95,9 @@ defmodule LovelaceWeb.HomeLive do
   def handle_info(_message, socket), do: {:noreply, socket}
 
   @impl true
-  def handle_async(name, result, socket) when name in [:scene_gallery, :scene_request],
-    do: HomeScenes.handle_async(name, result, socket)
+  def handle_async(name, result, socket)
+      when name in [:scene_gallery, :scene_request, :scene_direction],
+      do: HomeScenes.handle_async(name, result, socket)
 
   def handle_async(:gemini_status, result, socket), do: HomeGemini.handle_async(result, socket)
 
@@ -915,6 +916,8 @@ defmodule LovelaceWeb.HomeLive do
             pending={@scene_request_pending}
             notice={@scene_notice}
             confirmation={@scene_confirmation}
+            confirmation_prompt={@scene_confirmation_prompt}
+            direction={@scene_direction}
           />
 
           <LovelaceWeb.ConnectionComponents.overview :if={@connections && @connection_view == :index} />

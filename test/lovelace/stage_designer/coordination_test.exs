@@ -15,6 +15,11 @@ defmodule Lovelace.StageDesigner.CoordinationTest do
     directory = Path.join(System.tmp_dir!(), "lovelace-coordination-#{Ash.UUID.generate()}")
     %{first: first, second: second} = repos = DisposableStageRepo.start!(directory)
 
+    DisposableStageRepo.migrate!(first, [
+      {20_261_103_184_507, "20261103184507_add_scene_direction.exs",
+       Lovelace.Repo.Migrations.AddSceneDirection}
+    ])
+
     settings = %Settings{
       enabled: true,
       storage_dir: Path.join(directory, "images")

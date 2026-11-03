@@ -6,13 +6,14 @@ LOVELACE can generate a background through the **server-side Gemini Developer AP
 on application startup when opted in, or through an explicitly confirmed request in
 **Scenes**. It never generates from a page load, LiveView reconnect, gallery/status refresh,
 or inactivity event. One locally bundled JPEG remains underneath locally served generated imagery.
-There is no prompt editor or scheduled worker. Scenes shows the retained local gallery,
+Scenes includes a saved, guided **Scene direction** editor and an expandable exact prompt.
+There is no scheduled worker. Scenes shows the retained local gallery,
 latest attempt status and manual eligibility; unknown legacy image dates are labelled.
 An in-server generation broadcasts updates to connected LiveViews. An operator invocation
 in a separate BEAM process updates files/SQLite but not the running server's local PubSub;
 refresh the homepage to load that result.
 
-The user selected automatic architectural curation: original quiet brutalist forms,
+Before a direction is saved, the configured prompt provides architectural curation: original quiet brutalist forms,
 distant landscapes, charcoal and restrained amber light, negative space, no people,
 lettering, logos, busy foregrounds, or private dashboard context. The default is the
 documented stable, high-efficiency `gemini-nano-banana-2.1`, `16:9`, `1K`. 1K is a provider
@@ -52,6 +53,30 @@ tier, not full desktop-native resolution or a visual-quality guarantee.
   publication/recovery. See [storage coordination](STORAGE_COORDINATION.md): keep
   the private `.stage-coordination.sqlite3` identity for the lifetime of a shared root;
   never unlink/replace it while any LOVELACE process may use that root.
+
+## Saved scene direction
+
+Scenes offers guided subject (architecture, landscape, abstract), setting, light and palette
+choices, with an expandable exact prompt. Draft changes update the preview but do not
+change the saved default. Save explicitly before generating, or discard to restore the
+active prompt. Status refresh, background updates and Escape/idle wake preserve drafts
+and the prompt disclosure. Navigation away may discard unsaved choices.
+
+The app-wide Ash direction singleton is only written by an owner-authorized save. Reads
+never initialize it. Until the first save, `LOVELACE_STAGE_PROMPT` (or its built-in default)
+remains the exact effective prompt. Saving adopts the guided choices and supersedes that
+configuration for **all new manual and already opted-in startup generations**, across restarts.
+It never generates, checks credentials, changes startup opt-in, alters cooldowns or affects
+existing images. Direction read failures block generation rather than silently falling back.
+Apply the additive scene-direction migration before using the editor.
+
+The composed prompt always preserves quiet negative space, a low-detail center and
+exclusions for people, lettering, logos and interface elements. Only allowlisted generic
+art direction is accepted, with no free-text private context. The cost dialog also exposes
+the exact prompt for its request. Manual confirmation checks that the saved prompt has not
+changed since review; a mismatch refuses generation before reservation/provider access.
+Already-dispatched work uses its captured prompt even if the default is subsequently edited.
+Saved direction is a default for future images, not a record of past images' prompts.
 
 ## Bundled installation default
 
@@ -172,7 +197,7 @@ argument at save time, never database state, application configuration, or a Liv
 | `LOVELACE_STAGE_TIMEOUT_SECONDS` | `120`; range 1–120, includes an overall deadline |
 | `LOVELACE_STAGE_STORAGE_DIR` | `./data/stage-designer`; private, persistent, gitignored; use an absolute release path |
 | `LOVELACE_STAGE_RETAIN_COUNT` | Obsolete and ignored; published scenes have no total storage-count cap |
-| `LOVELACE_STAGE_PROMPT` | Generic architectural brief; 1–8000 bytes, no private information |
+| `LOVELACE_STAGE_PROMPT` | Initial generic brief; 1–8000 bytes, no private information. Superseded after a direction is saved in Scenes |
 | `LOVELACE_WORKSPACE_IDLE_MINUTES` | `3`; range 1–60 |
 
 Image files and the directory are owner-only. Digest URLs serve only catalog-registered,

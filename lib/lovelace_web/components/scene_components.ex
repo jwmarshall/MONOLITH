@@ -2,14 +2,25 @@ defmodule LovelaceWeb.SceneComponents do
   @moduledoc "Recent app-wide scenery and explicit, potentially billable requests."
   use LovelaceWeb, :html
 
+  alias Lovelace.StageDesigner.DirectionOptions
+
   attr :data, :map, default: nil
   attr :loading, :boolean, required: true
   attr :error, :boolean, required: true
   attr :pending, :boolean, required: true
   attr :notice, :string, required: true
   attr :confirmation, :boolean, required: true
+  attr :confirmation_prompt, :string, default: nil
+  attr :direction, :map, required: true
 
   def gallery(assigns) do
+    assigns =
+      assign(
+        assigns,
+        :direction_ready,
+        match?(%{status: :ready, dirty: false, error: ""}, assigns.direction)
+      )
+
     ~H"""
     <section
       id="scenes-panel"
@@ -18,6 +29,7 @@ defmodule LovelaceWeb.SceneComponents do
       aria-busy={to_string(@loading)}
       data-page={@data && @data.page}
     >
+      <.direction_editor direction={@direction} />
       <div class="scene-toolbar">
         <div
           class="scene-status connection-card"
@@ -63,8 +75,17 @@ defmodule LovelaceWeb.SceneComponents do
             type="button"
             class="workspace-action workspace-action-primary"
             phx-click="scenes:request"
-            aria-describedby={@data && !@data.eligible && "scene-generation-availability"}
-            disabled={@pending || @loading || @error || !@data || !@data.eligible}
+            aria-describedby={
+              cond do
+                @data && !@data.eligible -> "scene-generation-availability"
+                !@direction_ready -> "scene-direction-guidance"
+                true -> nil
+              end
+            }
+            disabled={
+              @pending || @loading || @error || !@data || !@data.eligible ||
+                !@direction_ready
+            }
           >
             <span class="inline-flex" aria-hidden="true"><.icon name="hero-sparkles" class="size-4" /></span>
             Generate scene
@@ -89,7 +110,7 @@ defmodule LovelaceWeb.SceneComponents do
               :if={scene.available}
               id={"scene-preview-#{scene.digest}"}
               src={scene.url}
-              alt={"Generated architectural scene #{index}"}
+              alt={"Generated scenery #{index}"}
               phx-hook="StageBackground"
               data-loaded="false"
             />
@@ -156,6 +177,10 @@ defmodule LovelaceWeb.SceneComponents do
           No automatic retries or manual daily cooldown. A successful image replaces the current scenery;
           otherwise it stays unchanged.
         </p>
+        <details id="scene-confirmation-prompt" class="scene-prompt connection-help">
+          <summary>Prompt for this request</summary>
+          <p>{@confirmation_prompt}</p>
+        </details>
         <div class="workspace-editor-actions">
           <button
             id="scene-generation-confirm"
@@ -172,6 +197,107 @@ defmodule LovelaceWeb.SceneComponents do
           >Cancel</button>
         </div>
       </LovelaceWeb.ModalComponents.modal>
+    </section>
+    """
+  end
+
+  attr :direction, :map, required: true
+
+  def direction_editor(assigns) do
+    assigns = assign(assigns, :fields, DirectionOptions.fields())
+
+    ~H"""
+    <section id="scene-direction" class="scene-direction" aria-labelledby="scene-direction-title">
+      <div class="scene-direction-heading">
+        <div>
+          <h3 id="scene-direction-title">Scene direction</h3>
+          <p class="mail-muted">Choose the subject, light and atmosphere.</p>
+        </div>
+        <span :if={@direction.status == :ready} class="scene-direction-scope mail-muted">
+          Default for new scenes
+        </span>
+      </div>
+      <p :if={@direction.status == :loading} id="scene-direction-guidance" role="status">
+        Loading your direction…
+      </p>
+      <p :if={@direction.status == :error} id="scene-direction-guidance" role="alert">
+        Your scene direction couldn’t be loaded. Refresh status to retry before generating.
+      </p>
+      <.form
+        :if={@direction.status == :ready}
+        for={@direction.form}
+        id="scene-direction-form"
+        phx-change="scenes:direction-change"
+        phx-submit="scenes:direction-save"
+      >
+        <div class="scene-direction-fields">
+          <div :for={field <- @fields} class="scene-direction-field">
+            <label for={"scene-direction-#{field.key}"}>{field.label}</label>
+            <select
+              id={"scene-direction-#{field.key}"}
+              name={@direction.form[field.key].name}
+              class="connection-workspace-select"
+              aria-describedby={
+                if @direction.error == "",
+                  do: "scene-direction-guidance",
+                  else: "scene-direction-guidance scene-direction-error"
+              }
+              aria-invalid={to_string(@direction.error != "")}
+            >
+              {Phoenix.HTML.Form.options_for_select(field.options, @direction.values[field.key])}
+            </select>
+          </div>
+        </div>
+        <div class="scene-direction-footer">
+          <div class="mail-actions">
+            <button
+              id="scene-direction-save"
+              type="submit"
+              class="workspace-action workspace-action-primary"
+              disabled={!@direction.dirty && @direction.saved.saved?}
+              phx-disable-with="Saving…"
+            >Save direction</button>
+            <button
+              :if={@direction.dirty}
+              id="scene-direction-discard"
+              type="button"
+              class="workspace-action"
+              phx-click="scenes:direction-discard"
+            >Discard changes</button>
+          </div>
+          <p id="scene-direction-guidance" class="mail-muted">
+            <%= cond do %>
+              <% @direction.dirty -> %>
+                Unsaved changes · Save before generating.
+              <% !@direction.saved.saved? -> %>
+                Configured prompt in use. Save to apply these choices.
+              <% true -> %>
+                Used for manual and opted-in startup scenes. Saving never generates.
+            <% end %>
+          </p>
+        </div>
+        <p
+          :if={@direction.error != ""}
+          id="scene-direction-error"
+          class="connection-warning"
+          role="alert"
+        >
+          {@direction.error}
+        </p>
+        <p :if={@direction.notice != ""} id="scene-direction-notice" class="mail-muted" role="status">
+          {@direction.notice}
+        </p>
+        <details
+          id="scene-prompt-preview"
+          class="scene-prompt connection-help"
+          phx-mounted={JS.ignore_attributes(["open"])}
+        >
+          <summary>
+            {if @direction.dirty, do: "Preview unsaved prompt", else: "View generation prompt"}
+          </summary>
+          <p id="scene-direction-prompt">{@direction.prompt}</p>
+        </details>
+      </.form>
     </section>
     """
   end

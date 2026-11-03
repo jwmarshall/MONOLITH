@@ -5,7 +5,7 @@ defmodule Lovelace.StageDesigner.Startup do
   require Logger
 
   alias Lovelace.StageDesigner
-  alias Lovelace.StageDesigner.{Coordination, Diagnostics, Gemini, Settings, Storage}
+  alias Lovelace.StageDesigner.{Coordination, Diagnostics, Directions, Gemini, Settings, Storage}
 
   @actor %{role: :stage_designer}
 
@@ -16,13 +16,7 @@ defmodule Lovelace.StageDesigner.Startup do
 
     result =
       if settings.enabled or manual? do
-        attempt(
-          settings,
-          Map.get(input.arguments, :now) || Map.get(input.context, :now, DateTime.utc_now()),
-          Map.get(input.context, :provider_options, []),
-          Keyword.get(opts, :retry_failed?, false),
-          manual?
-        )
+        resolve_and_attempt(input, opts, settings, manual?)
       else
         :disabled
       end
@@ -32,6 +26,30 @@ defmodule Lovelace.StageDesigner.Startup do
     _ ->
       Logger.warning("LOVELACE stage designer unavailable; keeping local scenery")
       {:ok, :unavailable}
+  end
+
+  defp resolve_and_attempt(input, opts, settings, manual?) do
+    # Capture one effective configuration before reservation/task dispatch. An
+    # unreadable saved direction is not permission to use the environment brief.
+    case Directions.effective_settings(settings) do
+      {:ok, resolved} ->
+        expected = Map.get(input.arguments, :expected_prompt)
+
+        if not is_nil(expected) and expected != resolved.prompt do
+          :direction_changed
+        else
+          attempt(
+            resolved,
+            Map.get(input.arguments, :now) || Map.get(input.context, :now, DateTime.utc_now()),
+            Map.get(input.context, :provider_options, []),
+            Keyword.get(opts, :retry_failed?, false),
+            manual?
+          )
+        end
+
+      {:error, _} ->
+        :unavailable
+    end
   end
 
   defp attempt(settings, now, provider_options, retry_failed?, manual?) do

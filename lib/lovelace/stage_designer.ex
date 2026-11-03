@@ -14,6 +14,13 @@ defmodule Lovelace.StageDesigner do
 
     resource Lovelace.StageDesigner.Scene
 
+    resource Lovelace.StageDesigner.Direction do
+      define :scene_direction, action: :scene_direction
+      define :save_scene_direction, action: :save_scene_direction
+      define :get_direction, action: :read, get_by: [:id], not_found_error?: false
+      define :persist_direction, action: :save
+    end
+
     resource Lovelace.StageDesigner.DefaultScene do
       define :initialize_default_scene, action: :initialize
       define :get_default_scene, action: :read, get_by: [:id], not_found_error?: false
