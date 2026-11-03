@@ -6,6 +6,7 @@
 @import "./calendar.css";
 @import "./scenes.css";
 @import "./modals.css";
+@import "./status.css";
 @source "../css";
 @source "../js";
 @source "../../lib/lovelace_web";
@@ -148,12 +149,11 @@
   cursor: default;
 }
 
-/* A fine edge and a restrained reflection, not a floating frosted card. */
+/* A restrained reflection without a perimeter frame. */
 .workspace-glass::after {
   content: "";
   position: absolute;
-  inset: 10px;
-  border: 1px solid rgb(238 237 229 / 12%);
+  inset: 0;
   background: linear-gradient(115deg, rgb(255 250 234 / 3%), transparent 38%);
   filter: blur(var(--workspace-chrome-blur));
   pointer-events: none;
@@ -268,7 +268,7 @@
 .workspace-glass[data-entered="true"] {
   .workspace-pane { display: none; }
   .workspace-brand { opacity: 0; visibility: hidden; }
-  .workspace-content {
+  .workspace-content, .workspace-controls {
     visibility: visible;
     opacity: 0.3;
     filter: blur(var(--workspace-content-blur));
@@ -277,7 +277,7 @@
 
 .glass-workspace:has(#workspace-pane[aria-pressed="true"]) .workspace-glass[data-entered="true"] {
   background: rgb(12 17 16 / 58%);
-  .workspace-content { opacity: 1; filter: blur(0); }
+  .workspace-content, .workspace-controls { opacity: 1; filter: blur(0); }
   #owner-lock-form { visibility: visible; opacity: 1; }
 }
 
@@ -290,13 +290,48 @@
   opacity: 0;
   color: var(--color-base-content);
   filter: blur(0);
-  padding: var(--workspace-top-padding) var(--workspace-inline-padding) 24px;
+  padding: var(--workspace-top-padding) var(--workspace-inline-padding) 64px;
   text-shadow: 0 1px 2px rgb(0 0 0 / 75%);
   display: flex;
   flex-direction: column;
   transition:
     opacity var(--workspace-focus-duration) var(--workspace-focus-easing),
     filter var(--workspace-focus-duration) var(--workspace-focus-easing);
+}
+
+/* A stage-owned right rail, outside the scrolling/filtered working plane. */
+.workspace-controls {
+  position: absolute;
+  z-index: 1;
+  inset: 0;
+  pointer-events: none;
+  visibility: hidden;
+  opacity: 0;
+  color: var(--color-base-content);
+  transition: opacity var(--workspace-focus-duration) var(--workspace-focus-easing),
+    filter var(--workspace-focus-duration) var(--workspace-focus-easing);
+}
+.workspace-controls #owner-lock-form {
+  position: absolute;
+  top: var(--workspace-top-padding);
+  right: var(--workspace-inline-padding);
+  pointer-events: auto;
+}
+.workspace-controls .workspace-footer {
+  position: absolute;
+  bottom: 24px;
+  right: var(--workspace-inline-padding);
+}
+/* When there is no spare side gutter, reserve shallow top/bottom chrome bands
+   rather than let the pinned controls cover scrolled mail or management actions. */
+@media (max-width: 1359px) {
+  .workspace-content {
+    position: absolute;
+    inset: calc(var(--workspace-top-padding) + 56px) 0 56px;
+    height: auto;
+    padding-top: 0;
+    padding-bottom: 16px;
+  }
 }
 
 /* Owner unlock/setup uses the same edge-to-edge glass, not a floating card.
@@ -417,7 +452,7 @@
     filter: none;
   }
 
-  .workspace-content, .workspace-action, .workspace-footer,
+  .workspace-content, .workspace-controls, .workspace-action, .workspace-footer,
   .workspace-name-input, .workspace-form-hint, .workspace-landing > p {
     color: CanvasText;
     text-shadow: none;
@@ -425,9 +460,10 @@
   .workspace-action, .workspace-editor, .workspace-landing,
   .workspace-name-input { border-color: CanvasText; }
   .workspace-action, .workspace-action:hover { background: ButtonFace; color: ButtonText; border-color: ButtonText; }
-  .workspace-glass[data-entered="true"] .workspace-content { opacity: 1; filter: none; }
+  .workspace-glass[data-entered="true"] .workspace-content,
+  .workspace-glass[data-entered="true"] .workspace-controls { opacity: 1; filter: none; }
   .glass-workspace .workspace-glass { background: Canvas; }
-  .workspace-glass::after { background: none; border-color: CanvasText; filter: none; }
+  .workspace-glass::after { background: none; filter: none; }
   .owner-content, #owner-unlock-error { color: CanvasText; text-shadow: none; }
   .owner-password { background: Canvas; color: CanvasText; border-color: CanvasText; }
   .owner-submit, .owner-submit:hover { background: ButtonFace; color: ButtonText; border: 1px solid ButtonText; }

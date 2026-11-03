@@ -139,6 +139,36 @@ defmodule LovelaceWeb.ConnectionsLiveTest do
     }
   end
 
+  test "quiet health distinguishes unknown from last-known success without hiding recovery",
+       ctx do
+    {:ok, view, _} = live(ctx.conn, ~p"/connections/gmail")
+    render_async(view)
+    signal = "#connection-signal-#{ctx.healthy.id}"
+
+    assert has_element?(view, "#{signal}[data-state=unknown][tabindex='0']")
+    assert has_element?(view, "#{signal} .status-tooltip", "no successful Gmail check yet")
+    refute has_element?(view, "#{signal} .status-label, #{signal} .status-orbit")
+
+    status(ctx.healthy, %{last_success_at: ~U[2026-11-01 12:00:00Z]})
+    broadcast(ctx.healthy.id)
+    assert has_element?(view, "#{signal}[data-state=ready]")
+    assert has_element?(view, "#{signal} .status-tooltip", "2026-11-01 12:00 UTC")
+    refute has_element?(view, "#{signal} .status-orbit")
+
+    status(ctx.healthy, %{last_error: :keychain})
+    broadcast(ctx.healthy.id)
+    assert has_element?(view, "#{signal}[data-state=warning] .status-label", "Keychain")
+    refute has_element?(view, "#{signal}[tabindex], #{signal} .status-tooltip")
+
+    assert has_element?(
+             view,
+             "#connection-signal-#{ctx.reconnect.id} .status-label",
+             "reconnecting"
+           )
+
+    assert FakeIO.calls() == []
+  end
+
   test "workspace cards expose only their own problem metadata and separate native menus", ctx do
     {:ok, view, _} = live(ctx.conn, ~p"/")
     view |> element("#show-workspaces") |> render_click()

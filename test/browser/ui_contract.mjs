@@ -93,6 +93,10 @@ async function media(features = []) {
 }
 
 async function screenshot(name) {
+  assert.deepEqual(await evaluate(`(() => {
+    const glass = getComputedStyle(document.querySelector('.workspace-glass'), '::after');
+    return [glass.borderTopWidth, glass.borderRightWidth, glass.borderBottomWidth, glass.borderLeftWidth];
+  })()`), ['0px', '0px', '0px', '0px'], 'shared static/live stage stays borderless, including forced colors')
   await evaluate("document.fonts.ready.then(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve(true)))))")
   const {data} = await send("Page.captureScreenshot", {format: "png", fromSurface: true, captureBeyondViewport: false})
   const file = path.join(artifacts, `${name}.png`)
@@ -263,6 +267,7 @@ async function focused() {
     getComputedStyle(document.querySelector('#owner-lock-form')).visibility === 'visible'`, "entered focused workspace")
   assert.equal(await evaluate(`getComputedStyle(document.querySelector('#workspace-pane')).display`), "none")
   assert.equal(await evaluate(`document.querySelector('#workspace-content').inert`), false)
+  assert.equal(await evaluate(`document.querySelector('#workspace-controls').inert`), false)
   assert.equal(await evaluate(`getComputedStyle(document.querySelector('#home-link')).visibility`), "visible")
 }
 
@@ -298,22 +303,95 @@ async function loadingStatus(forced, reduced) {
   const state = await evaluate(`(() => {
     const status = document.querySelector('#mail-status');
     const loading = document.querySelector('#mail-loading');
-    const track = loading.querySelector('.mail-loading-track');
+    const track = loading.querySelector('.status-orbit');
     return {background: getComputedStyle(status).backgroundColor,
       loadingBackground: getComputedStyle(loading).backgroundColor,
       edge: getComputedStyle(status).borderLeftWidth,
-      animation: getComputedStyle(track, '::after').animationName,
-      hidden: track.getAttribute('aria-hidden'), role: status.getAttribute('role'),
+      animation: getComputedStyle(track).animationName,
+      hidden: track.closest('svg').getAttribute('aria-hidden'), role: status.getAttribute('role'),
       height: status.getBoundingClientRect().height};
   })()`)
   assert.equal(state.background, "rgba(0, 0, 0, 0)", "loading sits directly on the shared glass")
   assert.equal(state.loadingBackground, "rgba(0, 0, 0, 0)")
   assert.equal(state.edge, "0px", "loading does not borrow the warning edge")
-  assert.equal(state.animation, forced || reduced ? "none" : "mail-loading-sweep", "motion respects user preferences and forced colors")
-  assert.equal(state.hidden, "true", "the indeterminate sweep is decorative, not fake percentage progress")
+  assert.equal(state.animation, forced || reduced ? "none" : "status-orbit", "motion respects user preferences and forced colors")
+  assert.equal(state.hidden, "true", "the indeterminate SVG is decorative, not fake percentage progress")
   assert.equal(state.role, "status")
   assert.ok(state.height >= 28)
   return state.height
+}
+
+async function pinnedControls(width, forced) {
+  const originalScroll = await evaluate("document.querySelector('#workspace-content').scrollTop")
+  await evaluate("document.querySelector('#workspace-content').scrollTop = 0")
+  const bounds = `(() => {
+    const lock = document.querySelector('#owner-lock-form button').getBoundingClientRect();
+    const legend = document.querySelector('.workspace-footer').getBoundingClientRect();
+    const nav = document.querySelector('#center-nav').getBoundingClientRect();
+    const port = document.querySelector('#workspace-content').getBoundingClientRect();
+    const working = document.querySelector('.workspace-directory').getBoundingClientRect();
+    return {lock: {x: lock.x, y: lock.y}, legend: {x: legend.x, y: legend.y}, nav: nav.y,
+      scroll: document.querySelector('#workspace-content').scrollTop,
+      visible: lock.top >= 0 && lock.bottom <= innerHeight && legend.top >= 0 && legend.bottom <= innerHeight,
+      clear: (port.top >= lock.bottom || working.right <= lock.left) && (port.bottom <= legend.top || working.right <= legend.left),
+      hit: !!document.elementFromPoint(lock.x + lock.width / 2, lock.y + lock.height / 2)?.closest('#owner-lock-form')};
+  })()`
+  const before = await evaluate(bounds)
+  await send('Input.dispatchMouseEvent', {type: 'mouseWheel', x: width / 2, y: 500, deltaX: 0, deltaY: 500})
+  await waitFor("document.querySelector('#workspace-content').scrollTop > 20", 'real wheel scrolls only the working content')
+  const after = await evaluate(bounds)
+  assert.deepEqual(after.lock, before.lock, 'Lock stays pinned while the page scrolls')
+  assert.deepEqual(after.legend, before.legend, 'Escape legend stays pinned while the page scrolls')
+  assert.ok(after.nav < before.nav - 20, 'main navigation scrolls normally, not with the right rail')
+  assert.equal(after.visible && after.hit, true, 'pinned Lock stays visible and is not intercepted')
+  assert.equal(after.clear, true, 'pinned controls do not cover scrolling working content')
+  assert.equal(await evaluate("document.scrollingElement.scrollTop"), 0, 'the outer stage never scrolls')
+  await screenshot(`pinned-controls-${width}${forced ? '-forced-colors' : ''}`)
+  await evaluate(`document.querySelector('#workspace-content').scrollTop = ${originalScroll}`)
+}
+
+async function statusDetails(width, forced, embedded = false) {
+  const selector = embedded ? '#workspace-list .status-signal[data-embedded=true]' : '.gmail-connection-card .status-signal:not(.status-signal-text)';
+  const trigger = embedded ? `document.querySelector(${JSON.stringify(selector)}).closest('a')` : `document.querySelector(${JSON.stringify(selector)})`
+  await key('Tab')
+  await evaluate(`${trigger}.scrollIntoView({block: 'center'}); ${trigger}.focus()`)
+  const detail = await evaluate(`(() => {
+    const signal = document.querySelector(${JSON.stringify(selector)});
+    const tooltip = signal.querySelector('.status-tooltip');
+    const bounds = tooltip.getBoundingClientRect();
+    return {label: signal.getAttribute('aria-label'), state: signal.dataset.state,
+      visible: getComputedStyle(tooltip).display, focus: (${trigger}).matches(':focus-visible'),
+      withinViewport: bounds.left >= 0 && bounds.right <= innerWidth,
+      outline: getComputedStyle(${trigger}).outlineStyle,
+      custom: !!signal.querySelector('svg[aria-hidden=true]'),
+      animated: !!signal.querySelector('.status-orbit')};
+  })()`)
+  assert.ok(detail.label.length > 10, 'quiet status retains meaningful accessible detail')
+  assert.ok(['ready', 'unknown'].includes(detail.state), 'unobserved accounts are not falsely healthy')
+  assert.equal(detail.visible, 'block', 'keyboard focus exposes the status meaning')
+  assert.equal(detail.focus, true)
+  assert.equal(detail.withinViewport, true, 'status details fit narrow screens')
+  assert.notEqual(detail.outline, 'none')
+  assert.equal(detail.custom, true)
+  assert.equal(detail.animated, false, 'last-known health does not imply ongoing checks')
+  await screenshot(`status-${embedded ? 'embedded' : 'detail'}-${width}${forced ? '-forced-colors' : ''}`)
+  await key('Escape')
+  assert.equal(await evaluate(`getComputedStyle(document.querySelector(${JSON.stringify(selector)}).querySelector('.status-tooltip')).display`), 'none', 'Escape dismisses detail')
+  assert.equal(await evaluate("document.querySelector('#workspace-pane').getAttribute('aria-pressed')"), 'true', 'tooltip dismissal does not enter scenery')
+  assert.equal(await evaluate(`document.activeElement === ${trigger}`), true, 'dismissal preserves focus')
+  await key('Escape')
+  await landscape()
+  await key('a', 'a')
+  await focused()
+  await evaluate("document.querySelector('#directory-heading').focus()")
+  await evaluate(`document.querySelector(${JSON.stringify(selector)}).scrollIntoView({block: 'center'})`)
+  const point = await evaluate(`(() => { const r = document.querySelector(${JSON.stringify(selector)}).getBoundingClientRect(); return {x: r.x + r.width / 2, y: r.y + r.height / 2}; })()`)
+  await send('Input.dispatchMouseEvent', {type: 'mouseMoved', ...point})
+  assert.equal(await evaluate(`getComputedStyle(document.querySelector(${JSON.stringify(selector)}).querySelector('.status-tooltip')).display`), 'block', 'hover also exposes details')
+  await key('Escape')
+  assert.equal(await evaluate(`getComputedStyle(document.querySelector(${JSON.stringify(selector)}).querySelector('.status-tooltip')).display`), 'none', 'Escape dismisses hover-only details with focus elsewhere')
+  assert.equal(await evaluate("document.querySelector('#workspace-pane').getAttribute('aria-pressed')"), 'true', 'hover dismissal preserves the working plane')
+  await send('Input.dispatchMouseEvent', {type: 'mouseMoved', x: 1, y: 1})
 }
 
 async function readerLayout(width, forced) {
@@ -585,6 +663,7 @@ try {
   assert.equal(await evaluate("document.querySelector('#main-content').dataset.entered ?? 'false'"), "false")
   assert.equal(await evaluate("Number(getComputedStyle(document.querySelector('#workspace-monogram')).opacity)"), 0)
   assert.equal(await evaluate("document.querySelector('#workspace-content').inert"), true)
+  assert.equal(await evaluate("document.querySelector('#workspace-controls').inert"), true)
   await waitFor("document.querySelector('#lovelace-letter-7').style.opacity === '1' && document.querySelector('#main-content').dataset.entered !== 'true'", "completed wordmark before exit")
   await waitFor("Number(document.querySelector('#lovelace-letter-0').style.opacity) < Number(document.querySelector('#lovelace-letter-7').style.opacity)", "left-to-right letter exit")
   await waitFor("parseFloat(document.querySelector('#lovelace-monogram-stroke').style.strokeDashoffset) < 0 && Number(document.querySelector('#lovelace-letter-0').style.opacity) < 1", "opposite-end erase before handoff")
@@ -844,8 +923,9 @@ try {
   const returnScroll = await click("#mail-thread-synthetic-thread-12")
   assert.ok(returnScroll > 100, "open a genuinely scrolled result, capturing after the click helper scrolls it into view")
   const loadingHeight = await loadingStatus(false, false)
+  await screenshot('mail-active-signal')
   await media([{name: "prefers-reduced-motion", value: "reduce"}])
-  assert.equal(await evaluate("getComputedStyle(document.querySelector('.mail-loading-track'), '::after').animationName"), "none", "mid-load reduced-motion change stops the sweep")
+  assert.equal(await evaluate("getComputedStyle(document.querySelector('#mail-loading .status-orbit')).animationName"), "none", "mid-load reduced-motion change stops the orbit")
   await media([])
   await readerLoaded()
   assert.equal(await evaluate("document.querySelector('#mail-status').getBoundingClientRect().height"), loadingHeight, "status space stays stable when loading completes")
@@ -1210,6 +1290,7 @@ try {
       assert.equal(await evaluate("document.querySelector('#gmail-disconnect-help').open"), true, 'disconnect help is keyboard accessible')
       assert.match(await evaluate("document.querySelector('#gmail-disconnect-help').textContent"), /mailbox is unchanged/)
       if (!forced) await screenshot(`gmail-connections-${width}`)
+      await statusDetails(width, forced)
       await click("#new-gmail-connection")
       await waitFor("document.querySelector('#gmail-connection-modal')?.matches(':modal') && document.activeElement.id === 'mail-workspace-new'", "Gmail modal at each width/preference")
       assert.equal(await evaluate("document.querySelector('#gmail-connection-modal').scrollWidth <= document.querySelector('#gmail-connection-modal').clientWidth"), true, "Gmail modal has no horizontal overflow")
@@ -1317,6 +1398,13 @@ try {
       assert.ok(dimensions.cardHeight >= 120 && dimensions.cardHeight <= 160, 'workspace cards are shallow but retain generous native targets')
       assert.equal(await evaluate("!!document.querySelector('.workspace-card-eyebrow')"), false, 'cards omit the redundant Workspace label')
       if (!forced) await screenshot(`workspaces-${width}`)
+      await pinnedControls(width, forced)
+      if (width === 1440) {
+        await send('Emulation.setDeviceMetricsOverride', {width: 1100, height: 1000, deviceScaleFactor: 1, mobile: false})
+        await pinnedControls(1100, forced)
+        await send('Emulation.setDeviceMetricsOverride', {width, height: 1000, deviceScaleFactor: 1, mobile: false})
+      }
+      await statusDetails(width, forced, true)
       if (width === 390) {
         assert.equal(await evaluate("getComputedStyle(document.querySelector('#workspace-list')).gridTemplateColumns.split(' ').length"), 1)
         await click(`#open-${workspaceId}`)

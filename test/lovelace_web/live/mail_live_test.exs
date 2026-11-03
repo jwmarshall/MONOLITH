@@ -187,7 +187,7 @@ defmodule LovelaceWeb.MailLiveTest do
     assert LazyHTML.query(document, "#mail-loading") |> LazyHTML.text() =~ "Loading messages"
 
     assert Enum.any?(
-             LazyHTML.query(document, "#mail-loading .mail-loading-track[aria-hidden=true]")
+             LazyHTML.query(document, "#mail-loading [data-state=active] svg[aria-hidden=true]")
            )
 
     assert Enum.empty?(LazyHTML.query(document, ".mail-warning, [role=progressbar]"))

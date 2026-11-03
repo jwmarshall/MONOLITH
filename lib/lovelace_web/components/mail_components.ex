@@ -161,8 +161,11 @@ defmodule LovelaceWeb.MailComponents do
 
         <div id="mail-status" class="mail-status" role="status" aria-live="polite" aria-atomic="true">
           <p :if={@mail.loading} id="mail-loading" class="mail-loading">
-            <span class="mail-loading-track" aria-hidden="true"></span>
-            <span>Loading {if @mail.thread_id, do: "conversation", else: "messages"}…</span>
+            <.status_signal
+              id="mail-loading-signal"
+              state={:active}
+              label={"Loading #{if @mail.thread_id, do: "conversation", else: "messages"}…"}
+            />
           </p>
           <p :if={@mail.error} class="mail-warning">{error_text(@mail.error)}</p>
           <p :if={@payload_expired} class="mail-warning">
@@ -287,7 +290,7 @@ defmodule LovelaceWeb.MailComponents do
           id={"integration-status-#{@account.id}"}
           class={["mail-muted", needs_attention?(@account) && "connection-warning"]}
         >
-          {account_status(@account)}
+          <.account_signal account={@account} id={"integration-signal-#{@account.id}"} embedded />
         </span>
         <.icon name="hero-arrow-up-right" class="workspace-card-arrow size-5" />
       </.link>
@@ -355,7 +358,9 @@ defmodule LovelaceWeb.MailComponents do
       >
         <div class="mail-account-identity">
           <p>{account.email}</p>
-          <p class="mail-muted">{account_status(account)}</p>
+          <p class="mail-muted">
+            <.account_signal account={account} id={"available-signal-#{account.id}"} />
+          </p>
         </div>
         <button
           :if={account.status == :ready}
@@ -433,7 +438,7 @@ defmodule LovelaceWeb.MailComponents do
             <div class="mail-account-identity">
               <h4 id={"connection-email-#{account.id}"}>{account.email}</h4>
               <p class={["mail-muted", needs_attention?(account) && "connection-warning"]}>
-                {account_status(account)}
+                <.account_signal account={account} id={"connection-signal-#{account.id}"} />
               </p>
             </div>
           </div>
@@ -526,7 +531,12 @@ defmodule LovelaceWeb.MailComponents do
       aria-atomic="true"
     >
       <p class={@check.status not in [:accessible, :checking] && "connection-warning"}>
-        {credential_check_text(@check.status)}
+        <.status_signal
+          id={"credential-check-signal-#{@account.id}"}
+          state={credential_signal_state(@check.status)}
+          label={credential_check_text(@check.status)}
+          text={@check.status != :checking}
+        />
       </p>
       <p :if={@check.status == :locked}>
         An unlocked keychain can still deny this item. Review helper access in Keychain Access;
@@ -562,6 +572,10 @@ defmodule LovelaceWeb.MailComponents do
         Map.get(mail.credential_checks, account.id)
     end
   end
+
+  defp credential_signal_state(:checking), do: :active
+  defp credential_signal_state(:accessible), do: :ready
+  defp credential_signal_state(_), do: :warning
 
   defp credential_check_text(:checking), do: "Checking local Keychain access…"
   defp credential_check_text(:accessible), do: "Credential readable · Google access not checked."
@@ -673,6 +687,28 @@ defmodule LovelaceWeb.MailComponents do
     end
   end
 
+  attr :id, :string, required: true
+  attr :account, :map, required: true
+  attr :embedded, :boolean, default: false
+
+  defp account_signal(assigns) do
+    ~H"""
+    <.status_signal
+      id={@id}
+      state={account_signal_state(@account)}
+      label={account_status(@account)}
+      text={needs_attention?(@account)}
+      embedded={@embedded}
+    />
+    """
+  end
+
+  defp account_signal_state(%{status: :disconnected}), do: :offline
+  defp account_signal_state(%{status: :reconnect}), do: :warning
+  defp account_signal_state(%{last_error: error}) when not is_nil(error), do: :warning
+  defp account_signal_state(%{last_success_at: %DateTime{}}), do: :ready
+  defp account_signal_state(_), do: :unknown
+
   defp needs_attention?(account), do: account.status != :ready || not is_nil(account.last_error)
 
   defp present(value, fallback) when value in [nil, ""], do: fallback
@@ -680,6 +716,8 @@ defmodule LovelaceWeb.MailComponents do
 
   defp account_status(%{status: :disconnected, last_error: :keychain}),
     do: "Disconnected locally. Credential removal needs retrying."
+
+  defp account_status(%{status: :disconnected}), do: "Disconnected locally."
 
   defp account_status(%{status: :reconnect}), do: "Google access needs reconnecting."
 
@@ -695,7 +733,7 @@ defmodule LovelaceWeb.MailComponents do
   defp account_status(%{last_success_at: %DateTime{} = time}),
     do: "Last successful check · " <> Calendar.strftime(time, "%Y-%m-%d %H:%M UTC")
 
-  defp account_status(_), do: "Connected. Mail loads when opened."
+  defp account_status(_), do: "Connected · no successful Gmail check yet. Mail loads when opened."
 
   defp error_text(:reconnect),
     do: "Google access expired or was removed. Reconnect this account to continue."

@@ -20,11 +20,21 @@ defmodule LovelaceWeb.WorkspaceComponents do
         <span id={"workspace-health-#{@workspace.id}"} class="workspace-card-health">
           <%= cond do %>
             <% is_nil(@health) -> %>
-              <span>Connection status unavailable</span>
+              <.status_signal
+                id={"workspace-signal-#{@workspace.id}"}
+                state={:unknown}
+                label="Connection status unavailable"
+                embedded
+              />
             <% @health.total == 0 -> %>
               <span>No integrations yet</span>
             <% @health.problems == [] -> %>
-              <span>No reported problems</span>
+              <.status_signal
+                id={"workspace-signal-#{@workspace.id}"}
+                state={:ready}
+                label="No reported problems · last-known connection metadata, not a live check"
+                embedded
+              />
             <% true -> %>
               <span class="connection-warning">Connection needs attention</span>
               <span :for={account <- @health.problems} class="workspace-card-problem">

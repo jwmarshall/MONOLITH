@@ -56,7 +56,7 @@
 @media (max-width: 640px) {
   .home-readouts .calendar-event { gap: 4px 12px; }
 }
-/* No Calendar animation; minute updates also remain static under reduced motion. */
+/* Event/time updates remain static; activity signals honor reduced motion too. */
 @media (prefers-reduced-motion: reduce) {
   .calendar-agenda *, .calendar-connections * { animation: none; transition: none; }
 }

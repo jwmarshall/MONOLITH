@@ -718,9 +718,6 @@ defmodule LovelaceWeb.HomeLive do
               aria-disabled={if @editor, do: "true"}
             >Scenes</.link>
           </nav>
-          <.form for={%{}} action="/lock" method="post" id="owner-lock-form">
-            <button type="submit" class="workspace-action">Lock</button>
-          </.form>
         </div>
 
         <section
@@ -894,7 +891,11 @@ defmodule LovelaceWeb.HomeLive do
             class="workspace-notice"
             role="status"
           >
-            Opening your spaces…
+            <.status_signal
+              id="workspaces-loading-signal"
+              state={:active}
+              label="Opening your spaces…"
+            />
           </p>
           <div
             :if={@workspaces_error && !@home && !@scenes}
@@ -953,7 +954,11 @@ defmodule LovelaceWeb.HomeLive do
             />
           </div>
         </section>
-
+      </div>
+      <div id="workspace-controls" class="workspace-controls" inert>
+        <.form for={%{}} action="/lock" method="post" id="owner-lock-form">
+          <button type="submit" class="workspace-action">Lock</button>
+        </.form>
         <footer class="workspace-footer">
           <span><kbd>esc</kbd> Landscape</span>
         </footer>

@@ -25,12 +25,24 @@ defmodule LovelaceWeb.SceneComponents do
           aria-live="polite"
           aria-label="Scene generation status"
         >
-          <p :if={@loading}>Loading scene status…</p>
+          <.status_signal
+            :if={@loading}
+            id="scene-loading-signal"
+            state={:active}
+            label="Loading scene status…"
+          />
           <p :if={@error}>
             Scenes couldn’t be loaded. Refresh status to retry. No generation was requested.
           </p>
           <p :if={@notice != ""}>{@notice}</p>
-          <p :if={@data && !@error && @data.status != :ready}>{status_text(@data.status)}</p>
+          <p :if={@data && !@error && @data.status != :ready}>
+            <.status_signal
+              id="scene-attempt-signal"
+              state={:warning}
+              label={status_text(@data.status)}
+              text
+            />
+          </p>
           <p :if={@data && @data.last_attempt_at}>
             Last attempt: <.timestamp value={@data.last_attempt_at} />
           </p>

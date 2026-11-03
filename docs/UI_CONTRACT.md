@@ -10,7 +10,8 @@ Verify implementation in code; the coverage map below is not evidence that check
 - Warm cinematic minimalism inspired by quiet brutalist architecture, not film branding,
   neon cyberpunk, a marketing page or a decorative widget wall.
 - One edge-to-edge, nearly transparent glass stage spans unlock/setup, workspace and mail
-  views, including empty/error states. Do not turn the shell into a centered dashboard card.
+  views, including empty/error states. Keep the outer stage borderless; control/card borders
+  and keyboard focus outlines remain. Do not turn the shell into a centered dashboard card.
 - Charcoal, restrained sea-glass teal, pale neutral text, strong geometry, fine dividers,
   deliberate negative space and practical working density. Use a consistent compact gap below
   navigation across primary views, shallow workspace/integration cards and restrained list spacing;
@@ -62,7 +63,11 @@ Verify implementation in code; the coverage map below is not evidence that check
   GSAP context when hooks are destroyed; patches must not duplicate/restart choreography.
 - The corner monogram sits top-left, outside scrolling/gated working content. It is purely
   decorative: hidden from assistive technology, nonfocusable and never a navigation target.
-  Lock sits top-right with matching responsive edge padding. Both appear only in an entered,
+  Lock sits top-right with matching responsive edge padding. Lock and the bottom-right Escape
+  legend live outside the working-content scroller and stay stationary while content and main
+  navigation scroll. At widths without a spare side gutter, shallow top/bottom bands keep these
+  controls from covering mail or management actions. The controls share the sticky entrance gate;
+  scenery mode still hides Lock and dims the legend. Both monogram and Lock appear only in an entered,
   focused live workspace. The corner stays hidden through the centered entrance/exit;
   both hide in landscape mode. Center navigation and Lock also lose keyboard access there.
 - Static unlock/terminal-setup pages share the stage and current validated local imagery,
@@ -200,11 +205,22 @@ Verify implementation in code; the coverage map below is not evidence that check
   never persist bodies or queries in browser storage. Routine fetch freshness is compact
   and ages locally, with an exact timestamp disclosure. Loading/errors/stale-copy warnings
   stay explicit and announced; cached content must not imply a new successful fetch.
-- Mail loading uses a transparent, reserved status line on the shared glass: sea-glass
-  text and a small decorative indeterminate sweep, never a filled warning box or invented
-  percentage. Loading completion alone must not shift retained content. Reduced motion
-  (including changes mid-load) and forced colors use a static marker. Keep polite textual
-  announcements and separate unfilled warning edges for actionable errors/stale states.
+- Background activity and last-known integration health share a custom inline SVG signal
+  family, not an icon pack: an orbiting ring for confirmed activity, checked ring for known
+  healthy/local presence, dashed ring for unknown, pause ring for waiting, slashed ring for
+  disconnected and triangle for attention. Never animate unknown/unconfirmed outcomes or imply
+  a live provider check. Routine labels (including Gmail last-success timestamps) move into
+  keyboard-focus/hover details with accessible names; embedded signals reuse their native link's
+  focus instead of adding nested tab stops. Details fit the content/viewport, remain hoverable,
+  and Escape dismisses them without entering scenery. Errors, stale warnings, absent credentials
+  and recovery instructions retain visible text. Home still omits routine healthy observations;
+  Calendar/mail freshness and exact timestamps retain their existing behavior. Key presence or
+  readability never verifies Google access. Action feedback and global navigation Topbar remain separate.
+- Mail loading uses this indeterminate SVG on a transparent, reserved status line on the shared
+  glass, never a filled warning box or invented percentage. Loading completion alone must not
+  shift retained content. Reduced motion (including changes mid-load) and forced colors stop the
+  orbit, preserving its static shape. Keep polite accessible status names and separate unfilled
+  warning edges for actionable errors/stale states.
 - Scenes keeps all published local images, with no total count cap; the gallery shows
   20 per page with native Newer/Older controls. Dates when known, the actual active background
   and latest-attempt states stay honest. Refresh status only reads local state.
@@ -274,6 +290,9 @@ historical results do not certify a new change.
   modal idle suspension/resume, timer cleanup and shared static/live image-load observer.
 - `test/js/native_modal_test.mjs`: opening/focus, sticky open state, Escape isolation,
   server-owned dismissal, listener cleanup and focus restoration (including disabled triggers).
+- `test/lovelace_web/components/status_components_test.exs` and `test/js/status_signal_test.mjs`:
+  custom SVG states, accessible names, visible warning text, link focus reuse, detail dismissal,
+  boundary placement, patch transitions and listener teardown.
 - `test/js/calendar_agenda_test.mjs`: browser-local midnight/DST boundaries,
   midnight/resume/reconnect notifications, event local-time/ongoing labels and teardown.
 - `test/lovelace/calendar_test.exs` and `test/lovelace_web/live/calendar_live_test.exs`:
@@ -323,7 +342,9 @@ historical results do not certify a new change.
   Asset tests pin local vendor/font files and retained licenses.
 - `test/browser/ui_contract.mjs`, launched by `test/support/ui_browser.exs`: actual browser
   entrance/directional exit/gate and focus; corner/Lock computed visibility/focusability; static
-  stage with/without JS; static/live image success/failure; native menus; workspace/account/
+  stage with/without JS; static/live image success/failure; wheel-scrolled stationary Lock/Escape
+  rail with independently scrolling navigation at desktop/laptop/narrow widths and forced colors,
+  including reserved-band non-overlap and entrance gating; native menus; workspace/account/
   Connections navigation; workspace modal focus/inertness, Escape-only cancellation,
   idle draft preservation, save/cancel focus restoration, first-click activation and scroll preservation;
   keyboard local credential checks, timestamped unverified-Google results and Keychain
@@ -347,8 +368,9 @@ historical results do not certify a new change.
   native message/metadata disclosures and refresh preservation; reader Escape/wake;
   async browser-Back row-focus/scroll restoration; real URL Back/Forward, global Connections overview/provider
   navigation, obsolete-query cleanup and direct Gemini reload, workspace reload and copied conversation/search/page links; real delayed loading transparency, stable status
-  height and ordinary/reduced-motion/forced-color sweep behavior, including mid-load preference
-  changes; Scenes keyboard navigation, gallery dates/previews, confirmation Cancel/Escape
+  height and ordinary/reduced-motion/forced-color SVG activity behavior, including mid-load preference
+  changes; compact health detail focus/hover, Escape-only dismissal, static health shapes and
+  desktop/narrow/forced-color tooltip screenshots; Scenes keyboard navigation, gallery dates/previews, confirmation Cancel/Escape
   and focus restoration, read-only refresh, cross-tab selection, reload persistence, narrow
   and forced-color gallery/dialog layouts; off-origin requests, page errors and CSP events.
 

@@ -86,6 +86,7 @@ defmodule LovelaceWeb do
       import Phoenix.HTML
       # Core UI components
       import LovelaceWeb.CoreComponents
+      import LovelaceWeb.StatusComponents
 
       # Common modules used in templates
       alias LovelaceWeb.Layouts

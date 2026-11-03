@@ -19,7 +19,14 @@ defmodule LovelaceWeb.GeminiComponents do
         <div class="mail-account-identity">
           <p class="mail-eyebrow">Scenery</p>
           <h3 id="gemini-heading">Google Gemini</h3>
-          <p id="gemini-status" class="mail-muted" role="status">{status_text(@status)}</p>
+          <p id="gemini-status" class="mail-muted" role="status">
+            <.status_signal
+              id="gemini-credential-signal"
+              state={signal_state(@status)}
+              label={status_text(@status)}
+              text={@status in [:not_connected, :locked, :invalid, :unavailable]}
+            />
+          </p>
         </div>
       </div>
       <p class="mail-muted">
@@ -117,6 +124,12 @@ defmodule LovelaceWeb.GeminiComponents do
     </section>
     """
   end
+
+  defp signal_state(:loading), do: :active
+  defp signal_state(:stored), do: :ready
+  defp signal_state(:unknown), do: :unknown
+  defp signal_state(:not_connected), do: :offline
+  defp signal_state(_), do: :warning
 
   defp status_text(:stored), do: "API key stored · Google access not verified"
   defp status_text(:not_connected), do: "No API key stored"

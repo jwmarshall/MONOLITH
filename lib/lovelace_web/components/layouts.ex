@@ -180,8 +180,12 @@ defmodule LovelaceWeb.Layouts do
         phx-connected={hide("#client-error") |> JS.set_attribute({"hidden", ""})}
         hidden
       >
-        {gettext("Attempting to reconnect")}
-        <.icon name="hero-arrow-path" class="ml-1 size-3 motion-safe:animate-spin" />
+        <.status_signal
+          id="client-reconnect-signal"
+          state={:active}
+          label={gettext("Attempting to reconnect")}
+          text
+        />
       </.flash>
 
       <.flash
@@ -195,8 +199,12 @@ defmodule LovelaceWeb.Layouts do
         phx-connected={hide("#server-error") |> JS.set_attribute({"hidden", ""})}
         hidden
       >
-        {gettext("Attempting to reconnect")}
-        <.icon name="hero-arrow-path" class="ml-1 size-3 motion-safe:animate-spin" />
+        <.status_signal
+          id="server-reconnect-signal"
+          state={:active}
+          label={gettext("Attempting to reconnect")}
+          text
+        />
       </.flash>
     </div>
     """

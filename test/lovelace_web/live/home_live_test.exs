@@ -153,7 +153,14 @@ defmodule LovelaceWeb.HomeLiveTest do
 
     assert has_element?(
              view,
-             "#workspace-content[inert] .workspace-topline #owner-lock-form[action='/lock'][method=post]"
+             "#workspace-controls[inert] #owner-lock-form[action='/lock'][method=post]"
+           )
+
+    assert has_element?(view, "#workspace-controls .workspace-footer", "Landscape")
+
+    refute has_element?(
+             view,
+             "#workspace-content #owner-lock-form, #workspace-content .workspace-footer"
            )
 
     assert has_element?(view, "#owner-lock-form input[type=hidden][name=_csrf_token]")

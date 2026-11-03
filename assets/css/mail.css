@@ -35,14 +35,8 @@
    shifts the working content. Warnings keep their own semantic edge, not a fill. */
 .mail-status { min-height: 28px; margin: 0 0 8px; background: transparent; }
 .mail-loading { display: flex; align-items: center; gap: 12px; min-height: 28px; color: var(--color-primary); font-size: 13px; line-height: 1.6; }
-.mail-loading-track { position: relative; display: inline-block; flex-shrink: 0; width: 44px; height: 2px; overflow: hidden; background: color-mix(in srgb, currentColor 22%, transparent); }
-.mail-loading-track::after { content: ""; position: absolute; inset-block: 0; left: 0; width: 40%; background: currentColor; animation: mail-loading-sweep 1.8s cubic-bezier(0.4, 0, 0.2, 1) infinite; }
 .mail-warning { padding: 6px 0 6px 12px; border-left: 2px solid var(--color-warning); color: var(--color-base-content); }
 .mail-warning + .mail-warning, .mail-loading + .mail-warning { margin-top: 8px; }
-@keyframes mail-loading-sweep {
-  from { transform: translateX(-110%); }
-  to { transform: translateX(360%); }
-}
 .mail-thread { display: flex; align-items: flex-start; gap: 12px; width: 100%; text-align: left; padding: 12px; border-top: 1px solid rgb(238 237 229 / 18%); cursor: pointer; }
 .mail-thread:hover { background: rgb(139 203 193 / 7%); }
 .mail-thread-marker { width: 6px; height: 6px; flex-shrink: 0; margin-top: 9px; border-radius: 50%; }
@@ -95,12 +89,7 @@
   .mail-message-summary > time { grid-column: 2; text-align: left; max-width: 100%; }
   .mail-conversation-header { margin-bottom: 24px; }
 }
-@media (prefers-reduced-motion: reduce) {
-  .mail-loading-track::after { animation: none; transform: none; }
-}
 @media (forced-colors: active) {
-  .mail-loading-track { background: Canvas; border-bottom: 1px solid CanvasText; }
-  .mail-loading-track::after { animation: none; transform: none; background: CanvasText; }
   .mail-panel, .mail-panel * { color: CanvasText; text-shadow: none; border-color: CanvasText; }
   .mail-search-input, .mail-reader, .mail-observation > p { background: Canvas; }
   .mail-thread-unread .mail-thread-marker { background: CanvasText; }

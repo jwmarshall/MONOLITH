@@ -1,7 +1,6 @@
 /* Daily orientation is an open readout on the shared stage, not another card. */
 .workspace-topline:has(.center-nav) { display: grid; grid-template-columns: 1fr auto 1fr; gap: 16px; }
 .center-nav { grid-column: 2; display: flex; gap: clamp(12px, 3vw, 28px); align-items: center; }
-.workspace-topline #owner-lock-form { grid-column: 3; justify-self: end; }
 .workspace-nav-link { min-width: 44px; min-height: 44px; padding: 10px 0; border-bottom: 1px solid transparent; font-size: 13px; color: var(--color-secondary); cursor: pointer; }
 .workspace-nav-link:hover, .workspace-nav-link[aria-current="page"] { color: var(--color-base-content); border-bottom-color: var(--color-primary); }
 .workspace-nav-link:disabled { opacity: 0.5; cursor: default; }
@@ -34,9 +33,6 @@
   .home-readouts { grid-template-columns: minmax(0, 1fr); gap: 32px; }
 }
 @media (max-width: 640px) {
-  .workspace-topline:has(.center-nav) { grid-template-columns: 1fr auto; row-gap: 12px; }
-  .workspace-topline #owner-lock-form { grid-column: 2; grid-row: 1; }
-  .center-nav { grid-column: 1 / -1; grid-row: 2; justify-self: center; }
   .daily-heading { gap: 8px; margin-bottom: 24px; }
   .daily-date { flex-basis: 100%; }
   .home-account-open { grid-template-columns: minmax(0, 1fr) auto; gap: 12px; }

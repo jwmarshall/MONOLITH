@@ -141,6 +141,13 @@ workspace records. Creation and rename use focused native-dialog modals with `As
 and bounded to 64 characters server-side. There are deliberately no delete/archive actions,
 or projects. Account connection and read-only mail are implemented separately in `Lovelace.Mail`.
 
+`StatusComponents.status_signal/1`, `assets/css/status.css` and the `StatusSignal` hook
+share custom SVG activity/last-known-health states across Home, workspaces, mail, Calendar,
+Gemini, Scenes and transport recovery. Routine labels use accessible focus/hover details;
+attention/recovery copy stays visible. The hook only positions/dismisses details, including
+hover-only Escape and embedded-link focus; CSS owns preference-aware motion. Provider work,
+freshness hooks and action feedback remain separate.
+
 `WorkspaceComponents.card/1` and `MailComponents` render directory and integration surfaces;
 `HomeLive`/`HomeNavigation` own URL-driven patch navigation; `HomeMail` owns account-topic lifecycle. See
 [UI_CONTRACT.md](UI_CONTRACT.md#home-workspace-and-integration-navigation) for control semantics,
@@ -172,6 +179,11 @@ including submitted mail searches/pages, Conversations and Connections providers
 URLs, not drafts/dialogs/scenery focus, enter history. Direct
 Home inbox reads use explicit owner-only account actions, not relaxed workspace membership
 checks.
+
+The live shell keeps `#workspace-content` as the working scroller (including navigation),
+with a sibling `#workspace-controls` rail for stationary Lock and Escape guidance.
+`WorkspaceEntrance` opens both inert gates through sticky LiveView JS; narrow/laptop
+layouts reserve chrome bands so the rail cannot cover scrolling controls.
 
 `Layouts.stage/1` is shared by `Layouts.app/1` and static owner unlock/setup screens.
 Shared shell/focal-plane tokens live in `assets/css/app.css`; workspace card rules live

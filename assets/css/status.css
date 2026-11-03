@@ -1,0 +1,22 @@
+/* One signal language: rotation is activity, never a percentage or a health probe. */
+.status-signal { position: relative; display: inline-flex; align-items: center; vertical-align: middle; gap: 8px; min-width: 24px; min-height: 28px; color: var(--color-secondary); font-size: 13px; font-weight: 400; line-height: 1.6; text-transform: none; letter-spacing: normal; }
+.status-glyph { display: block; width: 22px; height: 22px; flex: none; }
+.status-signal[data-state="active"], .status-signal[data-state="ready"] { color: var(--color-primary); }
+.status-signal[data-state="warning"] { color: var(--color-warning); }
+.status-signal[data-state="active"] .status-ring { opacity: 0.3; }
+.status-signal[data-state="unknown"] .status-ring { stroke-dasharray: 2 3; }
+.status-orbit { transform-origin: 12px 12px; animation: status-orbit 2.4s linear infinite; }
+.status-label { color: var(--color-base-content); }
+.status-tooltip { position: absolute; z-index: 10; top: 100%; left: var(--status-tooltip-left, 0px); width: max-content; max-width: var(--status-tooltip-width, min(280px, calc(100vw - 80px))); padding: 10px 12px; border: 1px solid var(--color-base-300); background: var(--color-base-100); color: var(--color-base-content); text-shadow: none; white-space: normal; overflow-wrap: anywhere; display: none; cursor: default; }
+.status-signal:not([data-tooltip-dismissed]):is(:hover, :focus-visible) > .status-tooltip,
+a:focus-visible .status-signal[data-embedded="true"]:not([data-tooltip-dismissed]) > .status-tooltip { display: block; }
+.status-signal[data-tooltip-above] > .status-tooltip { top: auto; bottom: 100%; }
+.status-signal:not(.status-signal-text):not([data-embedded="true"]) { cursor: help; }
+@keyframes status-orbit { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .status-orbit { animation: none; } }
+@media (forced-colors: active) {
+  .status-signal, .status-label, .status-tooltip { color: CanvasText; }
+  .status-tooltip { background: Canvas; border-color: CanvasText; }
+  .status-orbit { animation: none; }
+  .status-signal[data-state="active"] .status-ring { opacity: 1; }
+}

@@ -253,10 +253,18 @@ defmodule LovelaceWeb.CalendarComponents do
   defp status(assigns) do
     ~H"""
     <div id={@id} class="calendar-status" role="status" aria-live="polite">
-      <p :if={@snapshot.loading}>Updating Calendar…</p>
-      <p :if={@snapshot.pending && !@snapshot.loading && !@snapshot.error}>
-        Waiting for today's Calendar update…
-      </p>
+      <.status_signal
+        :if={@snapshot.loading}
+        id={"#{@id}-loading"}
+        state={:active}
+        label="Updating Calendar…"
+      />
+      <.status_signal
+        :if={@snapshot.pending && !@snapshot.loading && !@snapshot.error}
+        id={"#{@id}-waiting"}
+        state={:waiting}
+        label="Waiting for today's Calendar update…"
+      />
       <p :if={@snapshot.error} class="calendar-warning">{error_text(@snapshot.error)}</p>
       <p :if={@snapshot.truncated} class="calendar-warning">
         Today's agenda is incomplete. Open Google Calendar for the full day.
@@ -276,9 +284,12 @@ defmodule LovelaceWeb.CalendarComponents do
         data-warnings-only={to_string(@warnings_only)}
         data-failed={to_string(not is_nil(@snapshot.error) || @snapshot.truncated || @snapshot.stale)}
       >{if !@warnings_only, do: "Last checked · #{iso(@snapshot.fetched_at)}"}</span>
-      <p :if={!@snapshot.loading && !@snapshot.pending && !@snapshot.error && !@snapshot.fetched_at}>
-        No successful Calendar update yet.
-      </p>
+      <.status_signal
+        :if={!@snapshot.loading && !@snapshot.pending && !@snapshot.error && !@snapshot.fetched_at}
+        id={"#{@id}-unknown"}
+        state={:unknown}
+        label="No successful Calendar update yet."
+      />
     </div>
     """
   end

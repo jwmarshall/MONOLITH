@@ -6,6 +6,8 @@ export default {
       this.js().setAttribute(this.el, "data-entered", "true")
       const content = this.el.querySelector("#workspace-content")
       this.js().removeAttribute(content, "inert")
+      const controls = this.el.querySelector("#workspace-controls")
+      if (controls) this.js().removeAttribute(controls, "inert")
       const active = this.el.ownerDocument.activeElement
       if (active?.id === "workspace-pane" || active === this.el.ownerDocument.body) {
         content.querySelector("[data-workspace-heading]")?.focus({preventScroll: true})

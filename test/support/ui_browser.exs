@@ -114,7 +114,7 @@ defmodule Lovelace.UIFixture do
   def thread("synthetic-access", id) do
     # Bounded synthetic provider latency lets Chrome inspect the real loading
     # state, rather than injecting markup or racing an immediate fake response.
-    Process.sleep(400)
+    Process.sleep(650)
     subject = "Synthetic conversation #{String.replace_prefix(id, "synthetic-thread-", "")}"
 
     latest_text =

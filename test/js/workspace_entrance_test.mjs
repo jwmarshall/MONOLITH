@@ -35,6 +35,8 @@ function workspace(t, active = "pane") {
     assert.equal(selector, "[data-workspace-heading]")
     return heading
   }
+  const controls = new FakeTarget()
+  controls.attributes.set("inert", "")
   const root = new FakeTarget()
   root.attributes.set("data-workspace-focus", "shared-focus-command")
   const entrance = new FakeTarget()
@@ -46,6 +48,7 @@ function workspace(t, active = "pane") {
   }
   entrance.querySelector = selector => {
     if (selector === "#workspace-content") return content
+    if (selector === "#workspace-controls") return controls
     assert.equal(selector, "[data-workspace-heading]")
     return heading
   }
@@ -75,26 +78,30 @@ function workspace(t, active = "pane") {
   const patch = () => {
     entrance.attributes.set("data-entered", "false")
     content.attributes.set("inert", "")
+    controls.attributes.set("inert", "")
     // Model LiveView reapplying the sticky mutations over server-rendered attrs.
     for (const apply of sticky) apply()
   }
-  return {hook, entrance, root, content, document, heading, focusCalls, sticky, commands, serverEvents, patch}
+  return {hook, entrance, root, content, controls, document, heading, focusCalls, sticky, commands, serverEvents, patch}
 }
 
 test("completion opens the entrance gate through sticky LiveView JS, surviving a patch", t => {
-  const {entrance, content, focusCalls, sticky, patch} = workspace(t)
+  const {entrance, content, controls, focusCalls, sticky, patch} = workspace(t)
   assert.equal(entrance.getAttribute("data-entered"), "false")
   assert.equal(content.getAttribute("inert"), "")
+  assert.equal(controls.getAttribute("inert"), "")
   assert.deepEqual(focusCalls, [])
   assert.equal(sticky.length, 0)
 
   entrance.emit("lovelace:brand-complete")
   assert.equal(entrance.getAttribute("data-entered"), "true")
   assert.equal(content.getAttribute("inert"), null)
-  assert.equal(sticky.length, 2)
+  assert.equal(controls.getAttribute("inert"), null)
+  assert.equal(sticky.length, 3)
   patch()
   assert.equal(entrance.getAttribute("data-entered"), "true")
   assert.equal(content.getAttribute("inert"), null)
+  assert.equal(controls.getAttribute("inert"), null)
 })
 
 for (const active of ["pane", "body"]) {

@@ -28,7 +28,9 @@ defmodule LovelaceWeb.HomeComponents do
       <div class="home-section-heading">
         <h3 id="home-mail-heading" class="home-eyebrow">Gmail</h3>
       </div>
-      <p :if={@loading} class="home-empty" role="status">Loading accounts…</p>
+      <p :if={@loading} class="home-empty" role="status">
+        <.status_signal id="home-loading-signal" state={:active} label="Loading accounts…" />
+      </p>
       <div :if={@error} id="home-error" class="home-empty" role="alert">
         <p>Accounts couldn’t be loaded.</p>
         <button type="button" class="workspace-action" phx-click="retry_workspaces">Try again</button>
