@@ -21,6 +21,14 @@ defmodule LovelaceWeb.ConnectionComponents do
         </span>
         <.icon name="hero-arrow-up-right" class="size-5" />
       </.link>
+      <.link id="open-connection-github" patch="/connections/github" class="connection-provider">
+        <.icon name="hero-code-bracket" class="size-6" />
+        <span class="connection-provider-copy">
+          <span class="connection-provider-name">GitHub</span>
+          <span class="mail-muted">Personal &amp; organization pull requests</span>
+        </span>
+        <.icon name="hero-arrow-up-right" class="size-5" />
+      </.link>
       <.link id="open-connection-gemini" patch="/connections/gemini" class="connection-provider">
         <.icon name="hero-sparkles" class="size-6" />
         <span class="connection-provider-copy">

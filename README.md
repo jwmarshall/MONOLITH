@@ -2,11 +2,11 @@
 
 A quiet place to orient your day.
 
-LOVELACE is a personal homepage that runs locally on your Mac. Read Gmail and
-optionally see today's Google Calendar agendas, with each account kept separate.
-Workspaces group the accounts you use in different areas of life.
+LOVELACE is a personal homepage that runs locally on your Mac. Read Gmail,
+optionally see today's Google Calendar agendas, and follow open GitHub pull requests.
+Workspaces group separate accounts and GitHub personal/organization installations by area of life.
 
-- Read-only: no sending mail, changing mailbox state, or editing calendar events.
+- Read-only: no sending mail, changing mailbox state, editing calendar events, or modifying GitHub repositories.
 - One local owner; its password unlocks a dedicated macOS keychain and SQLCipher-encrypted SQLite database.
 - Local-only: keep it on loopback, not a public server or tunnel.
 - Startup is locked. Explicit Lock stops protected background work; visual idle/Escape does not.
@@ -21,6 +21,8 @@ Start with the [local setup guide](docs/DEVELOPMENT.md#local-setup).
 Connecting an account requires your own [Google setup](docs/GMAIL.md#2-google-cloud-setup)
 and a manual connection; Calendar requires separate consent.
 You can open LOVELACE without Google credentials, but mail and agendas need a connection.
+GitHub uses App sign-in and selected personal/organization installations; see
+[GitHub setup](docs/DEVELOPMENT.md#github).
 
 ## Development
 

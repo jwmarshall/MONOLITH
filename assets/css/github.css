@@ -1,0 +1,37 @@
+.github-readouts { grid-column: 1 / -1; min-width: 0; }
+.github-section-heading, .github-org-heading { display: flex; justify-content: space-between; align-items: baseline; flex-wrap: wrap; gap: 8px 20px; }
+.github-section-heading { margin-bottom: 16px; }
+.github-section-heading.home-section-heading { padding-bottom: 0; }
+.github-organization { border-top: 1px solid var(--border-default); padding-block: 20px; }
+.github-org-heading h4 { font-size: 17px; font-weight: 500; overflow-wrap: anywhere; }
+.github-org-heading .mail-muted { font-size: 12px; }
+.github-health { font-size: 12px; line-height: 1.8; margin-top: 8px; }
+.github-summary { margin-block: 12px; font-size: 13px; line-height: 1.8; color: var(--color-secondary); }
+.github-pr-list { list-style: none; padding: 0; margin: 12px 0 0; }
+.github-pr { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px 24px; padding-block: 14px; border-top: 1px solid var(--border-default); }
+.github-pr-main { min-width: 0; }
+.github-pr-title { display: inline-block; font-size: 15px; line-height: 1.6; color: var(--color-base-content); overflow-wrap: anywhere; }
+.github-pr-title:hover { color: var(--color-primary); text-decoration: underline; text-underline-offset: 4px; }
+.github-pr-meta { font-size: 12px; line-height: 1.8; color: var(--color-secondary); overflow-wrap: anywhere; }
+.github-pr-state { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; font-size: 12px; line-height: 1.7; color: var(--color-secondary); }
+.github-check-failed { color: var(--color-warning); }
+.github-connections, .workspace-github { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.workspace-github { margin-top: 24px; }
+.github-connect-form { display: grid; gap: 10px; max-width: 560px; margin-block: 16px; }
+.github-connect-form .workspace-action { justify-self: start; }
+.github-connect-form label { font-size: 13px; }
+.github-connect-form select, .github-connect-form input { width: 100%; min-width: 0; }
+.github-connections .connection-help p { margin-block: 12px; line-height: 1.8; }
+#github-authorization > .mail-muted { line-height: 1.8; margin-block: 12px; }
+#github-authorization form { margin-block: 12px; }
+#github-user-code { display: inline-block; font-size: 20px; letter-spacing: 0.08em; margin-inline: 4px; }
+@media (max-width: 640px) {
+  .github-pr { grid-template-columns: minmax(0, 1fr); gap: 8px; }
+  .github-pr-state { flex-direction: row; flex-wrap: wrap; align-items: baseline; gap: 4px 16px; }
+  .github-pr-state time { flex-basis: 100%; }
+}
+@media (forced-colors: active) {
+  .github-organization, .github-pr { border-color: CanvasText; }
+  .github-readouts *, .github-connections *, .workspace-github * { color: CanvasText; }
+  .github-pr-title { color: LinkText; }
+}

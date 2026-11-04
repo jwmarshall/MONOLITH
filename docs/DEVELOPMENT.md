@@ -269,6 +269,97 @@ renders minimal cached event text without retaining events in socket assigns. Th
 minute sweep also discovers due Calendar work. Tests must inject fake Calendar providers,
 never real Google responses or private calendar data.
 
+## GitHub
+
+Optional read-only GitHub.com personal accounts and organizations appear as reusable
+workspace installations and separate open-pull-request readouts on Home. Membership
+alone does not grant app access: both the signed-in user and installed app must have
+access to each selected repository. No GitHub Enterprise, webhooks, writes, repository
+checkout, comments, diffs, avatars or remote images are fetched.
+
+### Register and connect the GitHub App
+
+1. [Register a GitHub App](https://docs.github.com/en/apps/creating-github-apps/registering-a-github-app/registering-a-github-app)
+   in GitHub settings. Enable **Device flow**, leave **Expire user authorization tokens**
+   enabled, disable **Webhook → Active**, and allow installation on **Any account**.
+   A callback URL, client secret and private key are not needed for this device flow.
+   Do not enable “Request user authorization (OAuth) during installation.”
+2. Set repository permissions to **Pull requests: Read-only** (Metadata is automatic).
+   For check rollups, also grant **Checks: Read-only** and **Actions: Read-only**.
+   No contents, write or account permissions are required. To omit check queries,
+   set `config :lovelace, :github, checks: false`.
+3. Set the App's public **Client ID** and URL slug in `.env`:
+   `LOVELACE_GITHUB_CLIENT_ID` and `LOVELACE_GITHUB_APP_SLUG` (see `.env.example`).
+   These identify the App; do not put a PAT, client secret or private key there.
+   Restart and unlock normally so the additive `add_github_app_accounts` migration
+   runs through the managed vault lifecycle. Do not run standalone migrations against
+   real data. **This authorization change does not require rebuilding the native helper.**
+   An older installation without the existing **LOVELACE GitHub** keychain service
+   must follow the attended helper preparation in [GMAIL.md](GMAIL.md#1-local-preparation);
+   never reset keys, replace initialized credentials or broaden keychain access.
+4. Open **Connections → GitHub → Install / manage app access**. Install on your
+   personal account and each desired organization, selecting at most **100 repositories
+   per installation**. Organization administrators may need to approve installation.
+5. Choose **Sign in with GitHub**. Enter the displayed code at
+   `https://github.com/login/device`, authorize the App, and return to LOVELACE.
+   Only enter a code you requested here. Pending approval expires within 15 minutes.
+   Device codes and tokens never enter the browser; only the short user code is shown.
+   Sign-in/cancel use ordinary owner-verified, CSRF-protected POSTs before instrumentation.
+6. Add a discovered **Repository owner** to a workspace. One sign-in can discover
+   several personal/organization installations; each owner can belong to several workspaces.
+   After changing installation access, use **Refresh app installations**. If GitHub
+   authorization expires or is revoked, sign in again as the same GitHub user;
+   immutable owner identities and existing memberships survive reauthorization.
+
+### Credentials, disconnecting and migration
+
+The dedicated **LOVELACE GitHub** keychain service stores one expiring access/refresh
+bundle per connection UUID. No client secret, private key or environment-token fallback.
+The [device flow](https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/generating-a-user-access-token-for-a-github-app)
+requests `offline_access`; [refresh](https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/refreshing-user-access-tokens)
+is one-shot after a durable reservation. Unknown outcomes, interrupted refreshes and
+failed rotated-token saves require sign-in again, not replay of the previous refresh token.
+Global Lock stops ephemeral authorization, protected queues and provider work.
+
+**Remove from workspace** detaches only that membership. **Remove owner everywhere**
+fences its work and clears local memberships/cache, leaving the shared App sign-in.
+**Disconnect account** fences all its owners, clears memberships/cache and deletes the
+App credential bundle. Failed deletion remains visible with a retry action. Neither
+action revokes authorization or uninstalls the App in GitHub; do that separately there.
+
+Old PATs are not App credentials and are no longer accepted or used. Migration clears
+old cached PRs, marks owners for reauthorization and preserves identities/memberships.
+Original owner-UUID keychain items are retained until explicit **Remove owner everywhere**
+or **Remove retained credential**. They remain reachable even after adoption by an App
+connection or account disconnect. Reauthorization does not silently delete originals.
+
+Errors distinguish missing public App configuration, denied/expired authorization,
+rate limiting, provider verification, dedicated-keychain access and local unavailability.
+Only allowlisted categories enter redirect URLs, never provider text, user codes or
+tokens. Keychain failure does not mean GitHub rejected access. Do not rebuild the helper
+or replace credentials indiscriminately.
+
+### Read bounds and freshness
+
+`Lovelace.GitHub` owns Ash connections, installation owners, workspace memberships and
+owner-scoped jobs. Discovery is bounded to 500 accessible installations. PR reads use
+only immutable repository IDs from the matching installation, rechecking installation
+and repository access before publication. More than 100 selected repositories fails
+honestly rather than silently omitting repositories. Select a smaller repository set.
+
+Fixed-host private Mint transport has no redirects, automatic retries or payload
+instrumentation: 20-second individual requests, 60-second discovery/PR-read deadline,
+2 MiB responses. Repository queries run in batches of 20, fetching up to 50 open PRs
+per repository, then retaining the newest 50 across the installation. Counts describe
+accessible selected repositories, never all repositories in an organization.
+Home shows repository, author, draft/review/check state and UTC update time with safe
+GitHub links. Optional review/check detail failures are labeled as partial results.
+Polling runs approximately every five minutes while unlocked/running (minute sweep);
+persisted 15-minute rate-limit cooldowns cannot be bypassed by Refresh. Failures retain
+the original observation timestamp; rows/counts expire after 24 hours. Sleep/offline
+cannot deliver live updates. Tests use synthetic providers/keychains; the production
+connector is disabled in test builds.
+
 ## Saved workspaces
 
 `Lovelace.Workspaces` owns a SQLite `Workspace` resource with explicit read/create/rename

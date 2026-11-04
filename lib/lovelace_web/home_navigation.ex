@@ -46,7 +46,7 @@ defmodule LovelaceWeb.HomeNavigation do
 
   # Accept old bookmarks, but never generate query-string navigation again.
   def destination(:index, %{"connections" => provider})
-      when provider in ["gmail", "calendar", "gemini"],
+      when provider in ["gmail", "calendar", "gemini", "github"],
       do: destination(:connection, %{"provider" => provider})
 
   def destination(:index, %{"calendar" => _}),
@@ -93,10 +93,19 @@ defmodule LovelaceWeb.HomeNavigation do
   defp keys(:workspace_thread), do: ["workspace_id", "account_id", "thread_id", "q", "page_token"]
   defp keys(_action), do: []
 
-  defp provider(%{"provider" => provider}) when provider in ["gmail", "gemini", "calendar"],
-    do:
-      {:ok,
-       Map.fetch!(%{"gmail" => :gmail, "gemini" => :gemini, "calendar" => :calendar}, provider)}
+  defp provider(%{"provider" => provider})
+       when provider in ["gmail", "gemini", "calendar", "github"],
+       do:
+         {:ok,
+          Map.fetch!(
+            %{
+              "gmail" => :gmail,
+              "gemini" => :gemini,
+              "calendar" => :calendar,
+              "github" => :github
+            },
+            provider
+          )}
 
   defp provider(%{"provider" => _}), do: :error
   defp provider(_), do: {:ok, :gmail}

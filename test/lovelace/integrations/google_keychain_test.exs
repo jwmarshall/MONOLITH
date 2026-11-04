@@ -2,6 +2,7 @@ defmodule Lovelace.Security.KeychainTest do
   use ExUnit.Case, async: false
   import ExUnit.CaptureLog
 
+  alias Lovelace.Integrations.GitHub.Keychain, as: GitHubKeychain
   alias Lovelace.Integrations.Google.Keychain, as: GoogleKeychain
   alias Lovelace.Security.Keychain
 
@@ -33,6 +34,9 @@ defmodule Lovelace.Security.KeychainTest do
     assert {:error, :unavailable} = GoogleKeychain.get(@account)
     assert {:error, :unavailable} = GoogleKeychain.put(@account, "fake-token")
     assert {:error, :unavailable} = GoogleKeychain.delete(@account)
+    assert {:error, :unavailable} = GitHubKeychain.get(@account)
+    assert {:error, :unavailable} = GitHubKeychain.put(@account, "synthetic-github-token")
+    assert {:error, :unavailable} = GitHubKeychain.delete(@account)
     assert {:error, :unavailable} = Keychain.create("synthetic password")
     assert {:error, :unavailable} = Keychain.unlock("synthetic password")
     assert {:error, :unavailable} = Keychain.status()
@@ -79,9 +83,85 @@ defmodule Lovelace.Security.KeychainTest do
     assert :ok = Keychain.with_test_runner("delete", attributes(), runner)
   end
 
+  test "GitHub credentials are isolated by organization UUID and service through synthetic transport" do
+    {:ok, store} = Agent.start_link(fn -> %{} end)
+    on_exit(fn -> if Process.alive?(store), do: Agent.stop(store) end)
+    other = "11234567-89ab-cdef-0123-456789abcdef"
+    service = "LOVELACE GitHub"
+
+    runner = fn input ->
+      request = Jason.decode!(input)
+      identity = {request["account"], request["service"]}
+
+      case request["operation"] do
+        "vault_put" ->
+          Agent.update(store, &Map.put(&1, identity, request["value"]))
+          response(%{ok: true})
+
+        "vault_get" ->
+          case Agent.get(store, &Map.fetch(&1, identity)) do
+            {:ok, value} -> response(%{ok: true, value: value})
+            :error -> response(%{error: "not_found"})
+          end
+
+        "vault_delete" ->
+          Agent.update(store, &Map.delete(&1, identity))
+          response(%{ok: true})
+      end
+    end
+
+    for {account, credential_service, token} <- [
+          {@account, service, "synthetic-github-first"},
+          {other, service, "synthetic-github-second"},
+          {@account, @gmail, "synthetic-gmail"}
+        ] do
+      assert :ok =
+               Keychain.with_test_runner(
+                 "put",
+                 Map.put(attributes(account, credential_service), :value, token),
+                 runner
+               )
+    end
+
+    assert {:ok, "synthetic-github-first"} =
+             Keychain.with_test_runner(
+               "get",
+               attributes(String.downcase(@account), service),
+               runner
+             )
+
+    assert :ok = Keychain.with_test_runner("delete", attributes(@account, service), runner)
+
+    assert {:error, :not_found} =
+             Keychain.with_test_runner("get", attributes(@account, service), runner)
+
+    assert {:ok, "synthetic-github-second"} =
+             Keychain.with_test_runner("get", attributes(other, service), runner)
+
+    assert {:ok, "synthetic-gmail"} =
+             Keychain.with_test_runner("get", attributes(), runner)
+
+    never = fn _ -> flunk("invalid GitHub credential invoked runner") end
+
+    assert {:error, :invalid_account} =
+             Keychain.with_test_runner("get", attributes("organization-login", service), never)
+
+    assert {:error, :invalid_value} =
+             Keychain.with_test_runner(
+               "put",
+               Map.put(
+                 attributes(@account, service),
+                 :value,
+                 String.duplicate("x", 16 * 1024 + 1)
+               ),
+               never
+             )
+  end
+
   test "all services are explicit and singleton services cannot address another account" do
     for {account, service} <- [
           {@account, @gmail},
+          {@account, "LOVELACE GitHub"},
           {@gemini, "LOVELACE Gemini"},
           {@oauth, "LOVELACE Google OAuth"},
           {@database, "LOVELACE Database"}

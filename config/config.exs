@@ -58,6 +58,7 @@ config :lovelace,
     Lovelace.Workspaces,
     Lovelace.Mail,
     Lovelace.Calendar,
+    Lovelace.GitHub,
     Lovelace.Owner
   ],
   ecto_repos: [Lovelace.Repo],
@@ -84,11 +85,12 @@ config :lovelace, LovelaceWeb.Endpoint,
 config :lovelace, Oban,
   repo: Lovelace.Repo,
   engine: Oban.Engines.Lite,
-  queues: [gmail: 1, gemini: 1],
+  queues: [gmail: 1, gemini: 1, github: 1],
   plugins: [
     {Oban.Plugins.Cron,
      crontab: [
        {"* * * * *", Lovelace.Mail.SweepWorker},
+       {"* * * * *", Lovelace.GitHub.SweepWorker},
        {"* * * * *", Lovelace.StageDesigner.RecoveryWorker}
      ]},
     {Oban.Plugins.Lifeline, rescue_after: :timer.minutes(5)},

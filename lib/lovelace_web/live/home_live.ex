@@ -10,9 +10,11 @@ defmodule LovelaceWeb.HomeLive do
   alias LovelaceWeb.{
     CalendarComponents,
     GeminiComponents,
+    GitHubComponents,
     HomeCalendar,
     HomeComponents,
     HomeGemini,
+    HomeGitHub,
     HomeMail,
     HomeNavigation,
     HomeScenes,
@@ -25,7 +27,7 @@ defmodule LovelaceWeb.HomeLive do
   @owner %{role: :local_owner}
 
   @impl true
-  def mount(params, _session, socket) do
+  def mount(params, session, socket) do
     if connected?(socket), do: Phoenix.PubSub.subscribe(Lovelace.PubSub, "stage_designer")
 
     background =
@@ -62,6 +64,7 @@ defmodule LovelaceWeb.HomeLive do
       |> HomeMail.init()
       |> HomeCalendar.init()
       |> HomeGemini.init()
+      |> HomeGitHub.init(session)
       |> HomeScenes.init()
 
     socket = if connected?(socket), do: load_workspaces(socket), else: socket
@@ -93,6 +96,17 @@ defmodule LovelaceWeb.HomeLive do
     end
   end
 
+  def handle_info(:github_tick, socket), do: github_changed(:github_tick, socket)
+
+  def handle_info(:github_auth_tick, socket),
+    do: HomeGitHub.handle_info(:github_auth_tick, socket)
+
+  def handle_info(:github_directory_changed, socket),
+    do: github_changed(:github_directory_changed, socket)
+
+  def handle_info({:github_changed, _id} = message, socket),
+    do: github_changed(message, socket)
+
   def handle_info(_message, socket), do: {:noreply, socket}
 
   @impl true
@@ -113,6 +127,9 @@ defmodule LovelaceWeb.HomeLive do
     {:noreply,
      if(path == socket.assigns.navigation_path, do: socket, else: push_patch(socket, to: path))}
   end
+
+  defp event("github:" <> _ = event, params, socket),
+    do: HomeGitHub.handle_event(event, params, socket)
 
   defp event("calendar:" <> _ = event, params, socket),
     do: HomeCalendar.handle_event(event, params, socket)
@@ -224,9 +241,12 @@ defmodule LovelaceWeb.HomeLive do
          %{"provider" => provider},
          %{assigns: %{connections: true}} = socket
        )
-       when provider in ["gemini", "gmail", "calendar"] do
+       when provider in ["gemini", "gmail", "calendar", "github"] do
     view =
-      Map.fetch!(%{"gemini" => :gemini, "gmail" => :gmail, "calendar" => :calendar}, provider)
+      Map.fetch!(
+        %{"gemini" => :gemini, "gmail" => :gmail, "calendar" => :calendar, "github" => :github},
+        provider
+      )
 
     if view == socket.assigns.connection_view do
       {:noreply, socket}
@@ -536,6 +556,17 @@ defmodule LovelaceWeb.HomeLive do
     end
   end
 
+  defp github_changed(message, socket) do
+    {:noreply, socket} = HomeGitHub.handle_info(message, socket)
+
+    directory? =
+      !socket.assigns.home && !socket.assigns.settings && !socket.assigns.scenes &&
+        !socket.assigns.connections && is_nil(socket.assigns.selected) &&
+        socket.assigns.mail.scope != :home
+
+    {:noreply, if(directory?, do: load_workspaces(socket), else: socket)}
+  end
+
   defp load_workspaces(socket) do
     with {:ok, _personal} <- Workspaces.initialize_personal(actor: @owner),
          {:ok, workspaces} <- Workspaces.list_workspaces(actor: @owner) do
@@ -545,6 +576,7 @@ defmodule LovelaceWeb.HomeLive do
         loading: false,
         workspace_options: Enum.map(workspaces, &{&1.name, &1.id})
       )
+      |> HomeGitHub.reload()
       |> load_workspace_health(workspaces)
       |> HomeCalendar.reload()
       |> stream(:workspaces, workspaces, reset: true)
@@ -559,6 +591,7 @@ defmodule LovelaceWeb.HomeLive do
          {:ok, memberships} <- Mail.list_workspace_accounts(actor: @owner) do
       by_id = Map.new(accounts, &{&1.id, &1})
       grouped = Enum.group_by(memberships, & &1.workspace_id, & &1.account_id)
+      github = HomeGitHub.workspace_connections(socket)
 
       health =
         Map.new(workspaces, fn workspace ->
@@ -567,13 +600,18 @@ defmodule LovelaceWeb.HomeLive do
             |> Map.get(workspace.id, [])
             |> Enum.map(&Map.get(by_id, &1))
             |> Enum.reject(&is_nil/1)
+            |> Kernel.++(Map.get(github, workspace.id, []))
 
           problems =
             attached
             |> Enum.filter(&(&1.status != :ready || not is_nil(&1.last_error)))
             |> Enum.map(&Map.take(&1, [:id, :email, :status, :last_error]))
 
-          {workspace.id, %{total: length(attached), problems: problems}}
+          {workspace.id,
+           if(socket.assigns.github_error,
+             do: nil,
+             else: %{total: length(attached), problems: problems}
+           )}
         end)
 
       names = Map.new(workspaces, &{&1.id, &1.name})
@@ -652,6 +690,7 @@ defmodule LovelaceWeb.HomeLive do
     socket
     |> resume_calendar(params)
     |> resume_gemini(params)
+    |> HomeGitHub.resume(params)
   end
 
   defp resume_calendar(socket, %{"calendar" => "connected"}) do
@@ -823,6 +862,12 @@ defmodule LovelaceWeb.HomeLive do
                 class="workspace-nav-link"
                 aria-current={if @connection_view == :calendar, do: "page"}
               >Calendar</.link>
+              <.link
+                id="connections-github"
+                patch={HomeNavigation.connections_path(:github)}
+                class="workspace-nav-link"
+                aria-current={if @connection_view == :github, do: "page"}
+              >GitHub</.link>
             </nav>
             <button
               :if={
@@ -923,6 +968,13 @@ defmodule LovelaceWeb.HomeLive do
               window={@calendar_window}
               refresh={@calendar_revision}
             />
+            <GitHubComponents.dashboard
+              organizations={@github_organizations}
+              memberships={@github_memberships}
+              workspace_options={@workspace_options}
+              error={@github_error}
+              now={@github_now}
+            />
           </div>
 
           <div
@@ -994,6 +1046,19 @@ defmodule LovelaceWeb.HomeLive do
             refresh={@calendar_revision}
           />
 
+          <GitHubComponents.connections
+            :if={@connections && @connection_view == :github}
+            organizations={@github_organizations}
+            connections={@github_connections}
+            auth={@github_auth}
+            configured={@github_configured}
+            installation_url={@github_installation_url}
+            memberships={@github_memberships}
+            workspace_options={@workspace_options}
+            error={@github_error}
+            now={@github_now}
+          />
+
           <div
             :if={@selected && !@connections && !@editor}
             id="workspace-landing"
@@ -1007,6 +1072,14 @@ defmodule LovelaceWeb.HomeLive do
               }
               window={@calendar_window}
               refresh={@calendar_revision}
+            />
+            <GitHubComponents.workspace
+              :if={!@mail.account_id}
+              organizations={@github_organizations}
+              memberships={@github_memberships}
+              workspace={@selected}
+              error={@github_error}
+              adding={@mail.adding}
             />
           </div>
         </section>

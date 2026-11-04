@@ -137,6 +137,20 @@ Verify implementation in code; the coverage map below is not evidence that check
   Workspace removal is not global disconnect; both services share the Google credential.
   See [CALENDAR.md](CALENDAR.md) for bounds and lifecycle.
 
+- GitHub adds a full-width **Pull requests** section beneath the Gmail/Calendar columns,
+  grouped by personal/organization installation owner with workspace names, never merged with mail or another owner.
+  Show repository/number, escaped title, author, draft/review/check labels and UTC update time.
+  Links open GitHub with an explicit new-tab label and `noopener noreferrer`; no remote images.
+  At most 50 recently updated open PRs per owner, accessible selected-repository counts, explicit
+  partial results, stale/error/expired observations and safe Refresh cooldowns. An incomplete
+  empty page is not “no open pull requests.” Disconnected owners never appear operational.
+  Connections → GitHub owns App installation discovery, session-bound device sign-in and
+  account disconnect; workspace controls attach reusable owners or detach locally.
+  Show only the short user code and fixed GitHub device URL, never device/access/refresh tokens.
+  Sign-in/cancel use ordinary authenticated CSRF-protected POSTs before instrumentation.
+  Failed credential deletion and retained legacy PATs remain reachable for explicit cleanup.
+  See [GitHub setup](DEVELOPMENT.md#github) for permissions and bounds.
+
 - Workspaces represent areas of life. **Quiet sea-glass cards supersede the earlier
   typographic/no-card directory**. Use generous native link surfaces and separate native
   management disclosures for rename; opening and management are siblings, never nested controls.
@@ -145,20 +159,20 @@ Verify implementation in code; the coverage map below is not evidence that check
   mode. Unrelated patches preserve the draft; invalid submissions keep the dialog open.
   The visual idle timer pauses while a modal is open and resumes on dismissal;
   this is not an authentication or privacy change.
-- `/connections` is a quiet provider overview with Gmail, Calendar and Gemini links and
+- `/connections` is a quiet provider overview with Gmail, Calendar, Gemini and GitHub links and
   short purpose labels, not a default Gmail page or combined health dashboard. It mounts
   no provider form and makes no Keychain/provider probe. Opening a provider focuses the
   heading; each provider offers **All connections** back to the overview.
-- Provider pages have a **Gemini / Gmail / Calendar** subnav on the same row as the title
+- Provider pages have a **Gemini / Gmail / Calendar / GitHub** subnav on the same row as the title
   on desktop (wrapping below on narrow screens), with only the selected provider mounted.
   Native links identify the provider with `aria-current`; switching preserves focus on the
-  chosen subnav control. Provider paths are `/connections/gmail`, `/connections/calendar`
-  and `/connections/gemini`. Each supports direct GET, reload and new tabs; Gemini credential
-  POSTs return directly to Gemini without exposing credentials to normal request instrumentation.
+  chosen subnav control. Provider paths are `/connections/gmail`, `/connections/calendar`,
+  `/connections/gemini` and `/connections/github`. Each supports direct GET, reload and new tabs;
+  credential POSTs return to their provider without exposing secrets to normal request instrumentation.
   Escape/idle preserves selection. Re-selecting the active provider does not discard forms;
   provider changes enter history and remove the previous provider's unsaved form content.
 - Workspace detail prioritizes separate integration/account tiles, never an aggregate inbox.
-  **Add integration** is a focused panel for reusable connections or connecting Google;
+  **Add integration** is a focused panel for reusable Google accounts and GitHub installation owners;
   Gmail and opt-in read-only Google Calendar reuse account identities, not a speculative
   provider catalog. Google Gemini
   is an **app-wide Gemini connection** in global Connections, currently used by scenery and
@@ -345,6 +359,15 @@ historical results do not certify a new change.
   `test/lovelace_web/controllers/google_calendar_oauth_test.exs`: read-only requests,
   strict provider parsing, explicit optional scopes, identity/generation-bound consent
   and refusal of late callbacks across disconnect/reconnect.
+- `test/lovelace/github_test.exs`, `test/lovelace/github_auth_test.exs`,
+  `test/lovelace/integrations/github_test.exs` and `test/lovelace_web/live/github_live_test.exs`:
+  account/owner isolation, immutable installation/repository identity including empty results,
+  authorization cancellation/revocation/disconnect fencing, one-shot refresh reservations,
+  legacy credential retention/cleanup, reconnect/detach/disconnect, cooldown/expiry,
+  honest partial/error readouts, credential-deletion retry and provider/workspace navigation.
+  `test/lovelace_web/controllers/github_credentials_test.exs` covers the early intent POST
+  boundary, CSRF/revoked sessions and secret scrubbing; transport tests enforce fixed destinations
+  and read-only bounded payloads. Synthetic keychain tests cover service isolation.
 - `test/js/home_readouts_test.mjs`: local greeting/date, timestamp aging, patched failure
   metadata, resume updates and timer/listener teardown.
 - `test/js/mail_reader_test.mjs`: async reader focus/latest-reply handoff, exact return

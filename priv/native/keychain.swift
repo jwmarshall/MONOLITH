@@ -75,7 +75,7 @@ private func uuid(_ value: String) -> Bool {
 private func validIdentity(_ account: String, _ service: String) -> Bool {
     guard uuid(account) else { return false }
     switch service {
-    case "LOVELACE Gmail": return true
+    case "LOVELACE Gmail", "LOVELACE GitHub": return true
     case "LOVELACE Gemini": return account == geminiAccount
     case "LOVELACE Google OAuth": return account == oauthAccount
     case "LOVELACE Database": return account == databaseAccount

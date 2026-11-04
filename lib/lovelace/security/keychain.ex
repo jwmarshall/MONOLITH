@@ -20,7 +20,13 @@ defmodule Lovelace.Security.Keychain do
   @database_account "5bbed47a-8e42-4b3e-a2e8-f81beb0738d5"
   @gemini_account "b26d050a-0729-4d79-a6bc-407cf660a7ea"
   @oauth_account "710dd510-61ed-4e6a-975c-78ce13f5d6e2"
-  @services ["LOVELACE Gmail", "LOVELACE Gemini", "LOVELACE Database", "LOVELACE Google OAuth"]
+  @services [
+    "LOVELACE Gmail",
+    "LOVELACE GitHub",
+    "LOVELACE Gemini",
+    "LOVELACE Database",
+    "LOVELACE Google OAuth"
+  ]
   @max_value 16 * 1024
   @max_output 128 * 1024
   @timeout 5_000
@@ -249,7 +255,7 @@ defmodule Lovelace.Security.Keychain do
 
   defp valid_service_identity(account, service) do
     cond do
-      service == "LOVELACE Gmail" -> :ok
+      service in ["LOVELACE Gmail", "LOVELACE GitHub"] -> :ok
       service == "LOVELACE Gemini" and String.downcase(account) == @gemini_account -> :ok
       service == "LOVELACE Database" and String.downcase(account) == @database_account -> :ok
       service == "LOVELACE Google OAuth" and String.downcase(account) == @oauth_account -> :ok

@@ -23,6 +23,11 @@ Stack: Phoenix LiveView, Ash/AshSqlite over Ecto/SQLite, and Tailwind.
   Organizing mail, drafting, sending and projects
   are outside current scope, not an implicit roadmap. Revisit only on a fresh user request;
   any future project must belong to one account with explicit/manual thread membership.
+- Read-only GitHub.com organizations can be attached to several workspaces. Home shows
+  separate, bounded open-PR readouts per organization, not a cross-organization inbox.
+  Fine-grained tokens live under organization UUIDs in the dedicated keychain; immutable
+  GitHub identity and connection generations fence caches/jobs. No repository writes.
+  See the GitHub section in docs/DEVELOPMENT.md before changing credentials or polling.
 - Gmail owns mail state; LOVELACE owns workspace/project data. Use bounded on-demand caching
   and Gmail search, not a full offline mirror or local mail index. Poll while the app runs;
   do not promise instant updates or execution while the computer is asleep/off.

@@ -32,6 +32,7 @@ defmodule Lovelace.Security.ProtectedSupervisor do
         start: {Lovelace.StageDesigner.BundledScenes, :initialize, []}
       },
       Lovelace.Mail.OAuth,
+      Lovelace.GitHub.Auth,
       Lovelace.Mail.ViewData
     ]
 

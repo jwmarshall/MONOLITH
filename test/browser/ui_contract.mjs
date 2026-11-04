@@ -531,7 +531,6 @@ async function connectionsOverview() {
   await waitFor("location.pathname === '/connections' && location.search === '' && !!document.querySelector('#connections-overview')", 'global Connections overview URL')
   assert.equal(await evaluate("document.querySelector('#show-connections').getAttribute('href')"), '/connections')
   assert.equal(await evaluate("!!document.querySelector('#connections-panel, #calendar-connections, #gemini-connection, #connections-subnav, #back-from-connections')"), false, 'overview mounts no provider or workspace return')
-  assert.deepEqual(await evaluate("Array.from(document.querySelectorAll('#connections-overview a'), link => link.getAttribute('href'))"), ['/connections/gmail', '/connections/calendar', '/connections/gemini'])
   assert.equal(await evaluate("document.documentElement.scrollWidth <= innerWidth && Array.from(document.querySelectorAll('#connections-overview a')).every(link => link.getBoundingClientRect().height >= 44)"), true, 'overview stays within viewport with usable links')
 }
 

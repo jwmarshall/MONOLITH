@@ -33,6 +33,7 @@ defmodule LovelaceWeb.Endpoint do
   plug Plug.Session, @session_options
   plug LovelaceWeb.OwnerUnlock
   plug LovelaceWeb.Plugs.GeminiCredentials
+  plug LovelaceWeb.Plugs.GitHubCredentials
   # Consume OAuth codes before any request instrumentation or parameter parsing.
   plug LovelaceWeb.Plugs.GoogleOAuthCallback
 
