@@ -113,7 +113,8 @@ defmodule Lovelace.Integrations.Google.Message do
         {:ok, [%{attachment_id: id, filename: filename, mime_type: mime, size: size} | acc]}
 
       true ->
-        {:error, :invalid_response}
+        # An unsupported optional attachment must not make its whole email unreadable.
+        {:ok, acc}
     end
   end
 
@@ -123,7 +124,7 @@ defmodule Lovelace.Integrations.Google.Message do
   end
 
   defp valid_attachment_id?(id),
-    do: is_binary(id) and Regex.match?(~r/\A[A-Za-z0-9_-]{1,256}\z/, id)
+    do: is_binary(id) and Regex.match?(~r/\A[-A-Za-z0-9_.+=~]{1,2048}\z/, id)
 
   defp valid_filename?(value), do: is_binary(value) and byte_size(value) <= 1024
   defp valid_mime?(value), do: is_binary(value) and byte_size(value) <= 255

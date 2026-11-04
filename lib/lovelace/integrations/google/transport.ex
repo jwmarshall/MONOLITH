@@ -91,7 +91,7 @@ defmodule Lovelace.Integrations.Google.Transport do
       (Regex.match?(~r"\A/gmail/v1/users/me/threads(?:/[a-zA-Z0-9_-]{1,256})?\z", base) or
          (path == base and
             Regex.match?(
-              ~r"\A/gmail/v1/users/me/messages/[a-zA-Z0-9_-]{1,256}/attachments/[a-zA-Z0-9_-]{1,256}\z",
+              ~r"\A/gmail/v1/users/me/messages/[a-zA-Z0-9_-]{1,256}/attachments/[-a-zA-Z0-9_.+=~]{1,2048}\z",
               base
             )))
   end

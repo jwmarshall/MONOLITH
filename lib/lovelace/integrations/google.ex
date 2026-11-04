@@ -225,7 +225,7 @@ defmodule Lovelace.Integrations.Google do
 
   @spec attachment(binary(), binary(), binary()) :: {:ok, binary()} | failure()
   def attachment(access_token, message_id, attachment_id) do
-    if valid_id?(message_id) and valid_id?(attachment_id),
+    if valid_id?(message_id) and valid_attachment_id?(attachment_id),
       do: fetch_attachment(access_token, message_id, attachment_id),
       else: {:error, :invalid_request}
   end
@@ -570,6 +570,11 @@ defmodule Lovelace.Integrations.Google do
     do: Regex.match?(~r/\A[A-Za-z0-9_-]{1,256}\z/, value)
 
   defp valid_id?(_), do: false
+
+  defp valid_attachment_id?(value) when is_binary(value),
+    do: Regex.match?(~r/\A[-A-Za-z0-9_.+=~]{1,2048}\z/, value)
+
+  defp valid_attachment_id?(_), do: false
 
   defp valid_token?(value),
     do:

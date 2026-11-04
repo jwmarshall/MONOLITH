@@ -391,14 +391,33 @@ defmodule Lovelace.Integrations.GoogleTest do
             }} = Google.thread(@access, "abc")
   end
 
+  test "malformed optional attachment metadata does not make the message unreadable" do
+    payload = %{
+      "mimeType" => "multipart/mixed",
+      "parts" => [
+        part("text/plain", "Readable body"),
+        %{
+          "mimeType" => "application/octet-stream",
+          "filename" => "opaque.bin",
+          "body" => %{"attachmentId" => "unsafe/segment", "size" => 4}
+        }
+      ]
+    }
+
+    assert {:ok, %{messages: [%{text: "Readable body", attachments: []}]}} =
+             Google.Message.thread(with_body(payload), "abc")
+  end
+
   test "attachment metadata is extracted but bytes are only fetched by explicit bounded request" do
+    attachment_id = "att.part+=_~"
+
     payload = %{
       "mimeType" => "multipart/mixed",
       "parts" => [
         %{
           "mimeType" => "image/png",
           "filename" => "photo.png",
-          "body" => %{"attachmentId" => "att_1", "size" => 4}
+          "body" => %{"attachmentId" => attachment_id, "size" => 4}
         }
       ]
     }
@@ -407,19 +426,20 @@ defmodule Lovelace.Integrations.GoogleTest do
              Google.Message.thread(with_body(payload), "abc")
 
     assert attachment == %{
-             attachment_id: "att_1",
+             attachment_id: attachment_id,
              filename: "photo.png",
              mime_type: "image/png",
              size: 4
            }
 
     configure(fn req ->
-      assert req.path == "/gmail/v1/users/me/messages/msg1/attachments/att_1"
+      assert req.path == "/gmail/v1/users/me/messages/msg1/attachments/#{attachment_id}"
       json(%{size: 4, data: Base.url_encode64("data", padding: false)})
     end)
 
-    assert {:ok, "data"} = Google.attachment(@access, "msg1", "att_1")
-    assert {:error, :invalid_request} = Google.attachment(@access, "../bad", "att_1")
+    assert {:ok, "data"} = Google.attachment(@access, "msg1", attachment_id)
+    assert {:error, :invalid_request} = Google.attachment(@access, "../bad", attachment_id)
+    assert {:error, :invalid_request} = Google.attachment(@access, "msg1", "unsafe/segment")
   end
 
   test "HTML-only extraction drops active content, attributes, comments and remote references" do

@@ -79,7 +79,7 @@ defmodule Lovelace.Mail.Operation do
 
       argument :attachment_id, :string,
         allow_nil?: false,
-        constraints: [match: ~r/\A[a-zA-Z0-9_-]{1,256}\z/]
+        constraints: [match: ~r/\A[-a-zA-Z0-9_.+=~]{1,2048}\z/]
 
       run Lovelace.Mail.Operations
     end
