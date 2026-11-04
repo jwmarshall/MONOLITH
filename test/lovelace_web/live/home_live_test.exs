@@ -18,7 +18,6 @@ defmodule LovelaceWeb.HomeLiveTest do
     refute policy =~ "unsafe-eval"
     assert html =~ "Home · LOVELACE"
     refute html =~ "Welcome to Phoenix"
-    assert html =~ ~s(data-theme="lovelace")
     assert conn.resp_cookies["_lovelace_key"]
     assert html =~ ~s(id="workspace-background")
     assert html =~ ~s(href="/fonts/space-grotesk/space-grotesk-variable.woff2")

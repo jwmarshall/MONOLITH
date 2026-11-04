@@ -1,0 +1,206 @@
+/* Palette primitives live here only. Sea Glass is the no-preference default.
+   Picker previews reuse these same primitives, never an independent swatch palette. */
+:root,
+:root[data-theme="sea-glass"],
+.theme-option[data-theme-choice="sea-glass"] {
+  --theme-base-100: #141918;
+  --theme-base-200: #1b2321;
+  --theme-base-300: #34433f;
+  --theme-base-content: #e9efec;
+  --theme-primary: #8bcbc1;
+  --theme-primary-content: #102321;
+  --theme-primary-hover: #b5e2da;
+  --theme-secondary: #b0bfba;
+  --theme-info: #9bbfe2;
+  --theme-success: #a5bb91;
+  --theme-warning: #d6aa69;
+  --theme-warning-content: #19150e;
+  --theme-error: #dc9487;
+  --theme-error-soft: #f0b7a9;
+  --theme-text-bright: #f3efe4;
+  --theme-text-soft: #eeebe1;
+  --theme-text-muted: #e1dfd3;
+  --theme-divider: #eeede5;
+  --theme-glass: #121615;
+  --theme-glass-focused: #0c1110;
+  --theme-reflection: #fffaea;
+  --theme-backdrop: #0a0f0e;
+}
+
+:root[data-theme="charcoal"],
+.theme-option[data-theme-choice="charcoal"] {
+  --theme-base-100: #191919;
+  --theme-base-200: #232323;
+  --theme-base-300: #454545;
+  --theme-base-content: #eeedeb;
+  --theme-primary: #c6c5c1;
+  --theme-primary-content: #232321;
+  --theme-primary-hover: #e1e0dc;
+  --theme-secondary: #bdbbb7;
+  --theme-info: #aabac7;
+  --theme-success: #b1bda4;
+  --theme-warning: #cfb486;
+  --theme-warning-content: #211b12;
+  --theme-error: #d49b92;
+  --theme-error-soft: #e9bdb5;
+  --theme-text-bright: #f2f0ec;
+  --theme-text-soft: #e7e4df;
+  --theme-text-muted: #d7d4ce;
+  --theme-divider: #e9e6e0;
+  --theme-glass: #171717;
+  --theme-glass-focused: #101010;
+  --theme-reflection: #f5f1e9;
+  --theme-backdrop: #0e0e0e;
+}
+
+:root[data-theme="earth"],
+.theme-option[data-theme-choice="earth"] {
+  --theme-base-100: #1d1915;
+  --theme-base-200: #29221b;
+  --theme-base-300: #4b4033;
+  --theme-base-content: #f0e9dd;
+  --theme-primary: #c5ae88;
+  --theme-primary-content: #292014;
+  --theme-primary-hover: #dfc9a5;
+  --theme-secondary: #c2b5a1;
+  --theme-info: #a9bec8;
+  --theme-success: #b0ba91;
+  --theme-warning: #d5b078;
+  --theme-warning-content: #241b0e;
+  --theme-error: #d69986;
+  --theme-error-soft: #edbca9;
+  --theme-text-bright: #f5ecdf;
+  --theme-text-soft: #ede2d2;
+  --theme-text-muted: #ded1be;
+  --theme-divider: #ecdfcb;
+  --theme-glass: #1b1712;
+  --theme-glass-focused: #151009;
+  --theme-reflection: #fff0d4;
+  --theme-backdrop: #120e08;
+}
+
+:root[data-theme="mist"],
+.theme-option[data-theme-choice="mist"] {
+  --theme-base-100: #171c22;
+  --theme-base-200: #202832;
+  --theme-base-300: #3d4a59;
+  --theme-base-content: #e8edf3;
+  --theme-primary: #acbfd4;
+  --theme-primary-content: #192532;
+  --theme-primary-hover: #cedbea;
+  --theme-secondary: #b3bfcc;
+  --theme-info: #9dbfe0;
+  --theme-success: #adbea5;
+  --theme-warning: #d1b184;
+  --theme-warning-content: #211a10;
+  --theme-error: #d49c98;
+  --theme-error-soft: #e9bebb;
+  --theme-text-bright: #eff2f6;
+  --theme-text-soft: #e2e8f0;
+  --theme-text-muted: #d1dae5;
+  --theme-divider: #e0e8f2;
+  --theme-glass: #141a22;
+  --theme-glass-focused: #0e141d;
+  --theme-reflection: #edf4ff;
+  --theme-backdrop: #0b111a;
+}
+
+/* DaisyUI still registers its component utilities. Its single default theme maps
+   the generated primitives to the current palette instead of owning colors. */
+@plugin "daisyui/packages/bundle/daisyui-theme" {
+  name: "sea-glass";
+  default: true;
+  prefersdark: true;
+  color-scheme: "dark";
+  --color-base-100: var(--theme-base-100);
+  --color-base-200: var(--theme-base-200);
+  --color-base-300: var(--theme-base-300);
+  --color-base-content: var(--theme-base-content);
+  --color-primary: var(--theme-primary);
+  --color-primary-content: var(--theme-primary-content);
+  --color-secondary: var(--theme-secondary);
+  --color-secondary-content: var(--theme-base-100);
+  --color-accent: var(--theme-primary);
+  --color-accent-content: var(--theme-primary-content);
+  --color-neutral: var(--theme-base-300);
+  --color-neutral-content: var(--theme-base-content);
+  --color-info: var(--theme-info);
+  --color-info-content: var(--theme-base-100);
+  --color-success: var(--theme-success);
+  --color-success-content: var(--theme-base-100);
+  --color-warning: var(--theme-warning);
+  --color-warning-content: var(--theme-warning-content);
+  --color-error: var(--theme-error);
+  --color-error-content: var(--theme-base-100);
+  --radius-selector: 0.125rem;
+  --radius-field: 0.125rem;
+  --radius-box: 0.125rem;
+  --size-selector: 0.25rem;
+  --size-field: 0.25rem;
+  --border: 1px;
+  --depth: 0;
+  --noise: 0;
+}
+
+:root {
+  color-scheme: dark;
+  --color-primary-hover: var(--theme-primary-hover);
+  --color-text-bright: var(--theme-text-bright);
+  --color-text-soft: var(--theme-text-soft);
+  --color-text-muted: var(--theme-text-muted);
+  --color-error-soft: var(--theme-error-soft);
+  --border-subtle: color-mix(in srgb, var(--color-base-content) 12%, transparent);
+  --border-muted: color-mix(in srgb, var(--theme-divider) 18%, transparent);
+  --border-default: color-mix(in srgb, var(--color-base-content) 24%, transparent);
+  --border-divider: color-mix(in srgb, var(--theme-divider) 25%, transparent);
+  --border-input: color-mix(in srgb, var(--color-base-content) 35%, transparent);
+  --border-strong: color-mix(in srgb, var(--theme-divider) 30%, transparent);
+  --border-accent: color-mix(in srgb, var(--color-primary) 55%, transparent);
+  --border-notice: color-mix(in srgb, var(--color-primary) 35%, transparent);
+  --surface-subtle: color-mix(in srgb, var(--color-base-100) 24%, transparent);
+  --surface-card: color-mix(in srgb, var(--color-base-100) 32%, transparent);
+  --surface-action: color-mix(in srgb, var(--color-base-100) 38%, transparent);
+  --surface-input: color-mix(in srgb, var(--theme-glass-focused) 25%, transparent);
+  --surface-hover-quiet: color-mix(in srgb, var(--color-primary) 6%, transparent);
+  --surface-hover: color-mix(in srgb, var(--color-primary) 7%, transparent);
+  --surface-hover-action: color-mix(in srgb, var(--color-primary) 10%, transparent);
+  --surface-hover-strong: color-mix(in srgb, var(--color-primary) 12%, transparent);
+  --glass-idle: color-mix(in srgb, var(--theme-glass) 2%, transparent);
+  --glass-engaged: color-mix(in srgb, var(--theme-glass) 18%, transparent);
+  --glass-focused: color-mix(in srgb, var(--theme-glass-focused) 58%, transparent);
+  --glass-reflection: color-mix(in srgb, var(--theme-reflection) 3%, transparent);
+  --modal-backdrop: color-mix(in srgb, var(--theme-backdrop) 65%, transparent);
+  --shadow-color: #000;
+  --shadow-text: 0 1px 2px color-mix(in srgb, var(--shadow-color) 75%, transparent);
+  --shadow-menu: 0 8px 24px color-mix(in srgb, var(--shadow-color) 25%, transparent);
+  --shadow-modal: 0 24px 80px color-mix(in srgb, var(--shadow-color) 35%, transparent);
+  /* Scenery is independent of the UI palette, including its image-load fallback. */
+  --scenery-fallback: #514c40;
+}
+
+/* Native radios keep arrow-key selection and visible focus without a custom widget. */
+.settings-panel { max-width: 800px; font-size: 14px; line-height: 1.7; }
+.theme-picker { min-width: 0; border: 0; }
+.theme-picker > legend { font-size: 20px; font-weight: 400; }
+.settings-description { margin-block: 8px 24px; color: var(--color-secondary); }
+.theme-options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.theme-option { display: grid; grid-template-columns: 20px 56px minmax(0, 1fr); gap: 12px; align-items: center; min-width: 0; min-height: 112px; padding: 20px; border: 1px solid var(--border-default); border-radius: 6px; background: var(--surface-card); cursor: pointer; }
+.theme-option:hover { background: var(--surface-hover); }
+.theme-option:has(:checked) { border-color: var(--color-primary); background: var(--surface-hover-action); }
+.theme-option:focus-within { outline: 2px solid var(--color-primary); outline-offset: 4px; }
+.theme-option input { width: 18px; height: 18px; accent-color: var(--color-primary); }
+.theme-swatch { display: block; width: 56px; height: 56px; border: 1px solid var(--theme-base-300); border-radius: 4px; background: linear-gradient(135deg, var(--theme-base-100) 0% 50%, var(--theme-base-300) 50% 75%, var(--theme-primary) 75% 100%); }
+.theme-option-copy { display: grid; min-width: 0; gap: 4px; }
+.theme-option-name { color: var(--color-base-content); font-size: 16px; }
+.theme-option-description { color: var(--color-secondary); font-size: 12px; }
+.theme-status { min-height: 28px; margin-top: 20px; color: var(--color-secondary); font-size: 13px; }
+@media (max-width: 640px) {
+  .theme-options { grid-template-columns: minmax(0, 1fr); }
+}
+@media (forced-colors: active) {
+  .settings-panel, .settings-panel * { color: CanvasText; text-shadow: none; }
+  .theme-option, .theme-option:hover, .theme-option:has(:checked) { background: Canvas; border-color: CanvasText; }
+  .theme-option:has(:checked) { outline: 1px solid Highlight; outline-offset: -4px; }
+  .theme-option:focus-within { outline: 2px solid Highlight; outline-offset: 4px; }
+  .theme-swatch { background: Canvas; border-color: CanvasText; }
+}

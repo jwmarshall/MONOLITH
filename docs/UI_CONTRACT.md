@@ -12,13 +12,16 @@ Verify implementation in code; the coverage map below is not evidence that check
 - One edge-to-edge, nearly transparent glass stage spans unlock/setup, workspace and mail
   views, including empty/error states. Keep the outer stage borderless; control/card borders
   and keyboard focus outlines remain. Do not turn the shell into a centered dashboard card.
-- Charcoal, restrained sea-glass teal, pale neutral text, strong geometry, fine dividers,
+- Charcoal, Earth, Sea Glass and Mist offer restrained dark palettes with pale text,
+  strong geometry, fine dividers,
   deliberate negative space and practical working density. Use a consistent compact gap below
   navigation across primary views, shallow workspace/integration cards and restrained list spacing;
   do not fill spare stage space with explanatory copy. Keep health, freshness and actionable warnings
   visible; occasional setup, billing-policy and disconnect guidance can use native disclosures.
-  Billing confirmation remains explicit before generation. Semantic warnings/errors remain distinct. **Sea-glass supersedes the original amber UI**; warm colors in scenery are not
-  UI palette violations. Shared CSS tokens are the implementation source of truth.
+  Billing confirmation remains explicit before generation. Semantic warnings/errors remain distinct.
+  Sea Glass is the default; Earth uses warm accents, Charcoal neutral accents and Mist cool slate/silver.
+  Scenery colors are independent. `assets/css/themes.css` owns palette literals and shared semantic
+  tokens; components consume those tokens rather than defining their own UI colors.
 - Self-host Space Grotesk with system fallbacks. Keep the name **LOVELACE** uppercase and
   the original double-cursive-`l` monogram. Wordmark tracking/light weight must not leak
   into long-form mail typography. Readability and contrast outrank cinematic dimness.
@@ -82,15 +85,16 @@ Verify implementation in code; the coverage map below is not evidence that check
   and bounded. Escape/idle wake preserves the current view, scroll and forms; it never navigates
   Home. Successful Gmail consent returns to the receiving workspace; Calendar consent
   returns to its global provider page for calendar selection.
-- A centered navigation bar contains **Home**, **Workspaces**, **Connections**, and **Scenes**,
-  in that order. These are native links using LiveView patches, with usable `href` destinations
+- A centered navigation bar contains **Home**, **Workspaces**, **Connections**, **Scenes**, and
+  **Settings**, in that order, wrapping at narrow widths without clipping links. These are native
+  links using LiveView patches, with usable `href` destinations
   for copying/opening in a new tab; current destinations are identified with `aria-current`. Home is a visible text control, never the decorative
   corner monogram. Lock stays separate. Top-nav Connections always opens the global
   `/connections` overview, including from workspaces and provider pages. No workspace query
   or workspace-return control is attached; browser Back retraces the actual origin.
   Gmail inboxes likewise have no redundant Home button.
 - Home opens with a restrained greeting and date in the browser's local time, updated
-  across midnight/resume. Home, Workspaces, Connections and Scenes use the same content width and
+  across midnight/resume. Home, Workspaces, Connections, Scenes and Settings use the same content width and
   alignment from the shared directory container; Home has no narrower inner cap. Reserve
   symmetric scrollbar gutters so scrolling pages do not shift the content plane. Keep copy
   functional and minimal: no “Your day” eyebrow, slogans or explanatory footer. Numeric
@@ -276,6 +280,15 @@ Verify implementation in code; the coverage map below is not evidence that check
 
 ## Images, accessibility and preferences
 
+- Authenticated `/settings` offers exactly **Charcoal**, **Earth**, **Sea Glass**, and **Mist**
+  as native radio choices. Changes apply immediately to the entire UI, including mail, dialogs,
+  status signals and static unlock; they never select, recolor or generate scene imagery.
+  Selection stays in this browser's `localStorage` under `lovelace:theme`, not an account or database.
+  A synchronous self-hosted bootstrap restores the allowlisted choice before CSS paints; missing or
+  invalid values use Sea Glass. Without JavaScript the default remains usable. If browser storage
+  is denied, apply the choice only to the current document and announce that it could not be saved.
+  Patch navigation, reload and browser history preserve the selected palette; separate already-open
+  tabs do not synchronize live. Forced colors uses system colors instead of the palette.
 - Reveal a generated image only after it successfully loads. Failed loads leave the
   installation's local bundled JPEG default, not a broken-image replacement. Three
   owner-approved images ship locally; choose one once per installation, preserving it
@@ -304,6 +317,8 @@ historical results do not certify a new change.
 
 - `test/js/brand_reveal_test.mjs`: choreography, interruption/replay, reduced motion and teardown.
 - `test/js/workspace_entrance_test.mjs`: gate completion, focus handoff, patch continuity and teardown.
+- `test/js/theme_picker_test.mjs`: persisted selections, corrupt/prototype-named values, unavailable
+  storage, failed writes/recovery, patch/remount continuity and listener teardown.
 - `test/js/ui_browser_runner_test.mjs`: early normal/signal Chrome exit must fail promptly,
   not hang on an already-fired event or report success; no real browser/app is launched.
 - `test/js/workspace_idle_test.mjs`: elapsed-time/activity/wake rules, patches/hidden tabs,
@@ -395,7 +410,9 @@ historical results do not certify a new change.
   draft preservation through refresh and scenery wake, exact confirmation prompt and saved
   direction reload, desktop/narrow editor screenshots; Scenes keyboard navigation, gallery dates/previews, confirmation Cancel/Escape
   and focus restoration, read-only refresh, cross-tab selection, reload persistence, narrow
-  and forced-color gallery/dialog layouts; off-origin requests, page errors and CSP events.
+  and forced-color gallery/dialog layouts; all four keyboard-selected Settings themes on Home,
+  Workspaces and mail, reload/history persistence, unchanged imagery, narrow/forced-color picker
+  layouts and the protected Settings deep link; off-origin requests, page errors and CSP events.
 
 The browser gate is separate from `mix check`/hosted CI and requires an installed browser;
 it fails rather than silently skipping when unavailable. See development guidance for its

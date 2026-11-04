@@ -11,7 +11,7 @@
 .scene-direction-footer > p, #scene-direction-notice, #scene-direction-error { font-size: 12px; }
 #scene-direction-notice, #scene-direction-error { margin-top: 12px; }
 .scene-prompt { margin-top: 12px; max-width: none; }
-.scene-prompt > p { max-width: 90ch; padding: 14px 16px; border-left: 2px solid var(--color-primary); background: rgb(20 25 24 / 24%); font-size: 13px; line-height: 1.85; overflow-wrap: anywhere; white-space: pre-wrap; }
+.scene-prompt > p { max-width: 90ch; padding: 14px 16px; border-left: 2px solid var(--color-primary); background: var(--surface-subtle); font-size: 13px; line-height: 1.85; overflow-wrap: anywhere; white-space: pre-wrap; }
 #scene-confirmation-prompt { margin-block: 16px 24px; }
 .scene-direction-field select:focus-visible, .scene-prompt > summary:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 3px; }
 .scene-toolbar { display: flex; align-items: flex-start; justify-content: space-between; flex-wrap: wrap; gap: 16px 24px; margin-bottom: 24px; }
@@ -19,8 +19,8 @@
 .scene-status { flex: 1 1 320px; max-width: 80ch; color: var(--color-secondary); }
 .scene-status p + p { margin-top: 6px; }
 .scene-gallery { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px 24px; list-style: none; margin: 0; padding: 0; }
-.scene-card { min-width: 0; border-bottom: 1px solid rgb(233 239 236 / 24%); }
-.scene-preview { position: relative; aspect-ratio: 16 / 9; overflow: hidden; background: rgb(20 25 24 / 32%); }
+.scene-card { min-width: 0; border-bottom: 1px solid var(--border-default); }
+.scene-preview { position: relative; aspect-ratio: 16 / 9; overflow: hidden; background: var(--surface-card); }
 .scene-preview-fallback { position: absolute; inset: 0; display: grid; place-items: center; color: var(--color-secondary); font-size: 12px; }
 .scene-preview img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; visibility: hidden; }
 .scene-preview img[data-loaded="true"] { visibility: visible; }
@@ -57,7 +57,7 @@
   .scene-direction-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px 12px; }
   .scene-generation-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px 12px; }
   .scene-generation-fields > :first-child { grid-column: 1 / -1; }
-  .scene-global-activity { grid-column: 2; grid-row: 2; justify-self: center; }
+  .scene-global-activity { grid-column: 1; grid-row: 2; justify-self: center; }
   .scene-request-settings > div { grid-template-columns: minmax(0, 1fr); gap: 0; }
   .scene-direction-footer { align-items: flex-start; }
   .scene-direction-footer > p { flex-basis: 100%; }

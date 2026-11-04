@@ -613,6 +613,117 @@ async function verifyNavigationHistory() {
   console.log('PASS global Connections overview and provider URLs, obsolete-query cleanup, direct Gemini GET/reload, browser Back/Forward, copied mail links, invalid-account recovery and unlock return')
 }
 
+async function verifyThemes() {
+  await send('Emulation.setDeviceMetricsOverride', {width: 1440, height: 1000, deviceScaleFactor: 1, mobile: false})
+  await media([{name: 'prefers-reduced-motion', value: 'reduce'}])
+  await click('#show-settings')
+  await waitFor("location.pathname === '/settings' && !!document.querySelector('#theme-picker')", 'Settings has a native destination')
+  assert.equal(await evaluate("document.querySelector('#show-settings').getAttribute('aria-current')"), 'page')
+  assert.equal(await evaluate("!!document.querySelector('#home-overview, #workspace-list, #mail-panel, #scenes-panel, #connections-overview')"), false, 'Settings is an exclusive view')
+  const choices = ['charcoal', 'earth', 'sea-glass', 'mist']
+  assert.deepEqual(await evaluate("Array.from(document.querySelectorAll('#theme-picker input[name=theme]'), input => input.value)"), choices)
+  const palettes = []
+  const scene = await evaluate("getComputedStyle(document.querySelector('#workspace-background')).backgroundImage")
+  const image = await evaluate("document.querySelector('#workspace-background img')?.getAttribute('src')")
+
+  async function applied(theme, selector) {
+    const state = await evaluate(`(() => {
+      const element = document.querySelector(${JSON.stringify(selector)});
+      const root = getComputedStyle(document.documentElement);
+      const probe = document.createElement('span');
+      probe.style.color = 'var(--color-base-content)';
+      document.body.append(probe);
+      const expected = getComputedStyle(probe).color;
+      probe.remove();
+      return {theme: document.documentElement.dataset.theme,
+        saved: localStorage.getItem('lovelace:theme'),
+        actual: getComputedStyle(element).color, expected,
+        primary: root.getPropertyValue('--color-primary').trim(),
+        base: root.getPropertyValue('--color-base-100').trim(),
+        overflow: document.documentElement.scrollWidth > innerWidth,
+        background: getComputedStyle(document.querySelector('#workspace-background')).backgroundImage,
+        image: document.querySelector('#workspace-background img')?.getAttribute('src')};
+    })()`)
+    assert.equal(state.theme, theme)
+    assert.equal(state.saved, theme)
+    assert.equal(state.actual, state.expected, `${selector} inherits ${theme} text tokens`)
+    assert.equal(state.overflow, false)
+    assert.equal(state.background, scene, 'theme changes never replace bundled scenery')
+    assert.equal(state.image, image, 'theme changes never replace selected imagery')
+    return `${state.base}|${state.primary}`
+  }
+
+  for (const theme of choices) {
+    const selector = `#theme-picker input[value="${theme}"]`
+    await evaluate(`document.querySelector(${JSON.stringify(selector)}).focus()`)
+    await send('Input.dispatchKeyEvent', {type: 'keyDown', key: ' ', code: 'Space', windowsVirtualKeyCode: 32, text: ' '})
+    await send('Input.dispatchKeyEvent', {type: 'keyUp', key: ' ', code: 'Space', windowsVirtualKeyCode: 32})
+    await waitFor(`document.documentElement.dataset.theme === ${JSON.stringify(theme)} && document.querySelector(${JSON.stringify(selector)}).checked`, `keyboard selects ${theme}`)
+    assert.notEqual(await evaluate("getComputedStyle(document.activeElement).outlineStyle"), 'none', 'theme radios retain keyboard focus indication')
+    palettes.push(await applied(theme, '#settings-panel'))
+    await screenshot(`theme-${theme}-settings`)
+    await send('Page.reload')
+    await waitFor(`location.pathname === '/settings' && !!document.querySelector('#theme-picker') && window.liveSocket?.getSocket().isConnected()`, 'Settings deep-link reload')
+    assert.equal(await evaluate(`document.querySelector(${JSON.stringify(selector)}).checked`), true, 'picker reflects saved theme after reload')
+    await click('#workspace-pane')
+    await focused()
+    await applied(theme, '#settings-panel')
+    await click('#home-link')
+    await home()
+    await applied(theme, '#home-overview')
+    await screenshot(`theme-${theme}-home`)
+    await click('#show-workspaces')
+    await waitFor("!!document.querySelector('#workspace-list')", 'theme on Workspaces')
+    await applied(theme, '#workspace-list')
+    await screenshot(`theme-${theme}-workspaces`)
+    await click('#home-link')
+    await home()
+    await click(`#open-home-account-${accountId}`)
+    await waitFor("document.querySelector('#mail-threads')?.getAttribute('aria-busy') === 'false'", 'theme on loaded inbox')
+    await applied(theme, '#mail-panel')
+    await screenshot(`theme-${theme}-mail`)
+    await click('#show-settings')
+    await waitFor("!!document.querySelector('#theme-picker')", 'theme picker remounts')
+    assert.equal(await evaluate(`document.querySelector(${JSON.stringify(selector)}).checked`), true, 'patch remount preserves saved selection')
+  }
+  assert.equal(new Set(palettes).size, 4, 'the four themes have distinct base/accent palettes')
+
+  await evaluate('history.back()')
+  await waitFor("!!document.querySelector('#mail-panel')", 'Back restores mail from Settings')
+  await evaluate('history.forward()')
+  await waitFor("!!document.querySelector('#theme-picker')", 'Forward restores Settings')
+  for (const forced of [false, true]) {
+    await media([{name: 'prefers-reduced-motion', value: 'reduce'}, ...(forced ? [{name: 'forced-colors', value: 'active'}] : [])])
+    await send('Emulation.setDeviceMetricsOverride', {width: 390, height: 844, deviceScaleFactor: 1, mobile: false})
+    assert.equal(await evaluate("document.documentElement.scrollWidth <= innerWidth && document.querySelector('#theme-picker').scrollWidth <= document.querySelector('#theme-picker').clientWidth"), true, 'Settings fits narrow/forced-color surfaces')
+    for (const theme of choices) {
+      await click(`#theme-picker input[value="${theme}"]`)
+      assert.equal(await evaluate(`document.querySelector('#theme-picker input[value="${theme}"]').checked`), true)
+      if (forced) {
+        assert.equal(await evaluate("getComputedStyle(document.querySelector('#workspace-background')).display"), 'none')
+        await evaluate(`document.querySelector('#theme-picker input[value="${theme}"]').focus()`)
+        await send('Input.dispatchKeyEvent', {type: 'keyDown', key: ' ', code: 'Space', windowsVirtualKeyCode: 32, text: ' '})
+        await send('Input.dispatchKeyEvent', {type: 'keyUp', key: ' ', code: 'Space', windowsVirtualKeyCode: 32})
+        assert.notEqual(await evaluate("getComputedStyle(document.activeElement).outlineStyle"), 'none')
+      }
+    }
+    await screenshot(forced ? 'theme-settings-forced-colors' : 'theme-settings-narrow')
+  }
+  await media([{name: 'prefers-reduced-motion', value: 'reduce'}])
+  await send('Emulation.setDeviceMetricsOverride', {width: 1440, height: 1000, deviceScaleFactor: 1, mobile: false})
+  await click('#theme-picker input[value="sea-glass"]')
+  await click('#owner-lock-form button')
+  await waitFor("!!document.querySelector('#owner-unlock-form')", 'Lock retains theme on static unlock')
+  assert.equal(await evaluate("document.documentElement.dataset.theme"), 'sea-glass')
+  await send('Page.navigate', {url: origin + '/settings'})
+  await waitFor("location.pathname === '/unlock' && !!document.querySelector('#owner-unlock-form')", 'Settings remains protected after Lock')
+  await evaluate("document.querySelector('#owner-unlock-form input[type=password]').value = 'synthetic browser owner password'; document.querySelector('#owner-unlock-form').requestSubmit()")
+  await waitFor("location.pathname === '/settings' && !!document.querySelector('#theme-picker') && window.liveSocket?.getSocket().isConnected()", 'unlock resumes Settings')
+  await click('#workspace-pane')
+  await focused()
+  console.log('PASS four keyboard-selected themes across Settings/Home/Workspaces/mail, reload/history persistence, unchanged scenery, narrow/forced-color/reduced-motion controls and protected Settings deep link')
+}
+
 let homeVisits = 0
 async function home() {
   await waitFor(`!!document.querySelector('#home-overview') &&
@@ -734,7 +845,6 @@ try {
   console.log("PASS ordinary entrance, static stage, corner/Home/Lock visibility and gate/focus handoff")
 
   await home()
-  assert.deepEqual(await evaluate("Array.from(document.querySelectorAll('#center-nav > a[data-phx-link=patch]'), link => link.id)"), ["home-link", "show-workspaces", "show-connections", "show-scenes"])
   await verifyNavigationHistory()
   await home()
   assert.equal(await evaluate("document.querySelectorAll('#home-accounts > li').length"), 5, "one Home row per connection, not per membership")
@@ -1526,6 +1636,7 @@ try {
       await focused()
     }
   }
+  await verifyThemes()
   assert.deepEqual(cspViolations, [], "CSP evidence accumulates across all navigations/reloads")
   assert.deepEqual(errors, [])
   assert.deepEqual(external, [])

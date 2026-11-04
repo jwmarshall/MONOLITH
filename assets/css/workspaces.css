@@ -8,9 +8,9 @@
 .workspace-card, .integration-tile, .connection-card, .integration-add-panel {
   position: relative;
   min-width: 0;
-  border: 1px solid rgb(233 239 236 / 24%);
+  border: 1px solid var(--border-default);
   border-radius: 6px;
-  background: rgb(20 25 24 / 32%);
+  background: var(--surface-card);
 }
 .workspace-card:focus-within, .integration-tile:focus-within { border-color: var(--color-primary); }
 .workspace-card-open, .integration-tile-open {
@@ -28,7 +28,7 @@
   cursor: pointer;
   transition: background 160ms;
 }
-.workspace-card-open:hover, .integration-tile-open:hover { background: rgb(139 203 193 / 7%); }
+.workspace-card-open:hover, .integration-tile-open:hover { background: var(--surface-hover); }
 .workspace-card-name { padding-right: 44px; font-size: 23px; font-weight: 400; letter-spacing: -0.025em; overflow-wrap: anywhere; }
 .workspace-card-health { display: flex; flex-direction: column; gap: 8px; margin-top: auto; padding: 8px 28px 0 0; color: var(--color-secondary); font-size: 12px; line-height: 1.6; }
 .workspace-card-problem { overflow-wrap: anywhere; }
@@ -38,8 +38,8 @@
 .workspace-menu[open] { z-index: 2; }
 .workspace-menu summary { display: flex; align-items: center; justify-content: center; width: 44px; height: 44px; border: 1px solid transparent; border-radius: 4px; cursor: pointer; list-style: none; }
 .workspace-menu summary::-webkit-details-marker { display: none; }
-.workspace-menu summary:hover, .workspace-menu[open] summary { background: rgb(139 203 193 / 12%); border-color: rgb(233 239 236 / 24%); }
-.workspace-menu-actions { position: absolute; top: 48px; right: 0; min-width: 180px; padding: 6px; background: var(--color-base-100); border: 1px solid var(--color-base-300); border-radius: 4px; box-shadow: 0 8px 24px rgb(0 0 0 / 25%); }
+.workspace-menu summary:hover, .workspace-menu[open] summary { background: var(--surface-hover-strong); border-color: var(--border-default); }
+.workspace-menu-actions { position: absolute; top: 48px; right: 0; min-width: 180px; padding: 6px; background: var(--color-base-100); border: 1px solid var(--color-base-300); border-radius: 4px; box-shadow: var(--shadow-menu); }
 .workspace-menu-actions .workspace-action { justify-content: flex-start; width: 100%; white-space: normal; text-align: left; }
 .workspace-directory-heading > .workspace-menu { position: relative; top: auto; right: auto; flex-shrink: 0; }
 .workspace-directory-heading { align-items: center; }

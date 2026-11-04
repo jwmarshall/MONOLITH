@@ -24,7 +24,9 @@ mailbox or calendar.** Projects, mailbox writes and calendar writes are outside 
 ## Identity and naming
 
 The project name is **LOVELACE**, always uppercase, with an original double-cursive-`l`
-monogram and edge-to-edge sea-glass interface. See the [visual/interaction contract](docs/UI_CONTRACT.md)
+monogram and edge-to-edge glass interface. **Settings → Appearance** offers Charcoal, Earth,
+Sea Glass (default), and Mist. Selection stays in this browser across reloads and changes
+UI colors, not scenery. See the [visual/interaction contract](docs/UI_CONTRACT.md)
 for branding, entrance, scenery/wake, navigation and accessibility behavior.
 Scenery mode is visual only; use **Lock** to revoke the browser session.
 
@@ -33,7 +35,7 @@ under `assets/vendor/gsap/` with license, provenance, and integrity checks—no 
 runtime CDN, font service, or remote image requests. Keep third-party UI assets local.
 
 The implementation uses Mix/OTP app `:lovelace`, modules `Lovelace`/`LovelaceWeb`,
-source directories `lib/lovelace/` and `lib/lovelace_web/`, the `lovelace` theme/build
+source directories `lib/lovelace/` and `lib/lovelace_web/`, the `lovelace` asset-build
 profile, and `lovelace_*.db` database filenames. The generated release executable
 is `bin/lovelace`. The Git hosting repository and checkout directory are managed
 separately; no particular checkout folder name is required to run the application.
@@ -44,7 +46,7 @@ separately; no particular checkout folder name is required to run the applicatio
 - **Ash** resources, domains, actions, and policies
 - **AshSqlite** over Ecto + SQLite (no separate database service)
 - AshPhoenix; AshAuthentication password strategy for one local owner
-- Tailwind CSS 4; generated daisyUI primitives with LOVELACE's dark/sea-glass tokens
+- Tailwind CSS 4; generated daisyUI primitives with shared semantic theme tokens
 - Req, ExUnit, LiveViewTest, and Ash's testing helpers
 - Vix/libvips for bounded strict JPEG validation; original image bytes are kept locally
 

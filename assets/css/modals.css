@@ -9,10 +9,10 @@
   border-radius: 4px;
   background: var(--color-base-100);
   color: var(--color-base-content);
-  box-shadow: 0 24px 80px rgb(0 0 0 / 35%);
+  box-shadow: var(--shadow-modal);
   text-shadow: none;
 }
-.lovelace-modal::backdrop { background: rgb(10 15 14 / 65%); }
+.lovelace-modal::backdrop { background: var(--modal-backdrop); }
 .lovelace-modal-title { margin-bottom: 24px; font-size: 22px; font-weight: 400; }
 .lovelace-modal .label { color: var(--color-secondary); }
 .lovelace-modal .workspace-name-input { color: var(--color-base-content); background: var(--color-base-200); border-color: var(--color-base-300); }

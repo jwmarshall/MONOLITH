@@ -98,7 +98,8 @@ defmodule LovelaceWeb.OwnerAuthTest do
           "/accounts/synthetic-account/mail/threads/synthetic-thread",
           "/connections",
           "/connections/gmail",
-          "/scenes"
+          "/scenes",
+          "/settings"
         ] do
       destination = path <> "?q=quiet%20morning&page=2"
       assert OwnerReturnPath.safe(destination) == destination

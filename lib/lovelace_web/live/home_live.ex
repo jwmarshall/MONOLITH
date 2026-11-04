@@ -39,6 +39,7 @@ defmodule LovelaceWeb.HomeLive do
       |> assign(
         page_title: "Home",
         home: true,
+        settings: false,
         navigation_ready: false,
         navigation_path: nil,
         home_accounts: [],
@@ -134,6 +135,7 @@ defmodule LovelaceWeb.HomeLive do
      |> directory_subscriptions([])
      |> assign(
        home: false,
+       settings: false,
        selected: nil,
        connections: false,
        editor: nil,
@@ -144,6 +146,24 @@ defmodule LovelaceWeb.HomeLive do
      |> focus_heading()}
   end
 
+  defp event("show_settings", _params, socket) do
+    {:noreply,
+     socket
+     |> HomeScenes.leave()
+     |> HomeMail.leave_workspace()
+     |> directory_subscriptions([])
+     |> assign(
+       home: false,
+       settings: true,
+       selected: nil,
+       connections: false,
+       editor: nil,
+       form: nil,
+       page_title: "Settings"
+     )
+     |> focus_heading()}
+  end
+
   defp event("show_home", _params, socket) do
     {:noreply,
      socket
@@ -151,6 +171,7 @@ defmodule LovelaceWeb.HomeLive do
      |> HomeMail.leave_workspace()
      |> assign(
        home: true,
+       settings: false,
        scenes: false,
        scene_confirmation: false,
        selected: nil,
@@ -173,6 +194,7 @@ defmodule LovelaceWeb.HomeLive do
        |> directory_subscriptions([])
        |> assign(
          home: false,
+         settings: false,
          scenes: false,
          scene_confirmation: false,
          selected: nil,
@@ -233,6 +255,7 @@ defmodule LovelaceWeb.HomeLive do
      |> directory_subscriptions([])
      |> assign(
        home: false,
+       settings: false,
        connections: true,
        selected: nil,
        scenes: false,
@@ -305,6 +328,7 @@ defmodule LovelaceWeb.HomeLive do
          |> directory_subscriptions([])
          |> assign(
            home: false,
+           settings: false,
            selected: workspace,
            scenes: false,
            scene_confirmation: false,
@@ -328,6 +352,7 @@ defmodule LovelaceWeb.HomeLive do
      |> HomeMail.leave_workspace()
      |> assign(
        home: false,
+       settings: false,
        scenes: false,
        scene_confirmation: false,
        selected: nil,
@@ -387,6 +412,9 @@ defmodule LovelaceWeb.HomeLive do
   defp visit_destination(socket, %{action: :workspaces}),
     do: transition(socket, "show_workspaces")
 
+  defp visit_destination(socket, %{action: :settings}),
+    do: transition(socket, "show_settings")
+
   defp visit_destination(socket, %{action: :connections}),
     do: transition(socket, "show_connections")
 
@@ -430,6 +458,7 @@ defmodule LovelaceWeb.HomeLive do
         |> directory_subscriptions([])
         |> assign(
           home: false,
+          settings: false,
           selected: nil,
           connections: false,
           editor: nil,
@@ -576,8 +605,8 @@ defmodule LovelaceWeb.HomeLive do
       ids = Enum.map(accounts, & &1.id)
 
       browsing =
-        socket.assigns.scenes || socket.assigns.selected || socket.assigns.connections ||
-          socket.assigns.mail.scope == :home
+        socket.assigns.settings || socket.assigns.scenes || socket.assigns.selected ||
+          socket.assigns.connections || socket.assigns.mail.scope == :home
 
       ids = if browsing, do: [], else: ids
 
@@ -703,7 +732,8 @@ defmodule LovelaceWeb.HomeLive do
               patch="/workspaces"
               class="workspace-nav-link"
               aria-current={
-                if !@home && !@connections && !@scenes && @mail.scope != :home, do: "page"
+                if !@home && !@settings && !@connections && !@scenes && @mail.scope != :home,
+                  do: "page"
               }
               aria-disabled={if @editor, do: "true"}
             >Workspaces</.link>
@@ -721,6 +751,13 @@ defmodule LovelaceWeb.HomeLive do
               aria-current={if @scenes, do: "page"}
               aria-disabled={if @editor, do: "true"}
             >Scenes</.link>
+            <.link
+              id="show-settings"
+              patch="/settings"
+              class="workspace-nav-link"
+              aria-current={if @settings, do: "page"}
+              aria-disabled={if @editor, do: "true"}
+            >Settings</.link>
           </nav>
           <SceneComponents.activity background={@background} />
         </div>
@@ -753,6 +790,7 @@ defmodule LovelaceWeb.HomeLive do
             <div>
               <h2 id="directory-heading" tabindex="-1" data-workspace-heading>
                 {cond do
+                  @settings -> "Settings"
                   @scenes -> "Scenes"
                   @connections -> "Connections"
                   @selected -> @selected.name
@@ -787,7 +825,10 @@ defmodule LovelaceWeb.HomeLive do
               >Calendar</.link>
             </nav>
             <button
-              :if={!@selected && !@connections && !@scenes && @mail.scope != :home && !@editor}
+              :if={
+                !@selected && !@settings && !@connections && !@scenes && @mail.scope != :home &&
+                  !@editor
+              }
               id="new-workspace"
               type="button"
               class="workspace-action"
@@ -854,7 +895,9 @@ defmodule LovelaceWeb.HomeLive do
           </LovelaceWeb.ModalComponents.modal>
 
           <div
-            :if={!@home && !@selected && !@connections && !@scenes && @mail.scope != :home}
+            :if={
+              !@home && !@settings && !@selected && !@connections && !@scenes && @mail.scope != :home
+            }
             class="workspace-list"
             id="workspace-list"
             phx-update="stream"
@@ -891,7 +934,7 @@ defmodule LovelaceWeb.HomeLive do
           </div>
 
           <p
-            :if={@loading && !@home && !@scenes}
+            :if={@loading && !@home && !@settings && !@scenes}
             id="workspaces-loading"
             class="workspace-notice"
             role="status"
@@ -903,7 +946,7 @@ defmodule LovelaceWeb.HomeLive do
             />
           </p>
           <div
-            :if={@workspaces_error && !@home && !@scenes}
+            :if={@workspaces_error && !@home && !@settings && !@scenes}
             id="workspaces-error"
             class="workspace-notice"
             role="alert"
@@ -911,6 +954,8 @@ defmodule LovelaceWeb.HomeLive do
             <p>Your workspaces couldn’t be loaded. Your saved spaces have not been changed.</p>
             <button type="button" class="workspace-action" phx-click="retry_workspaces">Try again</button>
           </div>
+
+          <HomeComponents.settings :if={@settings} />
 
           <SceneComponents.gallery
             :if={@scenes}

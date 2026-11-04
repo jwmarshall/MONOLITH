@@ -21,6 +21,8 @@ defmodule LovelaceWeb.HomeNavigation do
     query(base, q: mail.query, page_token: mail.page_token)
   end
 
+  def current(%{assigns: %{settings: true}}), do: "/settings"
+
   def current(%{assigns: %{connections: true} = a}),
     do: connections_path(a.connection_view)
 

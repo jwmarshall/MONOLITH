@@ -68,6 +68,7 @@ defmodule LovelaceWeb.Router do
       live "/connections", HomeLive, :connections
       live "/connections/:provider", HomeLive, :connection
       live "/scenes", HomeLive, :scenes
+      live "/settings", HomeLive, :settings
     end
   end
 

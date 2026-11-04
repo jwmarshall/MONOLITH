@@ -111,6 +111,75 @@ defmodule LovelaceWeb.NavigationLiveTest do
     refute has_element?(view, "#back-from-connections")
   end
 
+  test "Settings is an exclusive patch destination with native theme choices", ctx do
+    {:ok, view, _} = live(ctx.conn, "/")
+
+    view |> element("#show-settings") |> render_click()
+    assert_patch(view, "/settings")
+    assert_push_event(view, "workspace:focus-heading", %{})
+    assert has_element?(view, "#show-settings[aria-current=page]")
+    assert has_element?(view, "#directory-heading", "Settings")
+    assert has_element?(view, "#settings-panel #theme-picker legend", "Appearance")
+    assert has_element?(view, "#theme-status[role=status]")
+
+    for {id, name} <- [
+          {"charcoal", "Charcoal"},
+          {"earth", "Earth"},
+          {"sea-glass", "Sea Glass"},
+          {"mist", "Mist"}
+        ] do
+      assert has_element?(
+               view,
+               "#theme-picker label[for='theme-#{id}'] input[type=radio][name=theme][value='#{id}']"
+             )
+
+      assert has_element?(view, "#theme-picker label[for='theme-#{id}']", name)
+    end
+
+    refute has_element?(
+             view,
+             "#home-overview, #workspace-list, #workspace-landing, #home-inbox, " <>
+               "#connections-overview, #scenes-panel, #new-workspace, #show-workspaces[aria-current=page]"
+           )
+
+    for {path, selector} <- [
+          {"/", "#home-overview"},
+          {"/workspaces", "#workspace-list"},
+          {"/workspaces/#{ctx.workspace.id}", "#workspace-landing"},
+          {"/connections", "#connections-overview"},
+          {"/scenes", "#scenes-panel"}
+        ] do
+      render_patch(view, path)
+      assert has_element?(view, selector)
+      refute has_element?(view, "#settings-panel")
+      render_patch(view, "/settings")
+      assert has_element?(view, "#settings-panel")
+      refute has_element?(view, selector)
+      assert state(view).navigation_path == "/settings"
+    end
+  end
+
+  test "Settings deep entry and reload discard unrelated context without restoring mail", ctx do
+    {:ok, view, _} = live(ctx.conn, HomeNavigation.account_path(ctx.account.id))
+    render_async(view)
+    old = state(view).mail
+    render_patch(view, "/settings?workspace=#{ctx.workspace.id}&page=bad&q=ignored")
+    assert_patch(view, "/settings")
+    assert has_element?(view, "#settings-panel")
+    assert state(view).mail.account_id == nil
+    assert state(view).mail.generation != old.generation
+    assert state(view).directory_subscriptions == []
+    send(view.pid, {:mail_changed, ctx.account.id})
+    render(view)
+    assert state(view).navigation_path == "/settings"
+    refute has_element?(view, "#mail-account-view, #mail-conversation")
+
+    {:ok, reloaded, _} = live(ctx.conn, "/settings")
+    assert has_element?(reloaded, "#settings-panel")
+    assert has_element?(reloaded, "#show-settings[aria-current=page]")
+    refute has_element?(reloaded, "#workspace-list, #home-overview, #home-inbox")
+  end
+
   test "Connections is a global overview on direct entry and reload", ctx do
     for path <- [
           "/connections",

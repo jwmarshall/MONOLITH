@@ -1,5 +1,6 @@
 @import "tailwindcss" source(none);
 @import "phoenix-colocated/lovelace/colocated.css";
+@import "./themes.css";
 @import "./mail.css";
 @import "./workspaces.css";
 @import "./home.css";
@@ -32,45 +33,10 @@
   themes: false;
 }
 
-@plugin "daisyui/packages/bundle/daisyui-theme" {
-  name: "lovelace";
-  default: true;
-  prefersdark: true;
-  color-scheme: "dark";
-  --color-base-100: #141918;
-  --color-base-200: #1b2321;
-  --color-base-300: #34433f;
-  --color-base-content: #e9efec;
-  --color-primary: #8bcbc1;
-  --color-primary-content: #102321;
-  --color-secondary: #b0bfba;
-  --color-secondary-content: #141918;
-  --color-accent: #8bcbc1;
-  --color-accent-content: #102321;
-  --color-neutral: #34433f;
-  --color-neutral-content: #e9efec;
-  --color-info: #9bbfe2;
-  --color-info-content: #141918;
-  --color-success: #a5bb91;
-  --color-success-content: #141918;
-  --color-warning: #d6aa69;
-  --color-warning-content: #19150e;
-  --color-error: #dc9487;
-  --color-error-content: #141918;
-  --radius-selector: 0.125rem;
-  --radius-field: 0.125rem;
-  --radius-box: 0.125rem;
-  --size-selector: 0.25rem;
-  --size-field: 0.25rem;
-  --border: 1px;
-  --depth: 0;
-  --noise: 0;
-}
-
 @custom-variant phx-click-loading (.phx-click-loading&, .phx-click-loading &);
 @custom-variant phx-submit-loading (.phx-submit-loading&, .phx-submit-loading &);
 @custom-variant phx-change-loading (.phx-change-loading&, .phx-change-loading &);
-@custom-variant dark (&:where([data-theme=lovelace], [data-theme=lovelace] *));
+@custom-variant dark (&:where(:root, :root *));
 
 [data-phx-session], [data-phx-teleported-src] {
   display: contents;
@@ -93,7 +59,6 @@
   --workspace-scenery-blur: 14px;
   --workspace-chrome-blur: 1.4px;
   --workspace-content-blur: 3px;
-  --color-primary-hover: #b5e2da;
 }
 
 .glass-workspace {
@@ -104,14 +69,14 @@
   min-height: 100svh;
   height: 100dvh;
   overflow: hidden;
-  background: #514c40;
+  background: var(--scenery-fallback);
 }
 
 .workspace-background {
   position: absolute;
   z-index: -1;
   inset: -24px;
-  background: #514c40 var(--workspace-default-background) center / cover no-repeat;
+  background: var(--scenery-fallback) var(--workspace-default-background) center / cover no-repeat;
   filter: blur(0);
   transition: filter var(--workspace-focus-duration) var(--workspace-focus-easing);
   pointer-events: none;
@@ -133,7 +98,7 @@
   position: relative;
   min-height: 100%;
   height: 100%;
-  background: rgb(18 22 21 / 2%);
+  background: var(--glass-idle);
   transition: background var(--workspace-focus-duration) var(--workspace-focus-easing);
 }
 
@@ -154,7 +119,7 @@
   content: "";
   position: absolute;
   inset: 0;
-  background: linear-gradient(115deg, rgb(255 250 234 / 3%), transparent 38%);
+  background: linear-gradient(115deg, var(--glass-reflection), transparent 38%);
   filter: blur(var(--workspace-chrome-blur));
   pointer-events: none;
   transition: filter var(--workspace-focus-duration) var(--workspace-focus-easing);
@@ -192,7 +157,7 @@
   justify-content: center;
   gap: 20px;
   padding: 32px;
-  color: #f3efe4;
+  color: var(--color-text-bright);
   opacity: 0;
   filter: blur(var(--workspace-chrome-blur));
   pointer-events: none;
@@ -231,7 +196,7 @@
   }
 
   .workspace-glass {
-    background: rgb(18 22 21 / 18%);
+    background: var(--glass-engaged);
   }
 
   .workspace-brand {
@@ -276,7 +241,7 @@
 }
 
 .glass-workspace:has(#workspace-pane[aria-pressed="true"]) .workspace-glass[data-entered="true"] {
-  background: rgb(12 17 16 / 58%);
+  background: var(--glass-focused);
   .workspace-content, .workspace-controls { opacity: 1; filter: blur(0); }
   #owner-lock-form { visibility: visible; opacity: 1; }
 }
@@ -291,7 +256,7 @@
   color: var(--color-base-content);
   filter: blur(0);
   padding: var(--workspace-top-padding) var(--workspace-inline-padding) 64px;
-  text-shadow: 0 1px 2px rgb(0 0 0 / 75%);
+  text-shadow: var(--shadow-text);
   display: flex;
   flex-direction: column;
   transition:
@@ -338,7 +303,7 @@
    It remains focused and usable without JavaScript, with the bundled JPEG default. */
 .stage-static {
   .workspace-background { filter: blur(var(--workspace-scenery-blur)); }
-  .workspace-glass { background: rgb(12 17 16 / 58%); }
+  .workspace-glass { background: var(--glass-focused); }
   .workspace-glass::after { filter: none; }
 }
 
@@ -355,7 +320,7 @@
   max-width: 384px;
   margin-block: auto;
   color: var(--color-base-content);
-  text-shadow: 0 1px 2px rgb(0 0 0 / 75%);
+  text-shadow: var(--shadow-text);
 }
 
 .owner-unlock-form { display: grid; gap: 12px; }
@@ -364,8 +329,8 @@
 
 .owner-password {
   width: 100%;
-  border: 1px solid color-mix(in srgb, var(--color-primary) 55%, transparent);
-  background: rgb(12 17 16 / 25%);
+  border: 1px solid var(--border-accent);
+  background: var(--surface-input);
   padding: 12px 14px;
   color: var(--color-base-content);
 }
@@ -401,25 +366,25 @@
 .workspace-directory-heading { display: flex; align-items: center; justify-content: space-between; gap: 24px; margin-bottom: 20px; }
 .workspace-directory h2 { font-size: clamp(28px, 3vw, 34px); line-height: 1.2; letter-spacing: -0.035em; font-weight: 300; overflow-wrap: anywhere; }
 .workspace-directory h2:focus { outline: none; }
-.workspace-action { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 44px; padding: 10px 16px; border: 1px solid rgb(233 239 236 / 24%); border-radius: 4px; background: rgb(20 25 24 / 38%); font-size: 13px; line-height: 1.4; color: var(--color-base-content); cursor: pointer; transition: color 160ms, background 160ms, border-color 160ms; text-shadow: none; }
-.workspace-action:hover { color: var(--color-primary-hover); background: rgb(139 203 193 / 10%); border-color: var(--color-primary); }
+.workspace-action { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 44px; padding: 10px 16px; border: 1px solid var(--border-default); border-radius: 4px; background: var(--surface-action); font-size: 13px; line-height: 1.4; color: var(--color-base-content); cursor: pointer; transition: color 160ms, background 160ms, border-color 160ms; text-shadow: none; }
+.workspace-action:hover { color: var(--color-primary-hover); background: var(--surface-hover-action); border-color: var(--color-primary); }
 .workspace-action:disabled { opacity: 0.4; cursor: default; }
 .workspace-directory-heading > .workspace-action { flex-shrink: 0; }
-.workspace-back { margin-bottom: 16px; color: #eeebe1; }
-.workspace-editor { max-width: 480px; margin-bottom: 32px; padding: 24px 0; border-top: 1px solid rgb(238 237 229 / 25%); border-bottom: 1px solid rgb(238 237 229 / 18%); }
+.workspace-back { margin-bottom: 16px; color: var(--color-text-soft); }
+.workspace-editor { max-width: 480px; margin-bottom: 32px; padding: 24px 0; border-top: 1px solid var(--border-divider); border-bottom: 1px solid var(--border-muted); }
 .workspace-editor-title { font-size: 15px; margin-bottom: 20px; }
-.workspace-name-input { width: 100%; display: block; margin-top: 8px; padding: 12px 14px; border: 1px solid rgb(238 237 229 / 35%); background: rgb(12 17 16 / 25%); border-radius: 0; font-size: 16px; color: #f3efe4; }
-.workspace-form-hint { margin-top: 10px; font-size: 12px; color: #eeebe1; }
-.workspace-editor .label { color: #eeebe1; }
-.workspace-form-feedback { font-size: 13px; color: #f0b7a9; line-height: 1.6; }
+.workspace-name-input { width: 100%; display: block; margin-top: 8px; padding: 12px 14px; border: 1px solid var(--border-input); background: var(--surface-input); border-radius: 0; font-size: 16px; color: var(--color-text-bright); }
+.workspace-form-hint { margin-top: 10px; font-size: 12px; color: var(--color-text-soft); }
+.workspace-editor .label { color: var(--color-text-soft); }
+.workspace-form-feedback { font-size: 13px; color: var(--color-error-soft); line-height: 1.6; }
 .workspace-editor-actions { display: flex; gap: 24px; margin-top: 20px; }
 .workspace-action-primary { color: var(--color-primary-content); background: var(--color-primary); border-color: var(--color-primary); }
 .workspace-action-primary:hover { color: var(--color-primary-content); background: var(--color-primary-hover); }
-.workspace-notice { padding: 28px 0; color: #e1dfd3; font-size: 14px; }
+.workspace-notice { padding: 28px 0; color: var(--color-text-muted); font-size: 14px; }
 .workspace-landing > h3 { font-size: 17px; font-weight: 400; }
 .workspace-landing > p { margin-top: 10px; color: var(--color-secondary); font-size: 13px; line-height: 1.8; }
-.workspace-footer { justify-content: flex-end; font-size: 11px; color: #eeebe1; }
-.workspace-footer kbd { font-family: inherit; border: 1px solid rgb(238 237 229 / 30%); padding: 2px 5px; margin-right: 5px; }
+.workspace-footer { justify-content: flex-end; font-size: 11px; color: var(--color-text-soft); }
+.workspace-footer kbd { font-family: inherit; border: 1px solid var(--border-strong); padding: 2px 5px; margin-right: 5px; }
 
 @media (max-width: 640px) {
   .glass-workspace {

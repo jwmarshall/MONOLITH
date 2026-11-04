@@ -115,6 +115,60 @@ defmodule LovelaceWeb.HomeComponents do
     """
   end
 
+  def settings(assigns) do
+    ~H"""
+    <section id="settings-panel" class="settings-panel" aria-labelledby="directory-heading">
+      <fieldset
+        id="theme-picker"
+        class="theme-picker"
+        phx-hook="ThemePicker"
+        phx-update="ignore"
+        aria-describedby="theme-description theme-status"
+      >
+        <legend>Appearance</legend>
+        <p id="theme-description" class="settings-description">
+          Choose a palette for LOVELACE. This preference stays in this browser, not your account.
+          Your scenery is unchanged.
+        </p>
+        <div class="theme-options">
+          <label
+            :for={
+              {id, name, description} <- [
+                {"charcoal", "Charcoal", "Quiet neutrals"},
+                {"earth", "Earth", "Warm, grounded tones"},
+                {"sea-glass", "Sea Glass", "Soft teal accents"},
+                {"mist", "Mist", "Cool slate and silver"}
+              ]
+            }
+            class="theme-option"
+            data-theme-choice={id}
+            for={"theme-#{id}"}
+          >
+            <input
+              id={"theme-#{id}"}
+              type="radio"
+              name="theme"
+              value={id}
+              checked={id == "sea-glass"}
+            />
+            <span class="theme-swatch" aria-hidden="true"></span>
+            <span class="theme-option-copy">
+              <span class="theme-option-name">{name}</span>
+              <span class="theme-option-description">{description}</span>
+            </span>
+          </label>
+        </div>
+        <p id="theme-status" class="theme-status" role="status" aria-live="polite" aria-atomic="true">
+          Choose a theme to apply it in this browser.
+        </p>
+        <noscript>
+          <p class="settings-description">Enable JavaScript to choose and save a theme.</p>
+        </noscript>
+      </fieldset>
+    </section>
+    """
+  end
+
   defp health_message(%{status: :reconnect}), do: "Reconnect required"
   defp health_message(%{last_error: :keychain}), do: "Credential store unavailable"
 

@@ -1,9 +1,9 @@
 # LOVELACE development and testing
 
 LOVELACE is the project name, always uppercase in prose and UI. The OTP app is
-`:lovelace`, modules use `Lovelace`/`LovelaceWeb`, and the Tailwind/esbuild profile and
-Tailwind theme key are `lovelace`. Sources live in `lib/lovelace/` and `lib/lovelace_web/`;
-local databases use `lovelace_*.db`. See the [README](../README.md#identity-and-naming).
+`:lovelace`, modules use `Lovelace`/`LovelaceWeb`, and the Tailwind/esbuild profile is `lovelace`.
+Sources live in `lib/lovelace/` and `lib/lovelace_web/`; local databases use `lovelace_*.db`.
+The default UI theme is `sea-glass`. See the [README](../README.md#identity-and-naming).
 
 ## Namespace and local data
 
@@ -183,7 +183,7 @@ covers those lifecycle contracts; LiveView tests cover server search/page/contex
 `HomeComponents` supplies the local daily heading, account readout and freshness components.
 `DailyOrientation` and `ObservationTime` hooks own only their ignored readout subtrees and
 clean up timers/resume listeners. Default navigation is Home; the center navigation contains
-Home, Workspaces, Connections and Scenes. The corner monogram is decorative only, and Escape/idle
+Home, Workspaces, Connections, Scenes and Settings. The corner monogram is decorative only, and Escape/idle
 preserve the current destination. Browser history/reload/deep links restore meaningful views,
 including submitted mail searches/pages, Conversations and Connections providers. Only navigation
 URLs, not drafts/dialogs/scenery focus, enter history. Direct
@@ -305,6 +305,24 @@ requests/CSP events across navigation. The real browser idle timer uses a shorte
 Chrome is shut down and disposable data removed on completion. The runner has startup,
 protocol, overall and shutdown deadlines; it is not a cross-browser or screen-reader suite.
 See [UI_CONTRACT.md](UI_CONTRACT.md#verification-map) for coverage boundaries.
+
+### UI themes
+
+Authenticated `/settings` selects Charcoal, Earth, Sea Glass or Mist without changing scenery.
+`assets/css/themes.css` is the sole home for raw UI palette values. Its `--theme-*` primitives
+feed DaisyUI's existing `--color-*` API and shared semantic border/surface/glass/shadow tokens.
+Keep component CSS on those semantic tokens; picker swatches use the same palette primitives.
+All four themes are dark, and forced colors retains system-color overrides.
+
+`assets/js/theme_boot.js` is a small synchronous, self-hosted esbuild entry loaded before CSS.
+It restores only an allowlisted `lovelace:theme` value from browser-local storage; Sea Glass is
+the fallback. The native-radio `ThemePicker` hook applies/persists selection and announces
+failed storage without pretending it saved. Preferences do not enter the database, account
+state or provider calls, and already-open tabs do not synchronize live.
+
+`mix check` includes storage/failure/lifecycle regressions. `mix test.ui` exercises all four
+themes across Settings, Home, Workspaces and mail, reload/history persistence, native keyboard
+selection, preserved imagery, protected deep links and narrow/forced-color layouts.
 
 ## Test conventions
 

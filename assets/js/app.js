@@ -19,6 +19,7 @@ import StatusSignal from "./hooks/status_signal"
 import MailReader from "./hooks/mail_reader"
 import {MailDate, MailFreshness} from "./hooks/mail_time"
 import StageBackground, {observeStageImage} from "./hooks/stage_background"
+import ThemePicker from "./hooks/theme_picker"
 
 // Controller-rendered unlock/setup has no LiveView hooks. These observers belong
 // only to their image elements and are collected with the document on navigation.
@@ -30,13 +31,24 @@ const csrfToken = document.querySelector("meta[name='csrf-token']").getAttribute
 const liveSocket = new LiveSocket("/live", Socket, {
   longPollFallbackMs: 2500,
   params: {_csrf_token: csrfToken},
-  hooks: {...colocatedHooks, StatusSignal, CalendarDay, CalendarEventTime, BrandReveal, WorkspaceIdle, NativeModal, WorkspaceEntrance, StageBackground, DailyOrientation, ObservationTime, MailReader, MailDate, MailFreshness},
+  hooks: {...colocatedHooks, StatusSignal, CalendarDay, CalendarEventTime, BrandReveal, WorkspaceIdle, NativeModal, WorkspaceEntrance, StageBackground, DailyOrientation, ObservationTime, MailReader, MailDate, MailFreshness, ThemePicker},
 })
 
 // Show progress bar on live navigation and form submits
-const accentColor = getComputedStyle(document.documentElement).getPropertyValue("--color-primary").trim()
-topbar.config({barColors: {0: accentColor || "#8bcbc1"}, shadowColor: "rgba(0, 0, 0, .3)"})
-window.addEventListener("phx:page-loading-start", _info => topbar.show(300))
+const configureThemeChrome = () => {
+  const styles = getComputedStyle(document.documentElement)
+  topbar.config({
+    barColors: {0: styles.getPropertyValue("--color-primary").trim()},
+    shadowColor: styles.getPropertyValue("--shadow-color").trim(),
+  })
+  document.querySelector("meta[name='theme-color']").content = styles.getPropertyValue("--color-base-100").trim()
+}
+configureThemeChrome()
+window.addEventListener("lovelace:theme-change", configureThemeChrome)
+window.addEventListener("phx:page-loading-start", _info => {
+  configureThemeChrome()
+  topbar.show(300)
+})
 window.addEventListener("phx:page-loading-stop", _info => topbar.hide())
 
 // connect if there are any LiveViews on the page

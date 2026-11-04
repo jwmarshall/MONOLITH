@@ -135,6 +135,18 @@ defmodule LovelaceWeb.OwnerControllerTest do
     assert redirected_to(conn) == "/"
   end
 
+  test "Settings deep links require unlock and resume the requested destination", %{conn: conn} do
+    configure()
+    conn = get(conn, "/settings")
+    assert redirected_to(conn) == "/unlock"
+    assert get_session(conn, :owner_return_to) == "/settings"
+
+    conn = conn |> recycle() |> post_password(@password)
+    assert redirected_to(conn) == "/settings"
+    assert {:ok, _} = Owner.verify_session(get_session(conn, :owner_session_token))
+    refute get_session(conn, :owner_return_to)
+  end
+
   test "HEAD navigation cannot become a return destination after Plug.Head rewrites it", %{
     conn: conn
   } do
