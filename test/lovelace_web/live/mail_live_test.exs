@@ -298,7 +298,19 @@ defmodule LovelaceWeb.MailLiveTest do
           "to" => "first@example.test, colleague@example.test",
           "date" => "Mon, 2 Nov 2026 09:15:00 +0000",
           "text" =>
-            "Reply #{n}\n\n> Quoted history\nSignature <img src='https://remote.test/pixel'>"
+            "Reply #{n}\n\n> Quoted history\nSignature <img src='https://remote.test/pixel'>",
+          "attachments" =>
+            if(n == 3,
+              do: [
+                %{
+                  "attachment_id" => "photo-1",
+                  "filename" => "photo.png",
+                  "mime_type" => "image/png",
+                  "size" => 2048
+                }
+              ],
+              else: []
+            )
         }
       end
 
@@ -331,7 +343,13 @@ defmodule LovelaceWeb.MailLiveTest do
     assert LazyHTML.query(document, "#mail-message-m3 .mail-message-text") |> LazyHTML.text() =~
              "> Quoted history\nSignature <img"
 
-    assert LazyHTML.query(document, "#mail-threads, img, script, .mail-message-text a")
+    assert LazyHTML.query(document, ".mail-attachment img[alt='photo.png']") |> LazyHTML.to_tree() !=
+             []
+
+    assert LazyHTML.query(document, ".mail-attachment a[href*='photo-1?download=1']")
+           |> LazyHTML.text() == "Download"
+
+    assert LazyHTML.query(document, "#mail-threads, script, .mail-message-text a")
            |> LazyHTML.to_tree() == []
 
     refute inspect(socket.assigns) =~ "Quoted history"

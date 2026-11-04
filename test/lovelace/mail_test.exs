@@ -4,6 +4,8 @@ defmodule Lovelace.MailTest do
   alias Ecto.Adapters.SQL.Sandbox
   alias Lovelace.Mail
   alias Lovelace.Mail.{CacheEntry, Connections, Operations, PollWorker}
+  require Ash.Query
+
   @owner %{role: :local_owner}
 
   setup do
@@ -222,6 +224,43 @@ defmodule Lovelace.MailTest do
     Lovelace.TestMail.response({:error, :invalid_grant})
     assert {:ok, %{error: :reconnect}} = Mail.mail_page(w.id, a.id, %{force: true}, actor: @owner)
     assert Mail.get_account!(a.id, actor: @owner).status == :reconnect
+  end
+
+  test "legacy cached threads retry for attachment metadata and preserve the body offline", %{
+    a: a
+  } do
+    payload = %{
+      "id" => "same-id",
+      "messages" => [%{"id" => "message", "subject" => "cached", "text" => "body"}]
+    }
+
+    CacheEntry
+    |> Ash.Changeset.for_create(
+      :store,
+      %{
+        account_id: a.id,
+        key: "thread:same-id",
+        generation: a.generation,
+        payload: payload,
+        bytes: byte_size(Jason.encode!(payload)),
+        fetched_at: DateTime.utc_now(),
+        expires_at: DateTime.add(DateTime.utc_now(), 60_000)
+      },
+      actor: @owner
+    )
+    |> Ash.create!()
+
+    Lovelace.TestMail.response({:error, :offline})
+
+    assert %{error: :unavailable, stale: true, data: ^payload} =
+             Mail.account_thread!(a.id, "same-id", actor: @owner)
+
+    Lovelace.TestMail.response(:ok)
+
+    assert %{error: nil, cached: false, data: %{"messages" => [message]}} =
+             Mail.account_thread!(a.id, "same-id", actor: @owner)
+
+    assert [%{"attachment_id" => "part-a"}] = message["attachments"]
   end
 
   test "a recent cached reopen preserves a known refresh failure until real recovery", %{
@@ -459,6 +498,69 @@ defmodule Lovelace.MailTest do
 
     assert %{cached: true, data: ^first} =
              Mail.account_thread!(a.id, "same-id", actor: @owner)
+  end
+
+  test "attachment bytes require account-scoped thread metadata and stay out of the mail cache",
+       %{
+         a: a,
+         b: b
+       } do
+    assert %{error: nil} = Mail.account_thread!(a.id, "same-id", actor: @owner)
+
+    assert %{bytes: "synthetic file", filename: "note.txt", size: 14} =
+             Mail.attachment!(a.id, "same-id", "message", "part-a", actor: @owner)
+
+    assert {:attachment, "access:token-a", "message", "part-a"} in Lovelace.TestMail.calls()
+
+    assert %{error: :unavailable} =
+             Mail.attachment!(b.id, "same-id", "message", "part-a", actor: @owner)
+
+    # Both accounts reuse provider thread, message and attachment IDs; B must use B's token.
+    assert %{error: nil} = Mail.account_thread!(b.id, "same-id", actor: @owner)
+
+    assert %{bytes: "synthetic file"} =
+             Mail.attachment!(b.id, "same-id", "message", "part-a", actor: @owner)
+
+    assert {:attachment, "access:token-b", "message", "part-a"} in Lovelace.TestMail.calls()
+
+    assert %{error: :unavailable} =
+             Mail.attachment!(a.id, "same-id", "message", "message", actor: @owner)
+
+    cached =
+      CacheEntry
+      |> Ash.Query.for_read(:read, %{account_id: a.id}, actor: @owner)
+      |> Ash.Query.filter(key == "thread:same-id")
+      |> Ash.read_one!()
+
+    refute inspect(cached.payload) =~ "synthetic file"
+  end
+
+  test "attachment bytes are discarded when the account reconnects during provider fetch", %{
+    a: a
+  } do
+    assert %{error: nil} = Mail.account_thread!(a.id, "same-id", actor: @owner)
+    Lovelace.TestMail.response({:wait_attachment, self()})
+
+    task =
+      Task.async(fn ->
+        receive do
+          :go -> Mail.attachment(a.id, "same-id", "message", "part-a", actor: @owner)
+        end
+      end)
+
+    Sandbox.allow(Lovelace.Repo, self(), task.pid)
+    send(task.pid, :go)
+    assert_receive {:attachment_waiting, provider}, 2000
+
+    connected =
+      Mail.save_connection!(
+        %{id: a.id, subject: a.subject, email: a.email, generation: Ash.UUID.generate()},
+        actor: @owner
+      )
+
+    send(provider, :continue)
+    assert {:ok, %{error: :unavailable, data: nil}} = Task.await(task)
+    assert Mail.get_account!(a.id, actor: @owner).generation == connected.generation
   end
 
   test "direct account reads require the owner, never a service or anonymous actor", %{a: a} do

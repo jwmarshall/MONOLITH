@@ -205,8 +205,11 @@ Verify implementation in code; the coverage map below is not evidence that check
   summaries; the latest message starts expanded and the reader begins at that reply.
   Differing subjects remain visible within their messages. Full sender/recipient/raw-date
   metadata has its own disclosure. Preserve quoted history/signatures as escaped text;
-  no automatic trimming, HTML rendering, remote content, attachments or mailbox writes.
-  Disclosure choices survive ordinary refreshes. Escape/idle preserves reader state.
+  no automatic trimming, HTML rendering, remote content or mailbox writes. Attachment
+  details stay within the message reader: show safe raster previews, metadata and explicit
+  downloads; never render active document types. Fetch bytes only on demand with the 5 MiB
+  bound and no persistent attachment cache (see [GMAIL.md](GMAIL.md)). Disclosure choices
+  survive ordinary refreshes. Escape/idle preserves reader state.
 - Back to results retains search/page and restores the opened row's focus and scroll
   position after the async list returns. Client navigation memory is ephemeral, bounded
   to one result context and reset on account/connection-generation/search/page changes;

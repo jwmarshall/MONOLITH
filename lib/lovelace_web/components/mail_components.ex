@@ -251,9 +251,60 @@ defmodule LovelaceWeb.MailComponents do
                 </dl>
               </details>
               <p :if={message["text"] in [nil, ""]} class="mail-muted">
-                No plain-text body. HTML and attachments are not displayed.
+                No plain-text body. HTML email content is not displayed.
               </p>
               <pre :if={message["text"] not in [nil, ""]} class="mail-message-text">{message["text"]}</pre>
+              <section
+                :if={message["attachments"] not in [nil, []]}
+                class="mail-attachments"
+                aria-label={"Attachments for message #{index + 1}"}
+              >
+                <h5>Attachments</h5>
+                <ul>
+                  <li :for={attachment <- message["attachments"]} class="mail-attachment">
+                    <div class="mail-attachment-meta">
+                      <span class="mail-attachment-name">{attachment["filename"]}</span>
+                      <span class="mail-muted">
+                        {attachment["mime_type"]} · {attachment_size(attachment["size"])}
+                      </span>
+                    </div>
+                    <a
+                      :if={downloadable_attachment?(attachment["size"])}
+                      class="workspace-action"
+                      href={
+                        attachment_path(
+                          @mail.account_id,
+                          @mail.thread_id,
+                          message["id"],
+                          attachment["attachment_id"],
+                          download: true
+                        )
+                      }
+                    >Download</a>
+                    <span
+                      :if={!downloadable_attachment?(attachment["size"])}
+                      class="mail-muted"
+                    >Larger than the 5 MiB limit</span>
+                    <img
+                      :if={
+                        previewable_image?(attachment["mime_type"]) &&
+                          downloadable_attachment?(attachment["size"])
+                      }
+                      src={
+                        attachment_path(
+                          @mail.account_id,
+                          @mail.thread_id,
+                          message["id"],
+                          attachment["attachment_id"]
+                        )
+                      }
+                      alt={attachment["filename"]}
+                      loading="lazy"
+                      referrerpolicy="no-referrer"
+                    />
+                  </li>
+                </ul>
+              </section>
             </div>
           </details>
         </section>
@@ -713,6 +764,25 @@ defmodule LovelaceWeb.MailComponents do
 
   defp present(value, fallback) when value in [nil, ""], do: fallback
   defp present(value, _), do: value
+
+  defp previewable_image?(type),
+    do: type in ["image/jpeg", "image/png", "image/gif", "image/webp"]
+
+  defp attachment_size(size) when is_integer(size) and size >= 0 do
+    if size < 1024, do: "#{size} B", else: "#{Float.round(size / 1024, 1)} KB"
+  end
+
+  defp attachment_size(_), do: "Size unavailable"
+
+  defp downloadable_attachment?(size),
+    do: is_integer(size) and size >= 0 and (size == 0 or size <= 5 * 1024 * 1024)
+
+  defp attachment_path(account, thread, message, attachment, opts \\ []) do
+    path =
+      "/accounts/#{account}/mail/threads/#{thread}/messages/#{message}/attachments/#{attachment}"
+
+    if Keyword.get(opts, :download, false), do: path <> "?download=1", else: path
+  end
 
   defp account_status(%{status: :disconnected, last_error: :keychain}),
     do: "Disconnected locally. Credential removal needs retrying."

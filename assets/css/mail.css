@@ -73,6 +73,15 @@
 .mail-message-meta { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 6px 16px; padding: 12px 0; overflow-wrap: anywhere; }
 .mail-message-meta dt { color: var(--color-secondary); }
 .mail-message-text { max-width: 68ch; white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; font-weight: 400; letter-spacing: normal; line-height: 1.75; tab-size: 4; }
+.mail-attachments { margin-top: 24px; padding-top: 16px; border-top: 1px solid var(--color-base-300); }
+.mail-attachments h5 { margin-bottom: 12px; color: var(--color-secondary); font-size: 13px; font-weight: 500; }
+.mail-attachments ul { display: grid; gap: 16px; }
+.mail-attachment { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 8px 16px; padding: 12px 0; border-bottom: 1px solid var(--color-base-300); }
+.mail-attachment img { grid-column: 1 / -1; max-width: min(100%, 640px); max-height: 520px; object-fit: contain; object-position: left center; }
+.mail-attachment-meta { display: grid; min-width: 0; gap: 4px; }
+.mail-attachment-name { overflow-wrap: anywhere; font-size: 14px; }
+.mail-attachment .workspace-action { min-height: 44px; }
+@media (max-width: 640px) { .mail-attachment { grid-template-columns: minmax(0, 1fr); } .mail-attachment .workspace-action { justify-self: start; } }
 .mail-panel button:disabled { opacity: 0.45; cursor: default; }
 @media (max-width: 800px) {
   .mail-inbox-heading { grid-template-columns: minmax(0, 1fr); gap: 16px; }

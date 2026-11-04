@@ -29,6 +29,11 @@ defmodule Lovelace.Mail do
       define :thread, action: :thread, args: [:workspace_id, :account_id, :thread_id]
       define :account_page, action: :account_page, args: [:account_id]
       define :account_thread, action: :account_thread, args: [:account_id, :thread_id]
+
+      define :attachment,
+        action: :attachment,
+        args: [:account_id, :thread_id, :message_id, :attachment_id]
+
       define :poll, action: :poll, args: [:account_id, :generation]
     end
   end

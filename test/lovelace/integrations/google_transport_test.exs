@@ -49,6 +49,22 @@ defmodule Lovelace.Integrations.Google.TransportTest do
                  path: "/gmail/v1/users/me/threads/abc?format=metadata"
                })
              )
+
+    assert :ok =
+             Transport.validate(
+               request(%{
+                 host: "gmail.googleapis.com",
+                 path: "/gmail/v1/users/me/messages/msg_1/attachments/part-2"
+               })
+             )
+
+    assert {:error, :invalid_request} =
+             Transport.validate(
+               request(%{
+                 host: "gmail.googleapis.com",
+                 path: "/gmail/v1/users/me/messages/msg_1/attachments/part-2?alt=media"
+               })
+             )
   end
 
   test "only the fixed INBOX label read is additionally allowed" do

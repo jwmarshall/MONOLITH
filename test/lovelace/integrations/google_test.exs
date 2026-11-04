@@ -391,6 +391,37 @@ defmodule Lovelace.Integrations.GoogleTest do
             }} = Google.thread(@access, "abc")
   end
 
+  test "attachment metadata is extracted but bytes are only fetched by explicit bounded request" do
+    payload = %{
+      "mimeType" => "multipart/mixed",
+      "parts" => [
+        %{
+          "mimeType" => "image/png",
+          "filename" => "photo.png",
+          "body" => %{"attachmentId" => "att_1", "size" => 4}
+        }
+      ]
+    }
+
+    assert {:ok, %{messages: [%{attachments: [attachment]}]}} =
+             Google.Message.thread(with_body(payload), "abc")
+
+    assert attachment == %{
+             attachment_id: "att_1",
+             filename: "photo.png",
+             mime_type: "image/png",
+             size: 4
+           }
+
+    configure(fn req ->
+      assert req.path == "/gmail/v1/users/me/messages/msg1/attachments/att_1"
+      json(%{size: 4, data: Base.url_encode64("data", padding: false)})
+    end)
+
+    assert {:ok, "data"} = Google.attachment(@access, "msg1", "att_1")
+    assert {:error, :invalid_request} = Google.attachment(@access, "../bad", "att_1")
+  end
+
   test "HTML-only extraction drops active content, attributes, comments and remote references" do
     html =
       "<style>BAD STYLE</style><script>BAD SCRIPT</script><!-- hidden --><p>Hello &amp; goodbye</p><img src='https://evil.invalid/pixel'><a href='https://evil.invalid'>label</a><template>BAD TEMPLATE</template>"

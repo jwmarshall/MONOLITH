@@ -23,8 +23,8 @@ defmodule Lovelace.Integrations.Google do
   Calendar is explicit opt-in; returned `:scopes` supplies consent evidence.
   Lists return at most 20 metadata summaries and an optional next-page token.
   Full threads are capped at 100 messages; MIME is capped at depth 10, 100 parts,
-  256 KiB decoded text and 2 MiB encoded text per message. Attachments are omitted.
-  Unsupported/non-UTF-8 text fails closed; no attachment or remote fetch is made.
+  256 KiB decoded text and 2 MiB encoded text per message. Attachment metadata is
+  retained; bytes are fetched only by an explicit, bounded request.
   """
 
   alias Lovelace.Integrations.Google.{Message, Transport}
@@ -36,6 +36,7 @@ defmodule Lovelace.Integrations.Google do
   ]
   @callback_path "/oauth/google/callback"
   @max_body 10 * 1024 * 1024
+  @max_attachment 5 * 1024 * 1024
   @safe_errors [
     :timeout,
     :response_too_large,
@@ -220,6 +221,34 @@ defmodule Lovelace.Integrations.Google do
         _ -> {:error, :invalid_request}
       end
     end)
+  end
+
+  @spec attachment(binary(), binary(), binary()) :: {:ok, binary()} | failure()
+  def attachment(access_token, message_id, attachment_id) do
+    if valid_id?(message_id) and valid_id?(attachment_id),
+      do: fetch_attachment(access_token, message_id, attachment_id),
+      else: {:error, :invalid_request}
+  end
+
+  defp fetch_attachment(access_token, message_id, attachment_id) do
+    bounded(fn config ->
+      fetch_attachment_data(config, access_token, message_id, attachment_id)
+    end)
+  end
+
+  defp fetch_attachment_data(config, access_token, message_id, attachment_id) do
+    path = "/gmail/v1/users/me/messages/#{message_id}/attachments/#{attachment_id}"
+
+    with {:ok, data} <- get(config, "gmail.googleapis.com", path, access_token),
+         encoded when is_binary(encoded) <- data["data"],
+         true <- byte_size(encoded) <= div(@max_attachment * 4, 3) + 8,
+         {:ok, bytes} <- Base.url_decode64(encoded, padding: rem(byte_size(encoded), 4) == 0),
+         true <- byte_size(bytes) <= @max_attachment do
+      {:ok, bytes}
+    else
+      {:error, reason} -> {:error, reason}
+      _ -> {:error, :invalid_response}
+    end
   end
 
   @spec revoke(binary()) :: :ok | failure()

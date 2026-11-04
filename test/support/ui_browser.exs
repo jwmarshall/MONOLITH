@@ -27,6 +27,9 @@ defmodule Lovelace.UIFixture do
   def refresh("synthetic-refresh"), do: {:ok, %{access_token: "synthetic-access"}}
   def revoke(_token), do: :ok
 
+  def attachment("synthetic-access", "synthetic-message-3", "synthetic-photo"),
+    do: {:ok, scene_image(1)}
+
   def calendars("synthetic-access") do
     {:ok,
      %{
@@ -141,7 +144,20 @@ defmodule Lovelace.UIFixture do
             ~s(Browser <browser@example.test>, <img src="https://mail-fixture.invalid/recipient.png">),
           "date" =>
             "Sat, 15 Mar 2025 #{String.pad_leading(to_string(number + 8), 2, "0")}:30:00 +0000",
-          "text" => if(number == 3, do: latest_text, else: "Synthetic earlier message #{number}.")
+          "text" =>
+            if(number == 3, do: latest_text, else: "Synthetic earlier message #{number}."),
+          "attachments" =>
+            if(number == 3,
+              do: [
+                %{
+                  attachment_id: "synthetic-photo",
+                  filename: "synthetic-scene.png",
+                  mime_type: "image/png",
+                  size: byte_size(scene_image(1))
+                }
+              ],
+              else: []
+            )
         }
       end
 

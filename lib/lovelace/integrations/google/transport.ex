@@ -85,11 +85,15 @@ defmodule Lovelace.Integrations.Google.Transport do
     do: true
 
   defp allowed_target?("GET", "gmail.googleapis.com", path) when is_binary(path) do
-    # Only the read-only threads endpoints, including their bounded query string.
     [base | _] = String.split(path, "?", parts: 2)
 
     byte_size(path) <= 24 * 1024 and not String.contains?(path, ["#", "\r", "\n", "\0"]) and
-      Regex.match?(~r"\A/gmail/v1/users/me/threads(?:/[a-zA-Z0-9_-]{1,256})?\z", base)
+      (Regex.match?(~r"\A/gmail/v1/users/me/threads(?:/[a-zA-Z0-9_-]{1,256})?\z", base) or
+         (path == base and
+            Regex.match?(
+              ~r"\A/gmail/v1/users/me/messages/[a-zA-Z0-9_-]{1,256}/attachments/[a-zA-Z0-9_-]{1,256}\z",
+              base
+            )))
   end
 
   defp allowed_target?("GET", "www.googleapis.com", path) when is_binary(path) do

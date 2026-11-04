@@ -48,6 +48,10 @@ defmodule LovelaceWeb.Router do
 
     post "/oauth/google/start", GoogleOAuthController, :create
 
+    get "/accounts/:account_id/mail/threads/:thread_id/messages/:message_id/attachments/:attachment_id",
+        MailAttachmentController,
+        :show
+
     live_session :owner, on_mount: [{LovelaceWeb.OwnerAuth, :require_owner}] do
       live "/", HomeLive, :index
       live "/workspaces", HomeLive, :workspaces

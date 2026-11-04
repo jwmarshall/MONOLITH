@@ -91,6 +91,39 @@ defmodule Lovelace.Mail.Operations do
     end
   end
 
+  defp execute(:attachment, args, %{role: :local_owner} = actor) do
+    with {:ok, %{status: :ready} = account} <- Mail.get_account(args.account_id, actor: actor),
+         {:ok, metadata} <-
+           attachment_metadata(
+             account,
+             args.thread_id,
+             args.message_id,
+             args.attachment_id,
+             actor
+           ),
+         true <- metadata["size"] <= 5 * 1024 * 1024,
+         :ok <- admit_request(account, actor),
+         {:ok, token} <- Connections.access_token(account),
+         :ok <- admit_request(account, actor),
+         {:ok, bytes} <- provider().attachment(token, args.message_id, args.attachment_id),
+         true <- byte_size(bytes) <= 5 * 1024 * 1024,
+         true <- metadata["size"] == 0 or metadata["size"] == byte_size(bytes),
+         {:ok, _current} <- current_account(account, actor) do
+      {:ok,
+       %{
+         attachment_id: metadata["attachment_id"],
+         filename: metadata["filename"],
+         mime_type: metadata["mime_type"],
+         bytes: bytes,
+         size: byte_size(bytes)
+       }}
+    else
+      {:error, reason} -> {:ok, failure(safe_reason(reason))}
+      false -> {:ok, failure(:unavailable)}
+      _ -> {:ok, failure(:unavailable)}
+    end
+  end
+
   defp execute(action, args, %{role: :local_owner} = actor)
        when action in [:account_page, :account_thread] do
     case Mail.get_account(args.account_id, actor: actor) do
@@ -106,6 +139,17 @@ defmodule Lovelace.Mail.Operations do
 
       _ ->
         {:ok, failure(:unavailable)}
+    end
+  end
+
+  defp attachment_metadata(account, thread_id, message_id, attachment_id, actor) do
+    with %{payload: %{"messages" => messages}} <- cache(account, "thread:" <> thread_id, actor),
+         message when is_map(message) <- Enum.find(messages, &(&1["id"] == message_id)),
+         attachment when is_map(attachment) <-
+           Enum.find(Map.get(message, "attachments", []), &(&1["attachment_id"] == attachment_id)) do
+      {:ok, attachment}
+    else
+      _ -> {:error, :unavailable}
     end
   end
 
@@ -138,7 +182,8 @@ defmodule Lovelace.Mail.Operations do
           cooldown?(current) ->
             cached_failure(cached, :rate_limited)
 
-          cached && !force && DateTime.diff(DateTime.utc_now(), cached.fetched_at) < 180 ->
+          cached && !force && !legacy_thread_cache?(key, cached) &&
+              DateTime.diff(DateTime.utc_now(), cached.fetched_at) < 180 ->
             cached_result(cached, true, current)
 
           true ->
@@ -391,6 +436,18 @@ defmodule Lovelace.Mail.Operations do
     }
 
   defp failure(reason), do: %{data: nil, error: reason, stale: true, fetched_at: nil}
+
+  # Thread cache entries from before attachment metadata was introduced can still
+  # contain readable bodies. Revalidate them rather than treating them as fresh,
+  # while retaining the stale body if Gmail is temporarily unavailable.
+  defp legacy_thread_cache?("thread:" <> _thread_id, %{payload: %{"messages" => messages}})
+       when is_list(messages) and messages != [] do
+    Enum.any?(messages, fn message ->
+      not is_map(message) or not is_list(Map.get(message, "attachments"))
+    end)
+  end
+
+  defp legacy_thread_cache?(_, _), do: false
 
   defp cache(account, key, actor) do
     CacheEntry

@@ -63,6 +63,9 @@ defmodule Lovelace.TestGoogle do
       {:wait_thread, _} ->
         {:ok, %{access_token: "access:" <> token}}
 
+      {:wait_attachment, _} ->
+        {:ok, %{access_token: "access:" <> token}}
+
       {:wait, pid} ->
         send(pid, {:provider_waiting, self()})
 
@@ -141,10 +144,34 @@ defmodule Lovelace.TestGoogle do
            to: "owner@example.invalid",
            date: "today",
            subject: token,
-           text: "<script>synthetic</script>"
+           text: "<script>synthetic</script>",
+           attachments: [
+             %{
+               attachment_id: "part-a",
+               filename: "note.txt",
+               mime_type: "text/plain",
+               size: 14
+             }
+           ]
          }
        ]
      }}
+  end
+
+  def attachment(token, message_id, attachment_id) do
+    Lovelace.TestMail.record({:attachment, token, message_id, attachment_id})
+
+    case Lovelace.TestMail.result() do
+      {:wait_attachment, pid} ->
+        send(pid, {:attachment_waiting, self()})
+
+        receive do
+          :continue -> {:ok, "synthetic file"}
+        end
+
+      _ ->
+        {:ok, "synthetic file"}
+    end
   end
 
   def revoke(token) do

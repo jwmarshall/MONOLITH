@@ -34,8 +34,10 @@ defmodule Lovelace.Integrations.Google.Message do
       with %{"id" => message_id, "payload" => payload} <- message,
            true <- valid_id?(message_id),
            {:ok, fields} <- fields(message),
-           {:ok, text} <- body(payload) do
-        {:cont, {:ok, [Map.merge(fields, %{id: message_id, text: text}) | acc]}}
+           {:ok, text} <- body(payload),
+           {:ok, attachments} <- attachments(payload) do
+        {:cont,
+         {:ok, [Map.merge(fields, %{id: message_id, text: text, attachments: attachments}) | acc]}}
       else
         {:error, reason} -> {:halt, {:error, reason}}
         _ -> {:halt, {:error, :invalid_response}}
@@ -77,6 +79,75 @@ defmodule Lovelace.Integrations.Google.Message do
   defp valid_labels?(message) do
     labels = Map.get(message, "labelIds", [])
     is_list(labels) and length(labels) <= 100 and Enum.all?(labels, &is_binary/1)
+  end
+
+  defp attachments(payload) do
+    with {:ok, parts} <- attachment_parts(payload, 0, []) do
+      {:ok, Enum.reverse(parts)}
+    end
+  end
+
+  defp attachment_parts(_, depth, _) when depth > @max_depth,
+    do: {:error, :response_too_large}
+
+  defp attachment_parts(part, depth, acc) when is_map(part) do
+    if attachment?(part),
+      do: attachment_metadata(part, acc),
+      else: attachment_children(part, depth, acc)
+  end
+
+  defp attachment_parts(_, _, _), do: {:error, :invalid_response}
+
+  defp attachment_metadata(part, acc) do
+    body = part["body"] || %{}
+    id = body["attachmentId"]
+    filename = part["filename"] || "attachment"
+    mime = part["mimeType"] || "application/octet-stream"
+    size = body["size"] || 0
+
+    cond do
+      is_nil(id) ->
+        {:ok, acc}
+
+      valid_attachment?(id, filename, mime, size) ->
+        {:ok, [%{attachment_id: id, filename: filename, mime_type: mime, size: size} | acc]}
+
+      true ->
+        {:error, :invalid_response}
+    end
+  end
+
+  defp valid_attachment?(id, filename, mime, size) do
+    valid_attachment_id?(id) and valid_filename?(filename) and valid_mime?(mime) and
+      is_integer(size) and size >= 0
+  end
+
+  defp valid_attachment_id?(id),
+    do: is_binary(id) and Regex.match?(~r/\A[A-Za-z0-9_-]{1,256}\z/, id)
+
+  defp valid_filename?(value), do: is_binary(value) and byte_size(value) <= 1024
+  defp valid_mime?(value), do: is_binary(value) and byte_size(value) <= 255
+
+  defp attachment_children(part, depth, acc) do
+    case part["parts"] do
+      nil ->
+        {:ok, acc}
+
+      children when is_list(children) and length(children) <= @max_parts ->
+        walk_attachment_children(children, depth, acc)
+
+      _ ->
+        {:error, :response_too_large}
+    end
+  end
+
+  defp walk_attachment_children(children, depth, acc) do
+    Enum.reduce_while(children, {:ok, acc}, fn child, {:ok, rows} ->
+      case attachment_parts(child, depth + 1, rows) do
+        {:ok, next} -> {:cont, {:ok, next}}
+        error -> {:halt, error}
+      end
+    end)
   end
 
   defp body(payload) do

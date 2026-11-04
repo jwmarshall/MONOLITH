@@ -66,6 +66,24 @@ defmodule Lovelace.Mail.Operation do
       run Lovelace.Mail.Operations
     end
 
+    action :attachment, :map do
+      argument :account_id, :uuid, allow_nil?: false
+
+      argument :thread_id, :string,
+        allow_nil?: false,
+        constraints: [match: ~r/\A[a-zA-Z0-9_-]{1,128}\z/]
+
+      argument :message_id, :string,
+        allow_nil?: false,
+        constraints: [match: ~r/\A[a-zA-Z0-9_-]{1,128}\z/]
+
+      argument :attachment_id, :string,
+        allow_nil?: false,
+        constraints: [match: ~r/\A[a-zA-Z0-9_-]{1,256}\z/]
+
+      run Lovelace.Mail.Operations
+    end
+
     action :poll, :map do
       argument :account_id, :uuid, allow_nil?: false
       argument :generation, :uuid, allow_nil?: false
@@ -82,7 +100,8 @@ defmodule Lovelace.Mail.Operation do
              :page,
              :thread,
              :account_page,
-             :account_thread
+             :account_thread,
+             :attachment
            ]) do
       access_type :strict
       authorize_if Lovelace.Workspaces.LocalOwner

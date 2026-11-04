@@ -10,9 +10,16 @@ One local owner unlocks LOVELACE with a password. Google connections are **not**
 owner identities. Connect Google once and attach that connection to one or more
 workspaces. Each workspace can contain several accounts; each inbox, search,
 conversation, cache, job and update remains account-scoped. There is no unified inbox.
-Projects, sending, drafts, archive/read/label changes and attachment downloads are outside
-current scope, not a standing backlog.
-Reading a conversation does **not** mark it as read in Gmail.
+Projects, sending, drafts and archive/read/label changes remain outside current scope.
+Attachment lists appear in opened message details. Files are fetched only on demand, never
+persisted in the mail cache, and limited to 5 MiB per file. Explicit downloads are available
+for bounded attachment types; only JPEG, PNG, GIF and WebP receive inline previews. SVG,
+HTML and other active document formats are never rendered inline. Downloads use an
+owner-protected route, safe generic content type, forced attachment disposition and
+`nosniff`; preview bytes use a separate raster-image allowlist. Attachment IDs must match
+metadata from the cached, account-scoped thread, and connection generation is checked
+again after provider fetch. Reading a conversation or fetching an attachment does **not**
+mark it as read in Gmail.
 
 This is a macOS-first integration. Automated tests use synthetic providers and vaults,
 not real accounts or credential values. Follow the manual steps below to activate a new
@@ -237,8 +244,10 @@ interpreted as an absent credential during rollback.
   as your OS user, developer tools, database access or a compromised browser.
 - Plain-text MIME is preferred; HTML-only mail is conservatively converted to text.
   All output is HEEx-escaped. No HTML rendering, scripts, automatic URL requests, remote
-  images or attachment fetches. Unsupported encodings/oversized threads can fail safely
-  instead of rendering a partial, misleading conversation. Current MIME text expects UTF-8.
+  external images or automatic attachment fetches. Opening a conversation lists bounded
+  attachment metadata; previews fetch only allowlisted raster formats and downloads are
+  explicit. Attachment bytes are not retained in SQLite. Oversized files/threads fail
+  safely instead of rendering partial content. Current MIME text expects UTF-8.
 - Oban **2.24.2**, Apache-2.0, uses its bundled SQLite Lite engine. A minute cron sweep
   queues overdue per-account polls, targeting a three-minute interval, queue concurrency 1.
   It refreshes the first inbox page and independently reads the INBOX label's unread
