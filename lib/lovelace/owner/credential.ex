@@ -29,6 +29,20 @@ defmodule Lovelace.Owner.Credential do
       primary? true
     end
 
+    read :sign_in_with_password do
+      get? true
+
+      argument :id, :string, allow_nil?: false
+
+      argument :password, :string do
+        allow_nil? false
+        sensitive? true
+        constraints trim?: false, max_length: 1024
+      end
+
+      prepare AshAuthentication.Strategy.Password.SignInPreparation
+    end
+
     create :configure do
       accept []
 
@@ -61,6 +75,16 @@ defmodule Lovelace.Owner.Credential do
 
       run {Lovelace.Owner.Actions, operation: :unlock}
     end
+
+    action :unlock_for_maintenance, :string do
+      argument :password, :string do
+        allow_nil? false
+        sensitive? true
+        constraints trim?: false, max_length: 1024
+      end
+
+      run {Lovelace.Owner.Actions, operation: :unlock_for_maintenance}
+    end
   end
 
   policies do
@@ -77,6 +101,11 @@ defmodule Lovelace.Owner.Credential do
     policy action(:read) do
       access_type :strict
       authorize_if actor_attribute_equals(:role, :owner_auth_service)
+    end
+
+    policy action(:unlock_for_maintenance) do
+      access_type :strict
+      authorize_if actor_attribute_equals(:role, :owner_setup)
     end
 
     policy action([:configured, :unlock]) do

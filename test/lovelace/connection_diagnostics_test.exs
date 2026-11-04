@@ -47,10 +47,5 @@ defmodule Lovelace.Mail.ConnectionDiagnosticsTest do
 
     refute log =~ sentinel
     assert log =~ "keychain"
-    message = ConnectionDiagnostics.message("keychain", "keychain")
-    assert message =~ "macOS login keychain"
-    assert message =~ "rebuilds can invalidate partition approvals"
-    refute message =~ "Build the Keychain helper"
-    refute log =~ "Build the Keychain helper"
   end
 end

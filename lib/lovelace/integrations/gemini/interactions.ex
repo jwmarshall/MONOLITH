@@ -26,6 +26,7 @@ defmodule Lovelace.Integrations.Gemini.Interactions do
   """
 
   alias Lovelace.Integrations.Gemini.{Credentials, Transport}
+  alias Lovelace.Security.Vault
   alias Lovelace.StageDesigner.Image
 
   @host "https://generativelanguage.googleapis.com/v1beta/interactions"
@@ -102,13 +103,17 @@ defmodule Lovelace.Integrations.Gemini.Interactions do
   end
 
   defp execute(method, input, opts, port) do
+    Vault.with_access(fn -> execute_leased(method, input, opts, port) end)
+  end
+
+  defp execute_leased(method, input, opts, port) do
     with :ok <- validate_options(opts),
          {:ok, url, body} <- prepare(method, input),
          {:ok, key} <- api_key(opts) do
       timeout = Keyword.get(opts, :timeout_seconds, 120) * 1000
       # All exceptions/throws/exits are caught INSIDE this task. A task crash
       # report must never inspect the key, prompt, provider response or closure.
-      task = Task.async(fn -> request(method, url, body, key, opts, timeout, port) end)
+      task = Task.async(fn -> leased_request(method, url, body, key, opts, timeout, port) end)
 
       case Task.yield(task, timeout) do
         {:ok, result} ->
@@ -123,6 +128,10 @@ defmodule Lovelace.Integrations.Gemini.Interactions do
     _ -> {:error, :provider_error}
   catch
     _, _ -> {:error, :provider_error}
+  end
+
+  defp leased_request(method, url, body, key, opts, timeout, port) do
+    Vault.with_access(fn -> request(method, url, body, key, opts, timeout, port) end)
   end
 
   defp validate_options(opts) when is_list(opts) do

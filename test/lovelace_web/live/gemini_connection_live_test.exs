@@ -110,8 +110,6 @@ defmodule LovelaceWeb.GeminiConnectionLiveTest do
     assert has_element?(view, "#connections-gemini[aria-current=page]")
     refute has_element?(view, "#connections-panel")
     assert has_element?(view, "#gemini-status", "Keychain is locked")
-    assert has_element?(view, "#gemini-connection", "do not rebuild as an access repair")
-    refute render(view) =~ "Build the local Keychain helper"
     assert render(view) =~ "Gemini API key saved"
     refute has_element?(view, "#gemini-status", "No API key stored")
   end

@@ -2,6 +2,7 @@ defmodule LovelaceWeb.OwnerController do
   use LovelaceWeb, :controller
   alias Lovelace.Owner
   alias Lovelace.Owner.Actions
+  alias Lovelace.Security.Vault
   alias LovelaceWeb.OwnerReturnPath
 
   plug :no_cache
@@ -48,7 +49,12 @@ defmodule LovelaceWeb.OwnerController do
   end
 
   def delete(conn, _params) do
-    result = revoke_current(conn)
+    result =
+      case Owner.verify_session(get_session(conn, :owner_session_token)) do
+        {:ok, _} -> Owner.lock_all(actor: %{role: :local_owner})
+        _ -> {:ok, true}
+      end
+
     conn = conn |> configure_session(renew: true) |> clear_session()
 
     case result do
@@ -67,22 +73,37 @@ defmodule LovelaceWeb.OwnerController do
   end
 
   defp unlock_form(conn, status \\ 200, error? \\ false) do
-    configured? = match?({:ok, true}, Owner.configured())
+    setup_state = configuration_status()
 
     background =
-      case Lovelace.StageDesigner.background() do
-        {:ok, background} -> background
-        {:error, _reason} -> %{url: nil, status: :unavailable}
+      if Vault.open?() do
+        case Lovelace.StageDesigner.background() do
+          {:ok, background} -> background
+          {:error, _reason} -> %{url: nil, status: :unavailable}
+        end
+      else
+        %{url: nil, status: :unavailable}
       end
 
     conn
     |> put_status(status)
     |> put_layout(false)
     |> render(:unlock,
-      configured?: configured?,
+      configured?: setup_state == :configured,
+      setup_state: setup_state,
       background: background,
       error?: error?,
       csrf_token: get_csrf_token()
     )
+  end
+
+  if Mix.env() == :test do
+    defp configuration_status do
+      if Vault.enabled?(),
+        do: Vault.configuration_status(),
+        else: if(match?({:ok, true}, Owner.configured()), do: :configured, else: :new)
+    end
+  else
+    defp configuration_status, do: Vault.configuration_status()
   end
 end

@@ -60,7 +60,7 @@ defmodule Lovelace.MixProject do
       {:oban, "~> 2.24.2"},
       # Private Gemini adapter avoids credential-bearing Finch instrumentation.
       {:mint, "~> 1.11.0"},
-      # Non-pooled SQLite handles coordinate local filesystem mutations across BEAMs.
+      # SQLCipher binding and non-pooled cross-BEAM filesystem exclusion handles.
       {:exqlite, "~> 0.43.0"},
       # Strict, fully evaluated JPEG decoding; preserve provider bytes for storage.
       {:vix, "~> 0.42.0"},
@@ -136,9 +136,7 @@ defmodule Lovelace.MixProject do
 
   defp aliases do
     [
-      setup: ["deps.get", "ecto.setup", "assets.setup", "assets.build"],
-      "ecto.setup": ["ecto.create", "ecto.migrate", "run priv/repo/seeds.exs"],
-      "ecto.reset": ["ecto.drop", "ecto.setup"],
+      setup: ["deps.get", "assets.setup", "assets.build"],
       test: ["ecto.create --quiet", "ecto.migrate --quiet", "test"],
       "assets.setup": ["tailwind.install --if-missing", "esbuild.install --if-missing"],
       "assets.build": ["compile", "tailwind lovelace", "esbuild lovelace"],

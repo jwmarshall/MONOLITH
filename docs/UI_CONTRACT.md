@@ -45,7 +45,10 @@ Verify implementation in code; the coverage map below is not evidence that check
   LiveView patches and background updates do not reset the activity timestamp. Hook teardown
   removes timers/listeners. No page load, wake or idle action starts background generation.
 - This is **visual scenery mode, not authentication, Lock or a privacy guarantee**.
-  Explicit **Lock** revokes the browser session; visual focus changes do not.
+  Explicit **Lock** revokes all owner sessions, stops protected background work, closes
+  the encrypted Repo and locks the dedicated credential keychain. Visual focus changes
+  do not. Startup requires password unlock before protected persistence/jobs start;
+  there is no password recovery or web setup.
 
 ## Entrance, gate and persistent identity
 
@@ -73,7 +76,9 @@ Verify implementation in code; the coverage map below is not evidence that check
   scenery mode still hides Lock and dims the legend. Both monogram and Lock appear only in an entered,
   focused live workspace. The corner stays hidden through the centered entrance/exit;
   both hide in landscape mode. Center navigation and Lock also lose keyboard access there.
-- Static unlock/terminal-setup pages share the stage and current validated local imagery,
+- Static unlock/terminal-setup pages share the stage, using only a fixed public bundled
+  fallback while locked; protected generated imagery and the persisted bundled choice
+  become available only after unlock. They
   show the corner immediately and stay focused. They have no idle timer, entrance gate or
   LiveView dependency. Keep a persistent accessible “Unlock LOVELACE” heading even when
   visible title/wordmark copy is omitted.
@@ -292,8 +297,9 @@ Verify implementation in code; the coverage map below is not evidence that check
 - Reveal a generated image only after it successfully loads. Failed loads leave the
   installation's local bundled JPEG default, not a broken-image replacement. Three
   owner-approved images ship locally; choose one once per installation, preserving it
-  across reload, navigation and scenery wake. Static owner pages (including without JS)
-  and live stages share that choice. Keep generated imagery restricted to validated
+  across reload, navigation and scenery wake while unlocked. Locked owner pages use
+  the first bundled image instead, without reading encrypted preferences; the transition
+  across unlock/Lock may change imagery. Keep generated imagery restricted to validated
   same-origin PNG/JPEG digest routes and bundled imagery to the exact asset allowlist;
   no provider-hosted/arbitrary URL substitution. Defaults are not generated gallery
   entries. Rendering only reads local preferences; it never initializes or generates.
@@ -310,8 +316,10 @@ Verify implementation in code; the coverage map below is not evidence that check
 ## Verification map
 
 Use native Node and synchronous LiveView/ConnTest suites plus the explicit
-`LOVELACE_STAGE_ENABLED=false mix test.ui` Chrome/Chromium regression gate. No real mailbox,
-Keychain operation or billable provider calls are needed. See [DEVELOPMENT.md](DEVELOPMENT.md)
+`LOVELACE_STAGE_ENABLED=false bin/lovelace-sqlcipher mix test.ui` Chrome/Chromium regression
+gate. No real mailbox, real credential or billable provider calls are needed. Native
+keychain creation/cancellation/resume verification is a separate, explicitly attended
+disposable-keychain check, never an unattended CI prompt. See [DEVELOPMENT.md](DEVELOPMENT.md)
 for commands. Report actual executed results and unrun checks in the task response;
 historical results do not certify a new change.
 

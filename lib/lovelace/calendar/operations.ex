@@ -5,6 +5,7 @@ defmodule Lovelace.Calendar.Operations do
   alias Lovelace.Mail
   alias Lovelace.Mail.Connections
   alias Lovelace.Mail.Operations, as: MailOperations
+  alias Lovelace.Security.Vault
   @owner %{role: :local_owner}
   @fields [
     :account_id,
@@ -31,7 +32,9 @@ defmodule Lovelace.Calendar.Operations do
 
   @impl true
   def run(input, _, context) do
-    execute(input.action.name, input.arguments, context.actor)
+    Vault.with_access(fn ->
+      execute(input.action.name, input.arguments, context.actor)
+    end)
   rescue
     _ -> failure(input.action.name)
   catch

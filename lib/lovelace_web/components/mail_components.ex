@@ -544,9 +544,9 @@ defmodule LovelaceWeb.MailComponents do
           change permissions, or refresh mail. A readable credential does not verify Google access.
         </p>
         <p>
-          An unlocked login keychain can still deny an individual item. In macOS Keychain Access,
-          review the LOVELACE Gmail item’s access for the current lovelace-keychain helper.
-          A rebuilt helper can have a different security identity even when the displayed name is unchanged.
+          LOVELACE uses its own password-locked keychain, separate from your login keychain.
+          Individual items can still deny access to the lovelace-vault helper after a rebuild
+          changes its security identity. Preserve the vault and review access before rebuilding again.
         </p>
         <p>
           Do not delete credentials or allow all applications. Rebuilding again is not an access

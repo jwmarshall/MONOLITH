@@ -5,6 +5,7 @@ defmodule Lovelace.StageDesigner.GenerationWorker do
     max_attempts: 3,
     unique: [period: 30, fields: [:args], states: [:available, :scheduled, :retryable]]
 
+  alias Lovelace.Security.Vault
   alias Lovelace.StageDesigner.Generation
 
   def enqueue(id, operation, delay \\ 0) do
@@ -17,6 +18,13 @@ defmodule Lovelace.StageDesigner.GenerationWorker do
 
   @impl true
   def perform(%Oban.Job{args: %{"id" => id, "operation" => operation}}) do
+    case Vault.with_access(fn -> dispatch(id, operation) end) do
+      {:error, reason} when reason in [:locked, :vault_unavailable] -> {:snooze, 1}
+      result -> result
+    end
+  end
+
+  defp dispatch(id, operation) do
     case operation do
       "submit" -> Generation.perform(id, :submit)
       "poll" -> Generation.perform(id, :poll)

@@ -43,6 +43,7 @@ defmodule LovelaceWeb.OwnerControllerTest do
       html =
         Phoenix.LiveViewTest.render_component(&LovelaceWeb.OwnerHTML.unlock/1,
           configured?: true,
+          setup_state: :configured,
           error?: false,
           csrf_token: "synthetic-csrf",
           background: %{url: candidate, status: :ready}
@@ -81,7 +82,7 @@ defmodule LovelaceWeb.OwnerControllerTest do
     assert Lovelace.StageDesigner.get_default_scene!(1, actor: actor).digest == chosen.digest
   end
 
-  test "login rotates browser session and lock revokes its token", %{conn: conn} do
+  test "login rotates browser session and explicit lock revokes every session", %{conn: conn} do
     configure()
     old_token = :crypto.strong_rand_bytes(32) |> Base.url_encode64(padding: false)
 
@@ -100,10 +101,13 @@ defmodule LovelaceWeb.OwnerControllerTest do
     refute get_session(conn, :unrelated)
     assert {:error, _} = Owner.verify_session(old_token)
     assert {:ok, _} = Owner.verify_session(token)
+    {:ok, other_token} = Owner.unlock(@password, "another-browser")
+    assert {:ok, _} = Owner.verify_session(other_token)
     conn = conn |> recycle() |> post("/lock")
     assert redirected_to(conn) == "/unlock"
     refute get_session(conn, :owner_session_token)
     assert {:error, _} = Owner.verify_session(token)
+    assert {:error, _} = Owner.verify_session(other_token)
   end
 
   test "failed unlock retains the requested destination and success consumes it", %{conn: conn} do

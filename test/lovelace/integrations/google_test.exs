@@ -10,6 +10,14 @@ defmodule Lovelace.Integrations.GoogleTest do
     def request(request, options), do: Keyword.fetch!(options, :handler).(request)
   end
 
+  defmodule FakeCredentials do
+    def read, do: {:ok, %{client_id: "fake-client", client_secret: "fake-client-secret"}}
+  end
+
+  defmodule MissingCredentials do
+    def read, do: {:error, :invalid_configuration}
+  end
+
   @redirect "http://localhost:4000/oauth/google/callback"
   @verifier String.duplicate("v", 43)
   @access "fake-access-secret"
@@ -17,21 +25,36 @@ defmodule Lovelace.Integrations.GoogleTest do
 
   setup do
     previous = Application.get_env(:lovelace, :gmail)
-    # Deliberately overwrite, never inspect real credential environment values.
-    System.put_env("GOOGLE_CLIENT_ID", "fake-client")
-    System.put_env("GOOGLE_CLIENT_SECRET", "fake-client-secret")
+    previous_credentials = Application.fetch_env(:lovelace, :google_client_credentials)
+    Application.put_env(:lovelace, :google_client_credentials, FakeCredentials)
 
     on_exit(fn ->
       if previous,
         do: Application.put_env(:lovelace, :gmail, previous),
         else: Application.delete_env(:lovelace, :gmail)
 
-      System.delete_env("GOOGLE_CLIENT_ID")
-      System.delete_env("GOOGLE_CLIENT_SECRET")
+      case previous_credentials do
+        {:ok, adapter} -> Application.put_env(:lovelace, :google_client_credentials, adapter)
+        :error -> Application.delete_env(:lovelace, :google_client_credentials)
+      end
     end)
 
     configure(fn _ -> flunk("unexpected protocol request") end)
     :ok
+  end
+
+  test "missing vaulted client credentials fail before protocol requests" do
+    Application.put_env(:lovelace, :google_client_credentials, MissingCredentials)
+
+    assert {:error, :invalid_configuration} =
+             Google.authorization_url(%{
+               state: "state-state-state",
+               verifier: @verifier,
+               redirect_uri: @redirect
+             })
+
+    assert {:error, :invalid_configuration} =
+             Google.exchange_code("fake-code", @verifier, @redirect)
   end
 
   test "authorization is readonly, offline consent, account selection and PKCE S256" do

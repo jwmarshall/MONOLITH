@@ -59,4 +59,12 @@ npm-debug.log
 
 # Explicitly built local macOS Keychain helper.
 /priv/native/lovelace-keychain
+/priv/native/lovelace-vault
+
+# Dedicated credential vaults, migration journals and private rollback copies.
+*.vault/
+*.encrypted*
+*.plaintext*
+*.keychain
+*.keychain-db
 

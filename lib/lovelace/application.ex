@@ -5,43 +5,19 @@ defmodule Lovelace.Application do
 
   use Application
 
-  alias Lovelace.StageDesigner.Generation
+  alias Lovelace.Security.Vault
 
   @impl true
   def start(_type, _args) do
-    children = [
-      LovelaceWeb.Telemetry,
-      Lovelace.Repo,
-      {Ecto.Migrator,
-       repos: Application.fetch_env!(:lovelace, :ecto_repos), skip: skip_migrations?()},
-      # Persist the bundled default before static or live pages can be served.
-      %{
-        id: Lovelace.StageDesigner.DefaultScene,
-        start: {Lovelace.StageDesigner.BundledScenes, :initialize, []}
-      },
-      {DNSCluster, query: Application.get_env(:lovelace, :dns_cluster_query) || :ignore},
-      {Phoenix.PubSub, name: Lovelace.PubSub},
-      Lovelace.Owner.Throttle,
-      Lovelace.Mail.OAuth,
-      Lovelace.Mail.ViewData,
-      {Oban, Application.fetch_env!(:lovelace, Oban)},
-      # Recover authorized jobs independently of new-generation startup opt-in.
-      # One asynchronous reservation per application startup; paid work runs in Oban.
-      %{
-        id: Lovelace.StageDesigner.Startup,
-        start:
-          {Task, :start_link,
-           [
-             fn ->
-               Generation.reconcile()
-               Lovelace.StageDesigner.generate_on_startup(%{}, actor: %{role: :stage_designer})
-             end
-           ]},
-        restart: :temporary
-      },
-      # Start to serve requests, typically the last entry
-      LovelaceWeb.Endpoint
-    ]
+    startup_id = make_ref()
+
+    children =
+      [
+        LovelaceWeb.Telemetry,
+        {DNSCluster, query: Application.get_env(:lovelace, :dns_cluster_query) || :ignore},
+        {Phoenix.PubSub, name: Lovelace.PubSub},
+        Lovelace.Owner.Throttle
+      ] ++ protected_children(startup_id) ++ [LovelaceWeb.Endpoint]
 
     # See https://elixir.hexdocs.pm/Supervisor.html
     # for other strategies and supported options
@@ -57,8 +33,48 @@ defmodule Lovelace.Application do
     :ok
   end
 
-  defp skip_migrations? do
-    # By default, sqlite migrations are run when using a release
-    System.get_env("RELEASE_NAME") == nil
+  if Mix.env() == :test do
+    alias Lovelace.StageDesigner.Generation
+
+    defp protected_children(startup_id) do
+      if Vault.enabled?() do
+        [{Vault, startup_id: startup_id}]
+      else
+        [
+          Lovelace.Repo,
+          {Ecto.Migrator,
+           repos: Application.fetch_env!(:lovelace, :ecto_repos), skip: skip_migrations?()},
+          %{
+            id: Lovelace.StageDesigner.DefaultScene,
+            start: {Lovelace.StageDesigner.BundledScenes, :initialize, []}
+          },
+          Lovelace.Mail.OAuth,
+          Lovelace.Mail.ViewData,
+          {Oban, Application.fetch_env!(:lovelace, Oban)},
+          %{
+            id: Lovelace.StageDesigner.Startup,
+            start:
+              {Task, :start_link,
+               [
+                 fn ->
+                   Generation.reconcile()
+
+                   Lovelace.StageDesigner.generate_on_startup(%{},
+                     actor: %{role: :stage_designer}
+                   )
+                 end
+               ]},
+            restart: :temporary
+          }
+        ]
+      end
+    end
+
+    defp skip_migrations? do
+      # By default, sqlite migrations are run when using a release
+      System.get_env("RELEASE_NAME") == nil
+    end
+  else
+    defp protected_children(startup_id), do: [{Vault, startup_id: startup_id}]
   end
 end

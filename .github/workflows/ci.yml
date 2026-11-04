@@ -22,17 +22,44 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: lts/*
+      - name: Build pinned SQLCipher native dependency
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install --yes build-essential curl pkg-config libssl-dev tcl-dev
+          archive="$RUNNER_TEMP/sqlcipher-4.20.0.tar.gz"
+          prefix="$RUNNER_TEMP/sqlcipher"
+          curl --fail --location --proto '=https' --tlsv1.2 \
+            https://github.com/sqlcipher/sqlcipher/archive/refs/tags/v4.20.0.tar.gz \
+            --output "$archive"
+          echo "38705f51b61ac0636a5fd064f9a77fafabc7227b2aa2513f1b14c8bb1102affc  $archive" | sha256sum --check
+          tar -xzf "$archive" -C "$RUNNER_TEMP"
+          cd "$RUNNER_TEMP/sqlcipher-4.20.0"
+          ./configure --disable-tcl --dll-basename=libsqlcipher \
+            --prefix="$prefix" --includedir="$prefix/include/sqlcipher" \
+            --with-tempstore=yes \
+            CFLAGS="-DSQLITE_HAS_CODEC -DSQLITE_ENABLE_JSON1 -DSQLITE_ENABLE_FTS3 -DSQLITE_ENABLE_FTS3_PARENTHESIS -DSQLITE_ENABLE_FTS5 -DSQLITE_ENABLE_COLUMN_METADATA -DSQLITE_EXTRA_INIT=sqlcipher_extra_init -DSQLITE_EXTRA_SHUTDOWN=sqlcipher_extra_shutdown" \
+            LDFLAGS="-lcrypto"
+          make -j2
+          make install
+          # Upstream still names its pkg-config descriptor sqlite3.pc.
+          sed 's/-lsqlite3/-lsqlcipher/g' "$prefix/lib/pkgconfig/sqlite3.pc" \
+            > "$prefix/lib/pkgconfig/sqlcipher.pc"
+          echo "PKG_CONFIG_PATH=$prefix/lib/pkgconfig" >> "$GITHUB_ENV"
+          echo "LD_LIBRARY_PATH=$prefix/lib" >> "$GITHUB_ENV"
+          echo "EXQLITE_USE_SYSTEM=1" >> "$GITHUB_ENV"
       - uses: actions/cache@v4
         with:
           path: |
             deps
             _build
-          key: ${{ runner.os }}-beam-${{ hashFiles('.tool-versions', 'mix.lock', 'config/**', '.formatter.exs') }}
+          key: ${{ runner.os }}-sqlcipher-4.20.0-beam-${{ hashFiles('.tool-versions', 'mix.lock', 'config/**', 'bin/lovelace-sqlcipher', '.formatter.exs') }}
       - name: Fetch dependencies
-        run: mix deps.get
+        run: bin/lovelace-sqlcipher mix deps.get
       - name: Install asset tools
-        run: mix assets.setup
+        run: bin/lovelace-sqlcipher mix assets.setup
       - name: Check formatting, compilation, Credo, Sobelow, schema drift, tests, and assets
-        run: mix check
+        run: bin/lovelace-sqlcipher mix check
       - name: Check dependency advisories and retired Hex packages
-        run: mix audit
+        run: bin/lovelace-sqlcipher mix audit

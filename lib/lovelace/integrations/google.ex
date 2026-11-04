@@ -10,8 +10,8 @@ defmodule Lovelace.Integrations.Google do
   * `:transport` / `:transport_options` — trusted private fake implementing
     `Google.Transport.request/2`; default is the private passive Mint transport.
 
-  Client credentials are read from GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET only
-  at this boundary. Never persist/log/inspect token results, authorization codes,
+  Client credentials are read from the dedicated local vault through
+  `Google.ClientCredentials`. Never persist/log/inspect token results, authorization codes,
   request maps, transport options or exceptions. Returned message text is plain
   text, NOT HTML-safe; render with normal HEEx escaping, never `raw/1`.
   Subject (`sub`), not email, is Google's stable identity. Identity association,
@@ -28,6 +28,7 @@ defmodule Lovelace.Integrations.Google do
   """
 
   alias Lovelace.Integrations.Google.{Message, Transport}
+  alias Lovelace.Security.Vault
 
   @scope "openid email https://www.googleapis.com/auth/gmail.readonly"
   @calendar_scopes [
@@ -82,7 +83,7 @@ defmodule Lovelace.Integrations.Google do
   def authorization_url(params) do
     safe(fn ->
       with {:ok, config} <- configuration(),
-           {:ok, client_id} <- secret("GOOGLE_CLIENT_ID"),
+           {:ok, %{client_id: client_id}} <- credentials(),
            %{state: state, verifier: verifier, redirect_uri: redirect} <- params,
            true <- valid_state?(state) and valid_verifier?(verifier),
            {:ok, scope} <- authorization_scope(Map.get(params, :capability, :gmail)),
@@ -495,15 +496,14 @@ defmodule Lovelace.Integrations.Google do
   defp scope_allowed?(_), do: false
 
   defp credentials do
-    with {:ok, id} <- secret("GOOGLE_CLIENT_ID"),
-         {:ok, secret} <- secret("GOOGLE_CLIENT_SECRET") do
-      {:ok, %{client_id: id, client_secret: secret}}
-    end
-  end
+    adapter =
+      Application.get_env(
+        :lovelace,
+        :google_client_credentials,
+        Lovelace.Integrations.Google.ClientCredentials
+      )
 
-  defp secret(name) do
-    value = System.get_env(name)
-    if valid_token?(value), do: {:ok, value}, else: {:error, :invalid_configuration}
+    adapter.read()
   end
 
   defp configuration do
@@ -592,7 +592,7 @@ defmodule Lovelace.Integrations.Google do
   defp run_bounded(fun, config) do
     config = Map.put(config, :deadline, System.monotonic_time(:millisecond) + config.timeout_ms)
     # Catch within the worker: Task crash reports must never inspect secrets.
-    task = Task.async(fn -> safe(fn -> fun.(config) end) end)
+    task = Task.async(fn -> run_leased(fun, config) end)
 
     case Task.yield(task, config.timeout_ms) do
       {:ok, result} ->
@@ -603,6 +603,9 @@ defmodule Lovelace.Integrations.Google do
         {:error, :timeout}
     end
   end
+
+  defp run_leased(fun, config),
+    do: safe(fn -> Vault.with_access(fn -> fun.(config) end) end)
 
   defp safe(fun) do
     fun.()

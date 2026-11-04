@@ -35,10 +35,10 @@ defmodule LovelaceWeb.GeminiComponents do
           else: "Startup generation is disabled."} Saving a key does not generate an image or verify Google access.
       </p>
       <p :if={@status in [:locked, :unavailable]} class="connection-warning">
-        Check the macOS login keychain and this item’s access. Rebuilding the helper can
-        invalidate existing Gmail approvals; do not rebuild as an access repair.
-        Build with <code>mix lovelace.keychain.build</code> only when installing or updating
-        the native helper. See <code>docs/GMAIL.md</code> for partition-access recovery.
+        Unlock the dedicated LOVELACE keychain with your LOVELACE password.
+        This does not use the macOS login keychain. Install or update the native helper
+        with <code>mix lovelace.keychain.build</code>; see <code>docs/GMAIL.md</code>
+        before changing an existing helper’s access permissions.
       </p>
       <div class="mail-actions gemini-actions">
         <button

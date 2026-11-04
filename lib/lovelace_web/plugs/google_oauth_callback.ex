@@ -4,6 +4,7 @@ defmodule LovelaceWeb.Plugs.GoogleOAuthCallback do
   alias Lovelace.Integrations.Google
   alias Lovelace.Mail
   alias Lovelace.Mail.{ConnectionDiagnostics, Connections, OAuth, Operations}
+  alias Lovelace.Security.Vault
   alias LovelaceWeb.Plugs.SensitivePath
   @owner %{role: :local_owner}
 
@@ -16,7 +17,12 @@ defmodule LovelaceWeb.Plugs.GoogleOAuthCallback do
   end
 
   defp callback(conn) do
-    result = complete(conn)
+    result =
+      case Vault.with_access(fn -> complete(conn) end) do
+        {:error, :locked} -> ConnectionDiagnostics.failure(:session, :locked)
+        other -> other
+      end
+
     conn = %{conn | query_string: "", params: %{}, query_params: %{}}
 
     target =

@@ -54,12 +54,20 @@ Stack: Phoenix LiveView, Ash/AshSqlite over Ecto/SQLite, and Tailwind.
   hand-written Ecto contexts. Register domains and commit migrations plus snapshots.
 - AshAuthentication protects a single local owner; connected Gmail identities are separate.
   Owner setup is terminal-only. Keep HTTP/LiveView session guards and revocation intact.
+- Production/dev storage uses SQLCipher 4.20.0 and a dedicated password-unlocked macOS
+  file keychain, not the login keychain. Use `bin/lovelace-sqlcipher` for Mix commands.
+  Startup is locked; explicit global Lock stops protected Repo/queues/provider work.
+  Escape/visual idle keeps work running. No password recovery or production plaintext
+  fallback. Setup/migration may require attended OS authorization; runtime access is
+  noninteractive. Interrupted setup/migration resumes only with the original password;
+  never delete its markers or replace initialized keys. Preserve originals until
+  separate explicit deletion approval. See docs/DEVELOPMENT.md and docs/GMAIL.md.
 - Tidewave is dev-only code/SQL execution. Never enable remote access or expose it via tunnels.
   No separate SPA, PostgreSQL, Redis, or unnecessary infrastructure.
 - Keep business logic under `lib/lovelace/` and UI under `lib/lovelace_web/`.
   Keep provider HTTP/OAuth and long-running work out of LiveView callbacks.
 - Oban 2.24's bundled SQLite Lite engine handles account-scoped polling.
-  Keychain holds refresh tokens. See docs/GMAIL.md and docs/CALENDAR.md before changing grants/cache/jobs.
+  The dedicated keychain holds refresh tokens and OAuth client credentials. See docs/GMAIL.md and docs/CALENDAR.md before changing grants/cache/jobs.
 - No external telemetry exporter. Stock Bandit's in-process conn metadata is an explicit
   user-accepted local exception; never add payload logging/export without privacy review.
 - Scenery is app-wide, not account-owned. Gemini generation is opt-in and potentially billable;
@@ -70,7 +78,7 @@ Stack: Phoenix LiveView, Ash/AshSqlite over Ecto/SQLite, and Tailwind.
   resume only retrieval of known IDs, and delete remote results after committed local publication.
   Unknown submissions require explicit charge/overlap acknowledgement before fresh confirmation;
   safe polling/cleanup retries never authorize another generation. Keep permanent attempt history.
-  Gemini keys are managed in Connections and stored separately in macOS Keychain;
+  Gemini keys are managed in Connections and stored separately in the dedicated LOVELACE keychain;
   no environment-key fallback or provider probe/generation on credential saves.
   Force `LOVELACE_STAGE_ENABLED=false` for maintenance; it blocks new startup generations,
   not already authorized jobs. No-provider maintenance must also avoid starting Oban queues;
@@ -90,9 +98,9 @@ Stack: Phoenix LiveView, Ash/AshSqlite over Ecto/SQLite, and Tailwind.
 
 ## Verification
 
-Run `mix check` (format/compile/Credo/AshCredo/Sobelow/tests/assets) and `mix audit`
-(online advisories/retired packages). For UI changes also run `mix test.ui` (installed
-Chrome/Chromium; see docs/DEVELOPMENT.md). `mix lint` compiles in test for AshCredo introspection.
+Run `bin/lovelace-sqlcipher mix check` (format/compile/Credo/AshCredo/Sobelow/tests/assets)
+and `bin/lovelace-sqlcipher mix audit` (online advisories/retired packages). For UI
+changes also run `bin/lovelace-sqlcipher mix test.ui` (installed Chrome/Chromium; see docs/DEVELOPMENT.md). `mix lint` compiles in test for AshCredo introspection.
 Keep durable decisions here and operational contracts in the relevant docs. Do not maintain
 handoff documents, completion histories or speculative backlogs. Choose future work from the
 current user request; retired plans are not obligations. Verify implementation in code and

@@ -35,6 +35,15 @@ defmodule Lovelace.OwnerTest do
     assert {:ok, true} = Owner.configured()
   end
 
+  test "accepted surrounding password whitespace survives ordinary and maintenance unlock" do
+    password = "  synthetic owner whitespace password  "
+    Owner.configure!(password, @setup)
+    assert {:ok, token} = Owner.unlock(password, client())
+    assert {:ok, _} = Owner.verify_session(token)
+    assert {:error, _} = Owner.unlock(String.trim(password), client())
+    assert {:ok, _} = Owner.unlock_for_maintenance(password, @setup)
+  end
+
   test "login mints independent opaque sessions with 12-hour absolute expiry" do
     Owner.configure!(@password, @setup)
     before = DateTime.utc_now()

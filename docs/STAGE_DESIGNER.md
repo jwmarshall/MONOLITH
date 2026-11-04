@@ -3,8 +3,9 @@
 ## Behavior
 
 LOVELACE can generate a background through the **server-side Gemini Developer API**
-on application startup when opted in, or through an explicitly confirmed request in
-**Scenes**. It never generates from a page load, LiveView reconnect, gallery/status refresh,
+on the first successful ordinary owner unlock of each application startup when opted in,
+or through an explicitly confirmed request in **Scenes**. It never generates before
+unlock, from a page load, later relock/unlock, LiveView reconnect, gallery/status refresh,
 or inactivity event. One locally bundled JPEG remains underneath locally served generated imagery.
 Scenes includes a saved, guided **Scene direction** editor and an expandable exact prompt.
 Scenes shows the retained local gallery, permanent paginated generation-attempt history,
@@ -22,8 +23,8 @@ lettering, logos, busy foregrounds, or private dashboard context. The default is
 documented stable, high-efficiency `gemini-nano-banana-2.1`, `16:9`, `1K`. 1K is a provider
 tier, not full desktop-native resolution or a visual-quality guarantee.
 
-- One asynchronous attempt on an **eligible application-process startup**. Browser
-  loads do not start work. Scenes requests require explicit confirmation of possible API
+- One asynchronous attempt on an **eligible first ordinary unlock per application startup**.
+  Browser loads and subsequent unlocks do not start work. Scenes requests require explicit confirmation of possible API
   charges and work independently of the startup-enabled setting. There is no daily timer
   while the application stays running. Manual requests use durable Oban jobs that survive
   leaving the view. Confirmed manual requests have no daily cooldown, including after
@@ -101,41 +102,48 @@ Saved direction is a default for future images, not a record of past images' pro
 Three owner-approved existing scenes ship as local JPEG assets in
 `priv/static/images/scenes/`, with provenance and SHA-256 pins recorded there. Their
 private originals are unchanged. A separate Ash `DefaultScene` singleton chooses one
-randomly on first application startup and preserves it across restarts; this happens
-synchronously before the endpoint serves pages, independently of generation opt-in.
-Reinitialization is an immutable upsert, including concurrent application starts.
+randomly when encrypted persistence starts after owner unlock and preserves it across
+restarts, independently of generation opt-in. Reinitialization is an immutable upsert,
+including concurrent starts of unlocked persistence.
 Page rendering only reads the choice and never generates or initializes it. If the
 preference is absent/unreadable, the first allowlisted bundled image is a deterministic
-fallback until initialization succeeds. Apply the additive default-scene migration
-before restarting an existing installation.
+fallback until initialization succeeds. Protected migrations run after password unlock.
 
-Static owner pages (including no-JavaScript unlock) and LiveViews share this default
-when no generated scenery is available, and retain it under generated images while
-loading or on image-load failure. It does not change on navigation, reload or scenery
-wake. Generated scene selection/publication still takes precedence. Bundled defaults
-are not catalog entries, do not invent generation dates, and are outside generated
-storage cleanup; an installation without generated images still has an empty Scenes
-gallery. No provider or Keychain access is involved in default choice/rendering.
+Unlocked stages share this default when no generated scenery is available and retain
+it under generated images while loading or on image-load failure. Locked owner pages
+(including no-JavaScript unlock) cannot read encrypted preferences/catalogs and instead
+use the first public bundled image. Lock/unlock may therefore change imagery; navigation,
+reload and visual scenery wake while unlocked do not change the persisted default.
+Generated scene selection/publication still takes precedence while unlocked. Bundled
+defaults are not catalog entries, do not invent generation dates, and are outside
+generated storage cleanup; an installation without generated images still has an empty
+Scenes gallery. Rendering defaults never probes a provider or credential store.
 
 ## Inactivity / scenery mode
 
 The [visual and interaction contract](UI_CONTRACT.md) owns focal-plane, inactivity,
 entrance, static/live image-load, accessibility and preference behavior. The idle setting
 is listed below; scenery mode is visual only, not authentication. No idle/wake/page event
-starts generation.
+starts generation. Visual idle/Escape keeps authorized work running. Explicit global
+**Lock** revokes sessions, stops Repo and Oban/provider work and locks the dedicated
+keychain. The application starts locked and cannot resume jobs until owner unlock.
 
 ## Gemini connection and local setup
 
 The external **dotenvx 2.38.2** CLI was used; no npm dotenv package or Elixir dotenv loader
 was added. Install a reviewed version of the [official CLI](https://github.com/dotenvx/dotenvx)
-on another machine. The private local `.env` contains encrypted non-Gemini credentials and startup settings.
-The Gemini API key is now entered in **Connections → Gemini** and stored in the
-macOS Keychain under the separate `LOVELACE Gemini` service, never alongside Gmail tokens.
-`GEMINI_API_KEY` is no longer read and has no fallback. The dotenvx decryption key is in
-private `.env.keys`; both environment files are ignored and mode `0600`. `.env.example` is deliberately readable, credential-free, and disabled by default.
+on another machine. The private local `.env` contains startup settings, not runtime
+Google OAuth or Gemini credentials. The Gemini API key is entered in **Connections →
+Gemini** and stored in the dedicated password-unlocked LOVELACE file keychain under
+the separate `LOVELACE Gemini` service, never alongside Gmail tokens.
+`GEMINI_API_KEY`, `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` have no runtime
+environment fallback. Configure Google OAuth with the terminal-only
+`mix lovelace.google.configure` task after owner setup; see [GMAIL.md](GMAIL.md).
+The dotenvx decryption key is in private `.env.keys`; both environment files are ignored
+and mode `0600`. `.env.example` is deliberately readable, credential-free, and disabled by default.
 
-Eligible restarts may incur a charge. A previously authorized generation or working
-background is not standing authorization for further provider calls. Model metadata
+Eligible first unlocks after application startup may incur a charge. A previously
+authorized generation or working background is not standing authorization for further provider calls. Model metadata
 access alone does not establish billing or quota.
 
 For a **fresh checkout only**, from the repository root:
@@ -162,12 +170,23 @@ Saving checks format/storage only, not provider access, billing, quota or genera
 It does not trigger a request, change opt-in settings, or bypass cooldowns. Removing a key
 keeps scenery/cooldowns and cannot cancel a request that already acquired the key.
 
-**Migrating an existing setup:** manually re-enter your key in Connections. No automatic
-import or inspection of private environment files is performed. Remove the obsolete
-`GEMINI_API_KEY` setting from your private encrypted setup using your own dotenvx workflow;
-it is ignored even if still injected. Existing imagery and reservations are unchanged.
-Rebuild the helper after updating its source (the previous Gmail-only helper will safely
-refuse Gemini operations).
+**Migrating an existing setup:** stop the application and use the terminal
+`bin/lovelace-sqlcipher mix lovelace.vault.migrate` workflow described in
+[GMAIL.md](GMAIL.md). It verifies the owner password and copies legacy keychain
+credentials; it does not inspect private environment files. Exact separate confirmations
+control cutover, plaintext deletion and legacy-secret deletion. Originals are retained
+by default and remain exposed under their old protections. Deletion cannot guarantee
+erasure from APFS snapshots or backups. If the Gemini key existed only in an old
+environment setting, re-enter it in Connections and remove that ignored setting using
+your own dotenvx workflow.
+
+The native `priv/native/lovelace-vault` helper uses deprecated macOS custom-file
+keychain APIs, never the login/default keychain at runtime, and changes neither the
+default keychain nor its search list. Do not broaden ACLs to repair helper identity
+changes. Normal Lock/shutdown and every startup lock the keychain, but macOS may
+retain an unlocked daemon keychain after an abrupt crash until startup relocks it;
+instant crash-time lock is not guaranteed. There is no password recovery: forgetting
+the owner password permanently loses access to the encrypted database and credentials.
 
 ```sh
 # Explicit opt-in to paid startup generation:
@@ -175,25 +194,25 @@ dotenvx set LOVELACE_STAGE_ENABLED true -f .env --no-native --no-armor --no-1pas
 chmod 600 .env .env.keys
 ```
 
-Migrate before activating/restarting; do not assume a private database is up to date:
+Complete owner setup or the stopped-application migration before activating; see
+[GMAIL.md](GMAIL.md) for SQLCipher **4.20.0**, helper build and encrypted-schema setup.
+Start the server through the SQLCipher wrapper:
 
 ```sh
-LOVELACE_STAGE_ENABLED=false mix ecto.migrate
-dotenvx run --strict -f .env --no-native --no-armor --no-1password --no-bitwarden -- mix phx.server
+dotenvx run --strict -f .env --no-native --no-armor --no-1password --no-bitwarden -- bin/lovelace-sqlcipher mix phx.server
 # Interactive variant: replace mix phx.server with iex -S mix phx.server
 ```
 
 Plain Mix does not load `.env`. Existing shell variables take precedence over dotenvx;
 avoid stale overrides. Do not `source .env`. Configuration changes require restarting
-the application. Any command starting the OTP application can invoke the startup task;
-force `LOVELACE_STAGE_ENABLED=false` to prevent new automatic startup generations during
-maintenance. This flag does not cancel already authorized durable jobs: starting the full
-application can resume a queued first submission, retrieval or deletion even with startup
-opt-in disabled. Maintenance that must make no provider calls must not start the application’s
-Oban queues; use no-start tooling or explicitly disabled queues. Test runtime disables startup
-generation and real provider transport, regardless of the flag.
+the application. Startup remains locked. The first ordinary unlock may authorize a new
+startup generation; `LOVELACE_STAGE_ENABLED=false` blocks new automatic generations,
+not already authorized durable jobs once unlocked. Unlock can resume queued submission,
+retrieval or deletion even with startup opt-in disabled. Maintenance requiring no provider
+calls must keep the vault locked or use no-start terminal tooling. Test runtime disables
+startup generation and real provider transport, regardless of the flag.
 Production still needs `DATABASE_PATH`, `SECRET_KEY_BASE`, `PHX_SERVER=true`, and built
-assets. Packaged releases migrate the schema before starting the generation task.
+assets. Encrypted schema maintenance must use the vault-aware terminal workflow.
 
 Never paste keys into chat or command history, or use verbose/debug logging and environment
 dumps. Keep `.env.keys` in a separately protected backup; losing it loses access to the
@@ -207,7 +226,7 @@ argument at save time, never database state, application configuration, or a Liv
 
 | Variable | Default / constraint |
 | --- | --- |
-| Gemini API key | Connections UI → macOS Keychain; resolved only at the server HTTP boundary. `GEMINI_API_KEY` is ignored |
+| Gemini API key | Connections UI → dedicated LOVELACE file keychain; resolved only at the server HTTP boundary while unlocked. `GEMINI_API_KEY` is ignored |
 | `LOVELACE_STAGE_ENABLED` | `false` by default; exact `true`/`false` |
 | `LOVELACE_STAGE_MODEL` | `gemini-nano-banana-2.1`; explicit safe model ID |
 | `LOVELACE_STAGE_ASPECT_RATIO` | `16:9`; also `21:9`, `4:3`, `3:2`, `1:1` |
@@ -284,7 +303,7 @@ but do not promise zero retention or no abuse review. Review project
 [logging/sharing settings](https://ai.google.dev/gemini-api/docs/logs-policy) and leave
 dataset sharing disabled. Scenery requests use the Google Interactions API with `background: true, store: true` so
 saved interaction IDs can be retrieved after restart. Google may continue rendering while
-LOVELACE is closed; local polling/publication only runs while the application runs. Paid-tier
+LOVELACE is closed or locked; local polling/publication only runs while the application is unlocked. Paid-tier
 interaction retention defaults to 55 days (configurable in AI Studio). LOVELACE requests deletion
 after successful local publication; failed deletion and failed/unresolved generations can leave
 remote interactions subject to Google's retention policy. Deletion does not override abuse

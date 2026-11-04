@@ -13,9 +13,10 @@ descriptions/HTML or load remote imagery. Repeating events are expanded by Googl
    OpenID/email/Gmail scopes:
    - `https://www.googleapis.com/auth/calendar.calendarlist.readonly`
    - `https://www.googleapis.com/auth/calendar.events.readonly`
-3. Apply the additive migrations with the existing server stopped:
-   `LOVELACE_STAGE_ENABLED=false mix ecto.migrate`. Never reset a private database.
-4. Open **Connections → Calendar**. For an existing Google account, choose a receiving
+3. Complete the encrypted owner setup or stopped-application migration described in
+   [GMAIL.md](GMAIL.md); never reset a private database or apply plaintext SQLite tooling
+   to the encrypted database.
+4. Start LOVELACE through `bin/lovelace-sqlcipher` and unlock, then open **Connections → Calendar**. For an existing Google account, choose a receiving
    workspace and explicitly authorize Calendar. This reuses the same Google subject and
    Keychain item, not a second identity or owner login. Choosing another Google identity
    is rejected. Granting Calendar also retains read-only Gmail access.
@@ -30,10 +31,13 @@ explicitly authorize Calendar again afterward. Calendar failures have their own 
 freshness, rather than overwriting Gmail's unread count or sync errors. A global Google
 credential failure can still require reconnecting the shared connection.
 
-The Google setup, testing-mode token lifetime, local-only OAuth flow, owner session
-security and Keychain/signing limitations in [GMAIL.md](GMAIL.md) also apply. No native
-helper rebuild or credential permission repair is needed for Calendar. Do not paste
-credentials, OAuth callback URLs or real calendar contents into tests or reports.
+The Google setup, terminal `mix lovelace.google.configure` workflow, testing-mode token
+lifetime, local-only OAuth flow, owner session security and dedicated-keychain/signing
+limitations in [GMAIL.md](GMAIL.md) also apply. Runtime Google client ID/secret environment
+variables are ignored. Calendar shares the dedicated password-unlocked LOVELACE keychain
+credential; no native helper rebuild or permission repair is needed to add Calendar.
+There is no password recovery. Do not paste credentials, OAuth callback URLs or real
+calendar contents into tests or reports.
 
 ## Day, freshness and bounds
 
@@ -45,9 +49,12 @@ new dependency is required. The day is rechecked on a timer and visibility/resum
 
 A connection retains one browser-day context at a time. Browsers in different timezones
 may replace that context; a view never presents a different context's events as its own.
-Polling targets three minutes via the existing minute Oban sweep while LOVELACE runs.
-It stops requesting an expired day until a browser supplies the next day. Sleep, network
-failures and queue backlog delay updates; nothing runs with the computer/app stopped.
+Polling targets three minutes via the existing minute Oban sweep while LOVELACE runs
+unlocked. It stops requesting an expired day until a browser supplies the next day.
+Explicit global **Lock** stops Repo, Oban and provider work; startup stays locked until
+owner unlock. Visual idle/Escape is not a lock and keeps authorized background work
+running. Sleep, network failures and queue backlog delay updates; nothing runs with
+the computer/app stopped.
 Manual Refresh requests another bounded read, not instant or push delivery. Known rate
 limits impose a five-minute Calendar cooldown, including manual Refresh.
 
@@ -59,10 +66,14 @@ selection. No local full-calendar mirror, history index or push service is intro
 API time bounds are widened before exact local-day filtering to account for all-day
 entries whose calendar timezone differs from the browser's.
 
-The account-scoped cache contains minimal event text in **unencrypted SQLite**, retained
-for at most 24 hours and never served after expiry. The running sweep performs logical
-cleanup; this is not forensic erasure from SQLite pages/WAL/backups or browser copies.
-Owner unlock does not encrypt data. Protect OS permissions, FileVault and backups.
+The account-scoped cache contains minimal event text in **SQLCipher-encrypted SQLite**,
+retained for at most 24 hours and never served after expiry. Its independently generated
+database key lives in the dedicated LOVELACE keychain. Cleanup runs only while unlocked;
+logical deletion is not forensic erasure from SQLite pages/WAL/backups or browser copies.
+Retained legacy plaintext databases, sidecars and login-keychain secrets remain exposed
+under their old protections until explicitly deleted during terminal migration; deletion
+does not guarantee APFS snapshot or backup erasure. Protect OS permissions, FileVault and
+backups. Encryption does not protect an unlocked process or code running as your OS user.
 Refresh failures retain known observations with stale/error labeling and unchanged
 observation timestamps. Unknown/loading/error are not an empty successful agenda.
 

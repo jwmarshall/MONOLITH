@@ -27,41 +27,76 @@ installation yourself.
 
 ## 1. Local preparation
 
-Stop the existing server before applying migrations, then run from a private checkout:
+For a new installation, stop the server and run from a private checkout:
 
 ```sh
 umask 077
-mix deps.get
-LOVELACE_STAGE_ENABLED=false mix ecto.migrate
-mix lovelace.keychain.build
-mix lovelace.owner.setup
+brew install sqlcipher
+bin/lovelace-sqlcipher mix deps.get
+bin/lovelace-sqlcipher mix deps.clean --build exqlite
+bin/lovelace-sqlcipher mix deps.compile exqlite --force
+bin/lovelace-sqlcipher mix lovelace.keychain.build
+bin/lovelace-sqlcipher mix lovelace.owner.setup
 ```
 
-Protect any pre-existing development database and sidecars as owner-only (`0600`);
-`umask` affects new files, not existing ones. Keep release data in a private (`0700`)
-directory. Never run a reset command to apply these additive migrations.
+The wrapper requires SQLCipher **4.20.0**. Owner setup creates the encrypted schema
+and dedicated password-unlocked file keychain; do not use ordinary plaintext SQLite
+migration commands for this installation. Keep data directories private (`0700`) and
+existing files owner-only (`0600`); `umask` affects new files only.
 
-The owner task prompts twice with hidden input (12–1024 characters, at most 1024 UTF-8 bytes); do not pass
-passwords as command arguments. It starts persistence/auth dependencies only, not
-LOVELACE or the image generator. It refuses to overwrite an existing owner. Password
-hashing uses AshAuthentication with PBKDF2-SHA256, 600,000 iterations and random salt.
-There is no web registration or password-reset/recovery UI. Preserve the password;
-operator recovery needs a separately reviewed local procedure, not a public reset route.
+The owner task prompts twice with hidden input (12–1024 characters, at most 1024 UTF-8 bytes);
+never pass passwords as command arguments. It does not start provider work. The database
+key is independently generated and stored in the dedicated keychain, not derived from
+the owner password. There is **no password recovery**: forgetting it permanently loses
+access to the encrypted data.
+Initial native creation may display a macOS authorization dialog for this dedicated
+keychain; enter the same owner password there, never in shell arguments or chat.
+If setup or authorization is interrupted, rerun owner setup with that password.
+Native creation uses unpublished encrypted staging files until the random database key
+is verified; interrupted unused staging files are retained, never substituted for a
+previously initialized keychain.
+Its private setup/creation markers preserve unfinished storage; initialized keys and
+owner credentials are never replaced. Do not delete those markers to force setup.
+
+For an existing plaintext installation, stop the application and run
+`bin/lovelace-sqlcipher mix lovelace.vault.migrate` in a terminal. It verifies the owner
+password and copies legacy credentials into the dedicated keychain. Separate exact
+confirmations govern `CUT OVER`, `DELETE PLAINTEXT` and `DELETE LEGACY SECRETS`.
+Original database files (including WAL) and legacy secrets are retained by default;
+they remain exposed under their old protections until explicitly deleted. Migration
+is journaled and resumable. Deletion is not guaranteed secure erasure of APFS snapshots,
+backups or previously copied data. Never reset the database to migrate it.
 
 The Keychain build requires Apple's Command Line Tools (`xcrun swiftc`). The generated
-`priv/native/lovelace-keychain` binary is ignored, not a committed executable. Build on
+`priv/native/lovelace-vault` binary is ignored, not a committed executable. Build on
 the target Mac before packaging a release; it must be included in the release's `priv`.
-The helper uses Security.framework, the fixed **LOVELACE Gmail** service and an account
-UUID, not an email address. Secrets travel over bounded private stdin/stdout, never
-argv, temporary files, SQL or job arguments. Access tokens are transient in memory;
-refresh tokens are in Keychain. There is no plaintext fallback or iCloud synchronization.
+The helper uses Security.framework and explicit references to the dedicated
+`lovelace.keychain-db`, without changing the user's default keychain or search list.
+Gmail refresh tokens use the fixed **LOVELACE Gmail** service and an account UUID,
+not an email address; Google client credentials use **LOVELACE Google OAuth**.
+Secrets travel over bounded private stdin/stdout, never argv, temporary files, SQL
+or job arguments. Access tokens are transient in memory. There is no runtime login
+keychain fallback, plaintext fallback or iCloud synchronization. Legacy login
+keychain access is confined to explicit terminal migration.
 
-The helper deliberately refuses interactive Keychain prompts and times out after a
-few seconds. A locked Keychain or access-control/signing mismatch fails closed. Unlock
-or review access in macOS Keychain Access, then retry. Rebuilding/replacing an unsigned
-or ad-hoc-signed helper can change its Keychain identity; this is not a signed desktop
-installer or a validated cross-version Keychain migration. Do not grant all applications
-access to these items. Actual credential-store behavior needs manual validation on your Mac.
+Explicit terminal setup and migration may enable macOS authorization UI (up to two
+minutes per operation). Migration permits legacy item reads/deletions and approval of
+the existing Database-key item after a helper rebuild; it never replaces that key.
+Approval must allow the verified helper's later noninteractive reads. A `login`
+keychain dialog uses that keychain's password, normally the macOS account password;
+dedicated LOVELACE keychain dialogs use the owner password. Ordinary unlock,
+background access and credential operations remain noninteractive and fail closed
+on lock or access-control/signing mismatch.
+Unlock the dedicated vault through LOVELACE's owner password flow.
+Rebuilding/replacing an unsigned or ad-hoc-signed helper can change its Keychain
+identity; do not grant all applications access to these items. The macOS file-keychain
+APIs are deprecated; this is not a signed desktop installer or a validated cross-version
+Keychain migration. Actual credential-store behavior needs attended validation on your Mac.
+
+The helper uses deprecated custom-file `SecKeychain` APIs. Normal Lock and shutdown
+lock that keychain, and every application startup relocks it before accepting an
+unlock. After an abrupt crash, macOS's keychain daemon may still hold it unlocked
+until the next startup; instant crash-time locking is not guaranteed.
 
 ## 2. Google Cloud setup
 
@@ -84,10 +119,13 @@ Use a dedicated project at <https://console.cloud.google.com/>:
 4. Create an OAuth **Desktop app** client for this locally installed application.
    A Desktop client is public; its bundled client secret is not a security boundary.
    Do not use service-account/domain-wide delegation or the obsolete OOB flow.
-5. Keep the client ID and client secret local. Add `GOOGLE_CLIENT_ID` and
-   `GOOGLE_CLIENT_SECRET` through your existing private dotenvx workflow; see
-   `STAGE_DESIGNER.md`. Never paste credentials into chat, source, logs or shell history.
-   `.env.example` contains empty placeholders only. Do not commit a downloaded client JSON.
+5. Keep the client ID and client secret local. With the server stopped and the local
+   owner/vault already configured, run `mix lovelace.google.configure` in a terminal.
+   It prompts without echo for the owner password, client ID and client secret, and
+   stores the pair in the dedicated LOVELACE keychain. It performs no provider calls
+   and does not start background jobs. Runtime `GOOGLE_CLIENT_ID` and
+   `GOOGLE_CLIENT_SECRET` environment variables are not read. Never paste credentials
+   into chat, source, logs or shell history; do not commit downloaded client JSON.
 
 LOVELACE uses `http://localhost:4000/oauth/google/callback` by default. A custom `PORT`
 changes the callback port too. Desktop clients support loopback redirects without
@@ -119,13 +157,14 @@ administrator approval. Tokens can be revoked or expire for other reasons too.
 Start with your private configuration injected:
 
 ```sh
-dotenvx run --strict -f .env -- mix phx.server
+dotenvx run --strict -f .env -- bin/lovelace-sqlcipher mix phx.server
 ```
 
-Existing scenery settings still apply: if you enabled generation, this startup may
-make its usual eligible, potentially billable image attempt. To avoid that, explicitly
-disable it in your private configuration first. Gmail itself never starts a browser
-or requests consent automatically.
+The application starts locked: Repo, Oban and provider work remain stopped until
+successful owner unlock. The first successful ordinary unlock in each application
+startup may make the usual eligible, potentially billable scenery attempt when
+enabled. Page loads and later lock/unlock cycles do not create another startup
+attempt. Gmail never starts a browser or requests consent automatically.
 
 1. Open `http://localhost:4000`, unlock to **Home**, choose **Workspaces**, enter a workspace,
    choose **Add integration**, then
@@ -181,37 +220,25 @@ permissions, refresh mail or clear persisted sync errors/freshness. A readable t
 is **not** proof that Google still accepts it. Checks are asynchronous, one at a time
 per view, and discarded across connection-generation changes or leaving Connections.
 
-- `locked`: the native helper reports authentication failure or interaction denied.
-  The login keychain can be unlocked while an individual item still rejects access.
+- `locked`: the dedicated vault is locked, or the native helper reports authentication
+  failure or interaction denied. An unlocked vault can still have an item-access failure.
 - `timeout`: the helper did not complete within its existing bounded deadline.
 - `not_found`: no credential was found for that account; reconnect Google.
 - `unavailable`: helper/credential access could not be established; this does not
   prove that the item is absent or that Google is offline.
 - `invalid_account` / `invalid_value`: the adapter rejected the identifier/value.
 
-Review **About Keychain access** in Connections before changing anything. An existing
-Access Control entry showing `lovelace-keychain` does not establish that a rebuilt
-executable still matches the trusted security identity. Do not delete credentials,
-grant all applications access, or repeatedly rebuild as an attempted access repair.
-The diagnostic uses the existing helper unchanged; it does not repair signing/ACLs
-or expose raw macOS OSStatus values. Exact native denial/signing recovery remains a
-manual investigation, not a confirmed diagnosis from these categories alone.
+Review **About Keychain access** in Connections before changing anything. Rebuilding
+the `lovelace-vault` helper can change its signing identity. Do not delete credentials,
+grant all applications access, broaden partition ACLs, or repeatedly rebuild as an
+attempted access repair. Diagnostics do not repair signing/ACLs or expose raw macOS
+OSStatus values; exact native denial recovery remains a manual investigation.
 
-macOS also maintains a separate **partition ACL**, which can still contain an old
-ad-hoc helper cdhash after the visible allowed-application entry is replaced. A
-metadata-only comparison of Gmail and Gemini rules confirmed this failure locally.
-Updating the visible application list alone did not repair it. An authenticated
-operator repair must target only the affected service/keychain and the verified
-current helper cdhash, preserving credentials and other permission rules. The native
-`security set-generic-password-partition-list` command supports a password prompt
-when `-k` is omitted (as documented by local `security help`); never put a Keychain
-password in argv, environment variables, files or chat. Do not substitute broad
-`apple:`, `apple-tool:` or all-application grants. The user confirmed recovery using
-that native command, scoped to `LOVELACE Gmail`, the login keychain and only the verified
-current helper cdhash. This is manual recovery evidence, not an automated permission test.
-Do not rebuild the helper afterward: its ad-hoc signature changes with the executable.
-There is no validated stable signing/update strategy; the next helper rebuild can repeat
-this failure. This is an operating limitation, not authorization to rebuild or repair access.
+The login/default keychain is **legacy-only**, accessed solely by explicit terminal
+migration. Old helper access entries or prior login-keychain repair procedures are not
+instructions for the current vault. If a legacy credential cannot be read during migration,
+investigate only that legacy item and verified helper identity; do not broaden its ACLs
+or move current credentials back to the login keychain.
 
 `userinfo.email` is the canonical console scope for the OAuth alias `email`; both
 forms are already supported. If consent completes but LOVELACE rejects the connection,
@@ -239,9 +266,12 @@ interpreted as an absent credential during rollback.
   evicted first. Expiry is enforced on reads and the minute sweep while the app runs;
   no cleanup occurs while the app is stopped. This is logical record deletion, **not
   forensic erasure** of SQLite pages, WAL files, backups or browser-rendered copies.
-- The cache is ordinary **unencrypted SQLite**. OS account permissions, FileVault and
-  protected backups matter. Owner unlock does not encrypt or protect against code running
-  as your OS user, developer tools, database access or a compromised browser.
+- The business-data cache is encrypted in SQLCipher SQLite using the independently
+  generated key held in the dedicated vault. The `.vault` directory also contains the
+  keychain and an empty plaintext infrastructure-lock SQLite file, not business data.
+  Encryption does not protect an unlocked process, browser-rendered copies or code
+  running as your OS user. Protect permissions, FileVault and backups; retained legacy
+  plaintext databases and sidecars remain exposed until explicitly removed.
 - Plain-text MIME is preferred; HTML-only mail is conservatively converted to text.
   All output is HEEx-escaped. No HTML rendering, scripts, automatic URL requests, remote
   external images or automatic attachment fetches. Opening a conversation lists bounded
@@ -268,8 +298,9 @@ interpreted as an absent credential during rollback.
   not masquerade as a successful count update. Home's freshness label ages locally and
   marks counts stale after three minutes, including across hidden tabs/system sleep.
 - Cache and errors show timestamps and stale status. **Refresh** explicitly requests
-  another read. Locking the browser revokes its session, but background polling continues
-  while the application and unlocked OS credential store are available.
+  another read. Explicit global **Lock** revokes sessions and stops Repo, Oban and
+  provider work; no polling or cache cleanup runs while locked. Visual idle/Escape
+  scenery mode is not a lock and lets already authorized background work continue.
 - **Remove from workspace** in an integration tile's management menu removes one workspace association. It does not clear the shared cache,
   delete credentials, revoke Google access or stop polling that reusable connection.
 - A remaining recovery limitation: a first connection can leave an unindexed Keychain

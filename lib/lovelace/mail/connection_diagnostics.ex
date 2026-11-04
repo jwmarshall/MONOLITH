@@ -101,7 +101,7 @@ defmodule Lovelace.Mail.ConnectionDiagnostics do
 
   defp hint(:keychain),
     do:
-      "Check the macOS login keychain and item access. Helper rebuilds can invalidate partition approvals; see docs/GMAIL.md before rebuilding or reconnecting."
+      "Unlock LOVELACE and check its dedicated keychain access. Helper rebuilds can invalidate item approvals; see docs/GMAIL.md before rebuilding or reconnecting."
 
   defp hint(:connection),
     do: "The local account could not be saved. Check migrations and local storage availability."

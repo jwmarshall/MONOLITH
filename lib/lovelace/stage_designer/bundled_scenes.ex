@@ -3,6 +3,7 @@ defmodule Lovelace.StageDesigner.BundledScenes do
 
   require Logger
 
+  alias Lovelace.Security.Vault
   alias Lovelace.StageDesigner
 
   @actor %{role: :stage_designer}
@@ -15,8 +16,8 @@ defmodule Lovelace.StageDesigner.BundledScenes do
   def digests, do: @digests
   def random_digest, do: Enum.random(@digests)
 
-  # A synchronous, local-only boot initializer, before the endpoint can serve a
-  # page. Upsert preserves the winning choice across restarts/concurrent boots.
+  # A synchronous, local-only initializer after vault unlock, before protected
+  # pages can use persisted scenery. Upsert preserves the winning choice.
   # Returning :ignore makes this a one-shot supervisor child, not a running task.
   def initialize do
     case StageDesigner.initialize_default_scene(%{}, actor: @actor) do
@@ -33,9 +34,13 @@ defmodule Lovelace.StageDesigner.BundledScenes do
   # Rendering only reads local state. A missing/unavailable preference still has
   # a known bundled fallback, without writing state or starting provider work.
   def default_url do
-    case StageDesigner.get_default_scene(1, actor: @actor) do
-      {:ok, %{digest: digest}} when digest in @digests -> url(digest)
-      _ -> url(hd(@digests))
+    if Vault.open?() do
+      case StageDesigner.get_default_scene(1, actor: @actor) do
+        {:ok, %{digest: digest}} when digest in @digests -> url(digest)
+        _ -> url(hd(@digests))
+      end
+    else
+      url(hd(@digests))
     end
   rescue
     _ -> url(hd(@digests))

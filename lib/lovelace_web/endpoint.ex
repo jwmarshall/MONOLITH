@@ -64,5 +64,5 @@ defmodule LovelaceWeb.Endpoint do
 
   plug Plug.MethodOverride
   plug Plug.Head
-  plug LovelaceWeb.Router
+  plug LovelaceWeb.Plugs.OwnerRequest
 end

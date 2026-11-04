@@ -1,166 +1,257 @@
-defmodule Lovelace.Integrations.Google.KeychainTest do
+defmodule Lovelace.Security.KeychainTest do
   use ExUnit.Case, async: false
   import ExUnit.CaptureLog
-  alias Lovelace.Integrations.Google.Keychain
+
+  alias Lovelace.Integrations.Google.Keychain, as: GoogleKeychain
+  alias Lovelace.Security.Keychain
 
   @account "01234567-89AB-CDEF-0123-456789ABCDEF"
+  @gemini "b26d050a-0729-4d79-a6bc-407cf660a7ea"
+  @oauth "710dd510-61ed-4e6a-975c-78ce13f5d6e2"
+  @database "5bbed47a-8e42-4b3e-a2e8-f81beb0738d5"
+  @gmail "LOVELACE Gmail"
 
   defmodule FakeStore do
-    @behaviour Keychain
+    @behaviour GoogleKeychain
     @impl true
-    def get(_account), do: {:ok, "fake-refresh-token"}
+    def get(_), do: {:ok, "fake-refresh-token"}
     @impl true
-    def put(_account, _value), do: :ok
+    def put(_, _), do: :ok
     @impl true
-    def delete(_account), do: :ok
+    def delete(_), do: :ok
   end
 
-  test "fake vault contract is separate from native boundary" do
+  defp response(payload), do: {:ok, Jason.encode!(Map.put(payload, :version, 1)) <> "\n"}
+
+  defp attributes(account \\ @account, service \\ @gmail),
+    do: %{account: account, service: service}
+
+  test "provider fake contract remains separate and test builds cannot invoke native secrets" do
     assert {:ok, "fake-refresh-token"} = FakeStore.get(@account)
     assert :ok = FakeStore.put(@account, "value")
     assert :ok = FakeStore.delete(@account)
-    # Even an installed helper cannot perform real Keychain operations in tests.
-    assert {:error, :unavailable} = Keychain.get(@account)
-    assert {:error, :unavailable} = Keychain.put(@account, "fake-token")
-    assert {:error, :unavailable} = Keychain.delete(@account)
+    assert {:error, :unavailable} = GoogleKeychain.get(@account)
+    assert {:error, :unavailable} = GoogleKeychain.put(@account, "fake-token")
+    assert {:error, :unavailable} = GoogleKeychain.delete(@account)
+    assert {:error, :unavailable} = Keychain.create("synthetic password")
+    assert {:error, :unavailable} = Keychain.unlock("synthetic password")
+    assert {:error, :unavailable} = Keychain.status()
+    assert {:error, :unavailable} = Keychain.lock()
+    assert {:error, :unavailable} = Keychain.database_key()
+    assert {:error, :unavailable} = Keychain.copy_legacy([])
+    assert {:error, :unavailable} = Keychain.delete_legacy([])
   end
 
-  test "stdin framing carries the value and lowercase UUID, never command arguments" do
+  test "directory uses trusted application database configuration without invoking Repo" do
+    config = Application.fetch_env!(:lovelace, Lovelace.Repo)
+    directory = Path.expand(Keyword.fetch!(config, :database) <> ".vault")
+    assert Keychain.directory() == directory
+    assert Keychain.path() == Path.join(directory, "lovelace.keychain-db")
+  end
+
+  test "versioned stdin frame includes fixed directory, explicit service and lowercase UUID" do
     owner = self()
     token = "fake-secret\nwith \"quotes\""
 
     runner = fn input ->
       send(owner, {:stdin, input})
-      {:ok, "{\"ok\":true}\n"}
+      response(%{ok: true})
     end
 
-    assert :ok = Keychain.with_test_runner("put", @account, token, runner)
+    assert :ok = Keychain.with_test_runner("put", Map.put(attributes(), :value, token), runner)
     assert_receive {:stdin, input}
     assert [line, ""] = String.split(input, "\n")
 
     assert Jason.decode!(line) == %{
-             "operation" => "put",
+             "version" => 1,
+             "directory" => Keychain.directory(),
+             "operation" => "vault_put",
+             "service" => @gmail,
              "account" => String.downcase(@account),
              "value" => token
            }
 
     assert {:ok, ^token} =
-             Keychain.with_test_runner("get", @account, nil, fn _ ->
-               {:ok, Jason.encode!(%{ok: true, value: token}) <> "\n"}
+             Keychain.with_test_runner("get", attributes(), fn _ ->
+               response(%{ok: true, value: token})
              end)
 
-    assert :ok = Keychain.with_test_runner("delete", @account, nil, runner)
+    assert :ok = Keychain.with_test_runner("delete", attributes(), runner)
   end
 
-  test "Gemini service is allowlisted and isolated without changing the legacy Gmail envelope" do
-    owner = self()
-
-    runner = fn input ->
-      send(owner, {:input, Jason.decode!(input)})
-      {:ok, "{\"ok\":true}\n"}
+  test "all services are explicit and singleton services cannot address another account" do
+    for {account, service} <- [
+          {@account, @gmail},
+          {@gemini, "LOVELACE Gemini"},
+          {@oauth, "LOVELACE Google OAuth"},
+          {@database, "LOVELACE Database"}
+        ] do
+      assert {:ok, "synthetic"} =
+               Keychain.with_test_runner("get", attributes(account, service), fn input ->
+                 request = Jason.decode!(input)
+                 assert request["service"] == service
+                 assert request["account"] == String.downcase(account)
+                 response(%{ok: true, value: "synthetic"})
+               end)
     end
 
-    for service <- ["LOVELACE Gmail", "LOVELACE Gemini"] do
-      assert :ok = Keychain.with_test_runner("put", @account, "fake-key", runner, service)
-      assert_receive {:input, payload}
-      assert payload["account"] == String.downcase(@account)
-      assert payload["value"] == "fake-key"
+    never = fn _ -> flunk("invalid identity invoked runner") end
 
-      if service == "LOVELACE Gmail" do
-        refute Map.has_key?(payload, "service")
-        assert payload["operation"] == "put"
-      else
-        assert payload["service"] == "LOVELACE Gemini"
-        assert payload["operation"] == "gemini_put"
-      end
+    for service <- ["LOVELACE Gemini", "LOVELACE Google OAuth", "LOVELACE Database"] do
+      assert {:error, :invalid_account} =
+               Keychain.with_test_runner("get", attributes(@account, service), never)
     end
 
-    for service <- [nil, "", "arbitrary service", "LOVELACE Gemini\n", :gemini] do
+    for service <- [nil, "", "arbitrary service", "LOVELACE Gmail\n", :gemini] do
       assert {:error, :unavailable} =
-               Keychain.with_test_runner("put", @account, "fake-key", runner, service)
+               Keychain.with_test_runner("get", attributes(@account, service), never)
     end
 
-    refute_received {:input, _}
+    assert {:error, :unavailable} =
+             Keychain.with_test_runner(
+               "put",
+               Map.put(attributes(@database, "LOVELACE Database"), :value, "replacement"),
+               never
+             )
 
-    assert {:error, :invalid_account} =
-             Keychain.with_test_runner("get", "not-a-uuid", nil, runner, "LOVELACE Gemini")
+    assert {:error, :unavailable} =
+             Keychain.with_test_runner(
+               "delete",
+               attributes(@database, "LOVELACE Database"),
+               never
+             )
   end
 
-  test "all Gemini operations fail closed on legacy helpers before touching Gmail" do
-    owner = self()
-
-    legacy_runner = fn input ->
-      request = Jason.decode!(input)
-
-      if request["operation"] in ["get", "put", "delete"] do
-        send(owner, :gmail_touched)
-        {:ok, "{\"ok\":true}\n"}
-      else
-        {:ok, "{\"error\":\"unavailable\"}\n"}
-      end
+  test "unversioned or wrong-version helpers and obsolete operations fail closed" do
+    for output <- [
+          "{\"ok\":true}\n",
+          "{\"version\":0,\"ok\":true}\n",
+          "{\"version\":2,\"ok\":true}\n"
+        ] do
+      assert {:error, :unavailable} =
+               Keychain.with_test_runner("delete", attributes(), fn _ -> {:ok, output} end)
     end
 
-    for {operation, value} <- [{"get", nil}, {"put", "fake-key"}, {"delete", nil}] do
+    for operation <- ["gemini_get", "vault_get", "invalid"] do
       assert {:error, :unavailable} =
+               Keychain.with_test_runner(operation, attributes(), fn _ ->
+                 flunk("obsolete operation")
+               end)
+    end
+  end
+
+  test "passwords are bounded UTF-8 and carried only inside the versioned stdin request" do
+    for operation <- ["create", "unlock"] do
+      assert :ok =
                Keychain.with_test_runner(
                  operation,
-                 @account,
-                 value,
-                 legacy_runner,
-                 "LOVELACE Gemini"
-               )
-    end
+                 %{password: "synthetic\npassword"},
+                 fn input ->
+                   assert %{"password" => "synthetic\npassword", "operation" => wire} =
+                            Jason.decode!(input)
 
-    refute_received :gmail_touched
+                   assert wire == "vault_" <> operation
+                   response(%{ok: true})
+                 end
+               )
+
+      for password <- [nil, "", <<255>>, String.duplicate("x", 4097)] do
+        assert {:error, :invalid_password} =
+                 Keychain.with_test_runner(operation, %{password: password}, fn _ ->
+                   flunk("invalid password")
+                 end)
+      end
+    end
   end
 
-  test "invalid account and value fail before runner is invoked" do
-    runner = fn _ -> flunk("runner invoked for invalid input") end
+  test "invalid account and value fail before runner invocation" do
+    never = fn _ -> flunk("invalid input invoked runner") end
 
     for account <- ["not-a-uuid", "../path", nil, @account <> "\n"] do
-      assert {:error, :invalid_account} = Keychain.with_test_runner("get", account, nil, runner)
+      assert {:error, :invalid_account} =
+               Keychain.with_test_runner("get", attributes(account), never)
     end
 
     for value <- [nil, "", <<255>>, String.duplicate("x", 16 * 1024 + 1)] do
-      assert {:error, :invalid_value} = Keychain.with_test_runner("put", @account, value, runner)
+      assert {:error, :invalid_value} =
+               Keychain.with_test_runner("put", Map.put(attributes(), :value, value), never)
     end
   end
 
-  test "locked, missing and unavailable errors are allowlisted; malformed output is hidden" do
-    for {string, atom} <- [
+  test "status and migration APIs expose only safe results with explicit account lists" do
+    for {status, expected} <- [
           {"locked", :locked},
-          {"not_found", :not_found},
-          {"unavailable", :unavailable},
-          {"timeout", :timeout}
+          {"unlocked", :unlocked},
+          {"missing", :missing}
         ] do
-      assert {:error, ^atom} =
-               Keychain.with_test_runner("get", @account, nil, fn _ ->
-                 {:ok, Jason.encode!(%{error: string}) <> "\n"}
+      assert {:ok, ^expected} =
+               Keychain.with_test_runner("status", %{}, fn _ ->
+                 response(%{ok: true, status: status})
+               end)
+    end
+
+    assert {:error, :unavailable} =
+             Keychain.with_test_runner("status", %{}, fn _ ->
+               response(%{ok: true, status: "private"})
+             end)
+
+    for operation <- ["copy_legacy", "delete_legacy"] do
+      assert :ok =
+               Keychain.with_test_runner(
+                 operation,
+                 %{accounts: [@account, String.downcase(@account)]},
+                 fn input ->
+                   request = Jason.decode!(input)
+                   assert request["accounts"] == [String.downcase(@account)]
+                   refute Map.has_key?(request, "password")
+                   response(%{ok: true})
+                 end
+               )
+
+      for accounts <- [nil, ["not-a-uuid"], List.duplicate(@account, 513)] do
+        assert {:error, :invalid_account} =
+                 Keychain.with_test_runner(operation, %{accounts: accounts}, fn _ ->
+                   flunk("invalid migration input")
+                 end)
+      end
+    end
+  end
+
+  test "safe errors are allowlisted and malformed output is hidden without logging secrets" do
+    for reason <-
+          ~w(locked missing exists conflict not_found unavailable timeout invalid_directory) do
+      expected = String.to_existing_atom(reason)
+
+      assert {:error, ^expected} =
+               Keychain.with_test_runner("get", attributes(), fn _ ->
+                 response(%{error: reason})
                end)
     end
 
     for output <- [
           "private diagnostic",
-          "{\"ok\":true}\nextra\n",
+          "{\"version\":1,\"ok\":true}\nextra\n",
           "{}\n",
-          "{\"error\":\"private-secret\"}\n",
+          "{\"version\":1,\"error\":\"private-secret\"}\n",
           String.duplicate("x", 128 * 1024 + 1)
         ] do
       assert {:error, :unavailable} =
-               Keychain.with_test_runner("get", @account, nil, fn _ -> {:ok, output} end)
+               Keychain.with_test_runner("get", attributes(), fn _ -> {:ok, output} end)
     end
 
     assert capture_log(fn ->
              assert {:error, :unavailable} =
-                      Keychain.with_test_runner("put", @account, "fake-secret", fn _ ->
-                        raise "fake-secret"
-                      end)
+                      Keychain.with_test_runner(
+                        "put",
+                        Map.put(attributes(), :value, "fake-secret"),
+                        fn _ -> raise "fake-secret" end
+                      )
            end) == ""
   end
 
   @tag timeout: 7_000
-  test "helper deadline also bounds an injected hanging runner" do
+  test "deadline bounds injected hanging runner" do
     assert {:error, :timeout} =
-             Keychain.with_test_runner("get", @account, nil, fn _ -> Process.sleep(:infinity) end)
+             Keychain.with_test_runner("get", attributes(), fn _ -> Process.sleep(:infinity) end)
   end
 end

@@ -4,11 +4,13 @@ defmodule LovelaceWeb.OwnerAuth do
   import Phoenix.Component, only: [assign: 3]
   alias Lovelace.Owner
   alias Lovelace.Owner.Actions
+  alias Lovelace.Security.Vault
   @service [actor: %{role: :owner_auth_service}]
 
   def on_mount(:require_owner, _params, session, socket) do
     with {:ok, %{digest: digest, expires_at: expires_at}} <-
            Owner.verify_session(session["owner_session_token"]),
+         :ok <- track(socket),
          :ok <- subscribe(socket, digest),
          {:ok, _} <- Owner.verify_digest(digest, @service) do
       if connected?(socket) do
@@ -37,6 +39,17 @@ defmodule LovelaceWeb.OwnerAuth do
       {:cont, socket}
     else
       _ -> locked(socket)
+    end
+  end
+
+  defp track(socket) do
+    if connected?(socket) do
+      case Vault.track() do
+        {:ok, _lease} -> :ok
+        _ -> {:error, :locked}
+      end
+    else
+      :ok
     end
   end
 

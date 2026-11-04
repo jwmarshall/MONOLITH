@@ -7,6 +7,7 @@ defmodule Lovelace.Owner do
       define :configure, action: :configure, args: [:password]
       define :configured, action: :configured
       define :unlock, action: :unlock, args: [:password, :client]
+      define :unlock_for_maintenance, action: :unlock_for_maintenance, args: [:password]
       define :read_credential, action: :read, get?: true, not_found_error?: false
     end
 

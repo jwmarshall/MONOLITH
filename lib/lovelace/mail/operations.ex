@@ -5,6 +5,7 @@ defmodule Lovelace.Mail.Operations do
 
   alias Lovelace.Mail
   alias Lovelace.Mail.{Account, CacheEntry, Connections, WorkspaceAccount}
+  alias Lovelace.Security.Vault
 
   @max_entries 120
   @max_bytes 25 * 1024 * 1024
@@ -12,7 +13,9 @@ defmodule Lovelace.Mail.Operations do
 
   @impl true
   def run(input, _, context) do
-    execute(input.action.name, input.arguments, context.actor)
+    Vault.with_access(fn ->
+      execute(input.action.name, input.arguments, context.actor)
+    end)
   rescue
     _ -> {:ok, failure(:unavailable)}
   catch

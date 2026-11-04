@@ -7,8 +7,10 @@ optionally see today's Google Calendar agendas, with each account kept separate.
 Workspaces group the accounts you use in different areas of life.
 
 - Read-only: no sending mail, changing mailbox state, or editing calendar events.
-- One local owner, password unlock, and Google refresh tokens stored in macOS Keychain.
+- One local owner; its password unlocks a dedicated macOS keychain and SQLCipher-encrypted SQLite database.
 - Local-only: keep it on loopback, not a public server or tunnel.
+- Startup is locked. Explicit Lock stops protected background work; visual idle/Escape does not.
+- No password recovery. Existing plaintext data requires an explicit, stopped migration.
 
 A glass interface keeps your work in front of the scenery.
 [Optional generated scenery](docs/STAGE_DESIGNER.md) is opt-in and may incur API costs.
@@ -25,9 +27,9 @@ You can open LOVELACE without Google credentials, but mail and agendas need a co
 Built with Elixir, Phoenix LiveView, Ash, and SQLite.
 
 ```sh
-mix check      # format, compile, lint/security, tests, and assets
-mix audit      # online dependency audit
-mix test.ui    # browser checks; requires Chrome/Chromium
+bin/lovelace-sqlcipher mix check      # format, compile, lint/security, tests, and assets
+bin/lovelace-sqlcipher mix audit      # online dependency audit
+bin/lovelace-sqlcipher mix test.ui    # browser checks; requires Chrome/Chromium
 ```
 
 [Development guide](docs/DEVELOPMENT.md) · [Gmail](docs/GMAIL.md) ·

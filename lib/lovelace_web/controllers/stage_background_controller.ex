@@ -1,10 +1,14 @@
 defmodule LovelaceWeb.StageBackgroundController do
   use LovelaceWeb, :controller
 
+  alias Lovelace.Security.Vault
   alias Lovelace.StageDesigner.Image
+  alias LovelaceWeb.Plugs.OwnerRequest
 
   def show(conn, %{"filename" => filename}) do
-    with [_, digest, extension] <- Regex.run(~r/\A([0-9a-f]{64})\.(png|jpg)\z/, filename),
+    with {:ok, lease} <- Vault.track(),
+         :ok <- OwnerRequest.retain(lease),
+         [_, digest, extension] <- Regex.run(~r/\A([0-9a-f]{64})\.(png|jpg)\z/, filename),
          {:ok, bytes} <- Lovelace.StageDesigner.image(digest),
          format = Image.format(bytes),
          true <- Image.extension(format) == extension do
