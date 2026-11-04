@@ -58,9 +58,11 @@ Stack: Phoenix LiveView, Ash/AshSqlite over Ecto/SQLite, and Tailwind.
 - Model business behavior with Ash resources, domains, actions, and policies, not parallel
   hand-written Ecto contexts. Register domains and commit migrations plus snapshots.
 - AshAuthentication protects a single local owner; connected Gmail identities are separate.
-  Owner setup is terminal-only. Keep HTTP/LiveView session guards and revocation intact.
+  Initial browser owner setup requires single-use terminal pairing; it is not public signup.
+  Keep early credential POST boundaries, HTTP/LiveView session guards and revocation intact.
 - Production/dev storage uses SQLCipher 4.20.0 and a dedicated password-unlocked macOS
-  file keychain, not the login keychain. Use `bin/lovelace-sqlcipher` for Mix commands.
+  file keychain, not the login keychain. Use `bin/lovelace setup` / `server` for development
+  and `bin/lovelace mix TASK` for other Mix tasks; the launcher configures SQLCipher internally.
   Startup is locked; explicit global Lock stops protected Repo/queues/provider work.
   Escape/visual idle keeps work running. No password recovery or production plaintext
   fallback. Setup/migration may require attended OS authorization; runtime access is
@@ -103,9 +105,9 @@ Stack: Phoenix LiveView, Ash/AshSqlite over Ecto/SQLite, and Tailwind.
 
 ## Verification
 
-Run `bin/lovelace-sqlcipher mix check` (format/compile/Credo/AshCredo/Sobelow/tests/assets)
-and `bin/lovelace-sqlcipher mix audit` (online advisories/retired packages). For UI
-changes also run `bin/lovelace-sqlcipher mix test.ui` (installed Chrome/Chromium; see docs/DEVELOPMENT.md). `mix lint` compiles in test for AshCredo introspection.
+Run `bin/lovelace check` (format/compile/Credo/AshCredo/Sobelow/tests/assets)
+and `bin/lovelace audit` (online advisories/retired packages). For UI
+changes also run `bin/lovelace mix test.ui` (installed Chrome/Chromium; see docs/DEVELOPMENT.md). `mix lint` compiles in test for AshCredo introspection.
 Keep durable decisions here and operational contracts in the relevant docs. Do not maintain
 handoff documents, completion histories or speculative backlogs. Choose future work from the
 current user request; retired plans are not obligations. Verify implementation in code and

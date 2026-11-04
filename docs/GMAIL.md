@@ -27,39 +27,37 @@ installation yourself.
 
 ## 1. Local preparation
 
-For a new installation, stop the server and run from a private checkout:
+For a new installation, install the [local prerequisites](DEVELOPMENT.md#local-setup)
+and run from a private checkout:
 
 ```sh
 umask 077
-brew install sqlcipher
-bin/lovelace-sqlcipher mix deps.get
-bin/lovelace-sqlcipher mix deps.clean --build exqlite
-bin/lovelace-sqlcipher mix deps.compile exqlite --force
-bin/lovelace-sqlcipher mix lovelace.keychain.build
-bin/lovelace-sqlcipher mix lovelace.owner.setup
+bin/lovelace setup
+bin/lovelace server
 ```
 
-The wrapper requires SQLCipher **4.20.0**. Owner setup creates the encrypted schema
-and dedicated password-unlocked file keychain; do not use ordinary plaintext SQLite
-migration commands for this installation. Keep data directories private (`0700`) and
-existing files owner-only (`0600`); `umask` affects new files only.
+The launcher handles SQLCipher **4.20.0** internally. `bin/lovelace setup` prepares the native binding,
+helper, and assets without initializing application storage. Open <http://localhost:4321>
+and pair the browser with the private one-time code printed in the server terminal.
+Choose and confirm an owner password, then acknowledge permanent password loss.
+The browser creates the encrypted schema and dedicated password-unlocked file keychain;
+do not use ordinary plaintext SQLite migration/reset commands. For a fresh review beside
+existing data, use the [isolated installation instructions](DEVELOPMENT.md#fresh-onboarding-without-resetting-existing-data).
+Keep data directories private (`0700`) and files owner-only (`0600`); `umask` affects new files only.
 
-The owner task prompts twice with hidden input (12–1024 characters, at most 1024 UTF-8 bytes);
-never pass passwords as command arguments. It does not start provider work. The database
-key is independently generated and stored in the dedicated keychain, not derived from
-the owner password. There is **no password recovery**: forgetting it permanently loses
-access to the encrypted data.
+Passwords require 12–1024 characters and at most 1024 UTF-8 bytes. Never pass them as
+command arguments. The independently generated database key is stored in the dedicated
+keychain, not derived from the owner password. There is **no password recovery**.
 Initial native creation may display a macOS authorization dialog for this dedicated
 keychain; enter the same owner password there, never in shell arguments or chat.
-If setup or authorization is interrupted, rerun owner setup with that password.
-Native creation uses unpublished encrypted staging files until the random database key
-is verified; interrupted unused staging files are retained, never substituted for a
-previously initialized keychain.
-Its private setup/creation markers preserve unfinished storage; initialized keys and
-owner credentials are never replaced. Do not delete those markers to force setup.
+If setup is interrupted, restart the server, pair again, and resume `/setup` with the
+**original password**. Private setup/creation markers and unused encrypted staging files
+are preserved; initialized keys and owner credentials are never replaced. Never delete
+those markers to force setup. The stopped-terminal `lovelace.owner.setup` task remains
+available for explicit attended maintenance, not required first-run setup.
 
 For an existing plaintext installation, stop the application and run
-`bin/lovelace-sqlcipher mix lovelace.vault.migrate` in a terminal. It verifies the owner
+`bin/lovelace mix lovelace.vault.migrate` in a terminal. It verifies the owner
 password and copies legacy credentials into the dedicated keychain. Separate exact
 confirmations govern `CUT OVER`, `DELETE PLAINTEXT` and `DELETE LEGACY SECRETS`.
 Original database files (including WAL) and legacy secrets are retained by default;
@@ -79,7 +77,7 @@ or job arguments. Access tokens are transient in memory. There is no runtime log
 keychain fallback, plaintext fallback or iCloud synchronization. Legacy login
 keychain access is confined to explicit terminal migration.
 
-Explicit terminal setup and migration may enable macOS authorization UI (up to two
+Explicit paired-browser/terminal setup and terminal migration may enable macOS authorization UI (up to two
 minutes per operation). Migration permits legacy item reads/deletions and approval of
 the existing Database-key item after a helper rebuild; it never replaces that key.
 Approval must allow the verified helper's later noninteractive reads. A `login`
@@ -100,7 +98,10 @@ until the next startup; instant crash-time locking is not guaranteed.
 
 ## 2. Google Cloud setup
 
-Use a dedicated project at <https://console.cloud.google.com/>:
+After owner creation, `/onboarding` walks through these steps and saves your progress
+locally when you continue. Console links open a new tab; keep the same project selected.
+The guide does not automate or independently verify console changes. You can skip Gmail
+and return later. Use a dedicated project at <https://console.cloud.google.com/>:
 
 1. Enable the **Gmail API**. Enable **Google Calendar API** too only when using the
    optional [Calendar integration](CALENDAR.md).
@@ -119,15 +120,16 @@ Use a dedicated project at <https://console.cloud.google.com/>:
 4. Create an OAuth **Desktop app** client for this locally installed application.
    A Desktop client is public; its bundled client secret is not a security boundary.
    Do not use service-account/domain-wide delegation or the obsolete OOB flow.
-5. Keep the client ID and client secret local. With the server stopped and the local
-   owner/vault already configured, run `mix lovelace.google.configure` in a terminal.
-   It prompts without echo for the owner password, client ID and client secret, and
-   stores the pair in the dedicated LOVELACE keychain. It performs no provider calls
-   and does not start background jobs. Runtime `GOOGLE_CLIENT_ID` and
-   `GOOGLE_CLIENT_SECRET` environment variables are not read. Never paste credentials
-   into chat, source, logs or shell history; do not commit downloaded client JSON.
+5. Keep the client ID and client secret local. Paste them into the protected
+   `/onboarding/client` form while LOVELACE is unlocked. The form stores them directly
+   in the dedicated keychain, never displays them again, and performs no provider probe.
+   No server restart is required. Runtime `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`
+   environment variables are not read. Never paste credentials into chat, source, logs,
+   URLs, or shell history; do not commit downloaded client JSON.
+   For explicit stopped-server maintenance, `bin/lovelace mix lovelace.google.configure`
+   remains available with hidden terminal prompts; it does not start provider work.
 
-LOVELACE uses `http://localhost:4000/oauth/google/callback` by default. A custom `PORT`
+LOVELACE uses `http://localhost:4321/oauth/google/callback` by default. A custom `PORT`
 changes the callback port too. Desktop clients support loopback redirects without
 registering each port. Google recommends literal loopback IPs and an available port;
 LOVELACE deliberately uses its fixed **localhost** web origin so the initiating owner's
@@ -154,24 +156,32 @@ administrator approval. Tokens can be revoked or expire for other reasons too.
 
 ## 3. Connect and read
 
-Start with your private configuration injected:
+The fresh browser guide offers **Connect Google account**, with **Personal** shown as
+the receiving workspace and read-only access explained before Google consent starts.
+The server is already running; Google credentials are not required to start it.
+For later sessions:
 
 ```sh
-dotenvx run --strict -f .env -- bin/lovelace-sqlcipher mix phx.server
+bin/lovelace server
 ```
 
 The application starts locked: Repo, Oban and provider work remain stopped until
-successful owner unlock. The first successful ordinary unlock in each application
-startup may make the usual eligible, potentially billable scenery attempt when
-enabled. Page loads and later lock/unlock cycles do not create another startup
-attempt. Gmail never starts a browser or requests consent automatically.
+successful owner unlock. Unfinished onboarding resumes at its saved step unless a safe
+requested destination takes precedence. Eligible, opted-in scenery generation can run
+after the first successful ordinary unlock per startup; leave it disabled during setup review.
+Gmail never starts a browser or requests consent automatically.
 
-1. Open `http://localhost:4000`, unlock to **Home**, choose **Workspaces**, enter a workspace,
-   choose **Add integration**, then
-   **Connect Google account**. Alternatively, open global **Connections → Gmail → Add Gmail account**
+1. In onboarding, press **Connect Google account**. Otherwise open `http://localhost:4321`,
+   unlock, choose **Workspaces**, enter a workspace, choose **Add integration**, then
+   **Connect Google account**. Alternatively use **Connections → Gmail → Add Gmail account**
    and explicitly choose the receiving workspace in the modal, then **Connect Google account**.
    Cancel/Escape dismisses the modal without starting OAuth.
 2. Choose the intended Google account and grant read-only mail access.
+   Successful consent returns to that workspace. While onboarding is unfinished,
+   **Finish setup** opens the guide's completion page. It distinguishes saved Google
+   authorization, an unconfirmed first read, failures, and a timestamped saved read
+   observation. Open that account's inbox to request its first read; finishing or skipping
+   the guide never invents a connection or a successful read.
 3. LOVELACE binds the verified UserInfo `sub` to the connection. Email is a display
    attribute, not its stable identity. Reconnect cannot silently select another account.
 4. Open one account's inbox; search uses Gmail syntax across that account, including
@@ -250,7 +260,7 @@ client secret or raw Google response.
 A corrected native-helper stdin bug previously caused short JSON requests to wait
 for 4096 bytes/EOF until the watchdog expired. The helper now uses bounded POSIX reads
 and processes newline frames with stdin still open. After updating this source, run
-`mix lovelace.keychain.build` and restart LOVELACE with dotenvx, then start a **fresh**
+`bin/lovelace mix lovelace.keychain.build` and restart LOVELACE, then start a **fresh**
 connection attempt. Old binaries do not inherit Swift source changes. Restarting clears
 pending OAuth state, so do not reuse an earlier callback URL. A macOS-only regression
 compiles/runs the real helper with invalid inputs that cannot reach a credential operation.

@@ -7,7 +7,11 @@ defmodule LovelaceWeb.OwnerController do
 
   plug :no_cache
 
-  def new(conn, _params), do: unlock_form(conn)
+  def new(conn, _params) do
+    if configuration_status() in [:new, :setup_incomplete],
+      do: redirect(conn, to: "/setup"),
+      else: unlock_form(conn)
+  end
 
   # Refuse ordinary routed credential handling: it would expose parsed passwords
   # to router telemetry. Only the early endpoint boundary may dispatch this action.
@@ -29,7 +33,9 @@ defmodule LovelaceWeb.OwnerController do
         # Replacing an authenticated browser session also revokes its old token.
         case revoke_current(conn) do
           {:ok, true} ->
-            destination = OwnerReturnPath.safe(get_session(conn, :owner_return_to)) || "/"
+            destination =
+              OwnerReturnPath.safe(get_session(conn, :owner_return_to)) ||
+                Lovelace.Onboarding.entry_path()
 
             conn
             |> configure_session(renew: true)

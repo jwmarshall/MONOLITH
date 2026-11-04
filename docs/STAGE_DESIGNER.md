@@ -171,7 +171,7 @@ It does not trigger a request, change opt-in settings, or bypass cooldowns. Remo
 keeps scenery/cooldowns and cannot cancel a request that already acquired the key.
 
 **Migrating an existing setup:** stop the application and use the terminal
-`bin/lovelace-sqlcipher mix lovelace.vault.migrate` workflow described in
+`bin/lovelace mix lovelace.vault.migrate` workflow described in
 [GMAIL.md](GMAIL.md). It verifies the owner password and copies legacy keychain
 credentials; it does not inspect private environment files. Exact separate confirmations
 control cutover, plaintext deletion and legacy-secret deletion. Originals are retained
@@ -199,8 +199,8 @@ Complete owner setup or the stopped-application migration before activating; see
 Start the server through the SQLCipher wrapper:
 
 ```sh
-dotenvx run --strict -f .env --no-native --no-armor --no-1password --no-bitwarden -- bin/lovelace-sqlcipher mix phx.server
-# Interactive variant: replace mix phx.server with iex -S mix phx.server
+dotenvx run --strict -f .env --no-native --no-armor --no-1password --no-bitwarden -- bin/lovelace server
+# Interactive variant: replace server with console
 ```
 
 Plain Mix does not load `.env`. Existing shell variables take precedence over dotenvx;

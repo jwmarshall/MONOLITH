@@ -1,0 +1,48 @@
+#!/bin/sh
+# Project commands with the required SQLCipher build environment.
+set -eu
+
+usage() {
+  cat <<'USAGE'
+Usage: bin/lovelace <action> [arguments]
+
+  setup     Install dependencies and prepare developer tools; no storage initialization
+  server    Start the local web server
+  console   Start the server with an interactive Elixir shell
+  check     Run formatting, compilation, lint, security, tests, and asset checks
+  test      Run Elixir tests (accepts test paths and options)
+  audit     Check dependency advisories and retired packages
+  mix       Run any other Mix task
+  help      Show this help
+
+Configure the server with environment variables such as PORT and DATABASE_PATH.
+USAGE
+}
+
+action=${1:-help}
+if [ "$#" -gt 0 ]; then shift; fi
+
+case "$action" in
+  help|-h|--help) usage; exit 0 ;;
+  setup|check|test|audit) set -- mix "$action" "$@" ;;
+  server) set -- mix phx.server "$@" ;;
+  console) set -- iex -S mix phx.server "$@" ;;
+  mix) set -- mix "$@" ;;
+  *) printf 'Unknown action: %s\n\n' "$action" >&2; usage >&2; exit 2 ;;
+esac
+
+project_root=$(CDPATH= cd -P "$(dirname "$0")/.." && pwd)
+cd "$project_root"
+
+if command -v brew >/dev/null 2>&1; then
+  cipher_prefix=$(brew --prefix sqlcipher)
+  export PKG_CONFIG_PATH="$cipher_prefix/lib/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
+fi
+command -v pkg-config >/dev/null 2>&1 || { echo 'pkg-config is required' >&2; exit 1; }
+pkg-config --exists sqlcipher || { echo 'SQLCipher is required' >&2; exit 1; }
+# pkg-config reports the underlying SQLite version, not cipher_version.
+# Managed Repo startup validates SQLCipher 4.20.0 before opening protected data.
+export EXQLITE_USE_SYSTEM=1
+export EXQLITE_SYSTEM_CFLAGS="$(pkg-config --cflags sqlcipher)"
+export EXQLITE_SYSTEM_LDFLAGS="$(pkg-config --libs sqlcipher)"
+exec "$@"

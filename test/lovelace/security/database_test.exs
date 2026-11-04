@@ -40,7 +40,7 @@ defmodule Lovelace.Security.DatabaseTest do
 
     try do
       assert Database.cipher_available?(handle),
-             "Rebuild Exqlite against SQLCipher 4.20.0 with bin/lovelace-sqlcipher"
+             "Rebuild Exqlite against SQLCipher 4.20.0 with bin/lovelace setup"
 
       assert Database.supported_version?("4.20.0 community")
       refute Database.supported_version?("4.20.1")

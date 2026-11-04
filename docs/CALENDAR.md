@@ -16,7 +16,7 @@ descriptions/HTML or load remote imagery. Repeating events are expanded by Googl
 3. Complete the encrypted owner setup or stopped-application migration described in
    [GMAIL.md](GMAIL.md); never reset a private database or apply plaintext SQLite tooling
    to the encrypted database.
-4. Start LOVELACE through `bin/lovelace-sqlcipher` and unlock, then open **Connections → Calendar**. For an existing Google account, choose a receiving
+4. Start LOVELACE with `bin/lovelace server` and unlock, then open **Connections → Calendar**. For an existing Google account, choose a receiving
    workspace and explicitly authorize Calendar. This reuses the same Google subject and
    Keychain item, not a second identity or owner login. Choosing another Google identity
    is rejected. Granting Calendar also retains read-only Gmail access.

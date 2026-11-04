@@ -25,7 +25,7 @@ defmodule Lovelace.Repo do
     end
 
     unless Database.available?() do
-      raise "SQLCipher 4.20.0 is required; rebuild Exqlite with bin/lovelace-sqlcipher"
+      raise "SQLCipher 4.20.0 is required; rebuild Exqlite with bin/lovelace setup"
     end
 
     {:ok,

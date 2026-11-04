@@ -38,6 +38,7 @@ defmodule LovelaceWeb.Router do
   scope "/", LovelaceWeb do
     pipe_through :browser
 
+    get "/setup", SetupController, :show
     get "/unlock", OwnerController, :new
     post "/unlock", OwnerController, :create
     post "/lock", OwnerController, :delete
@@ -45,6 +46,10 @@ defmodule LovelaceWeb.Router do
 
   scope "/", LovelaceWeb do
     pipe_through [:browser, :owner]
+
+    get "/onboarding", OnboardingController, :index
+    get "/onboarding/:step", OnboardingController, :show
+    post "/onboarding/:step", OnboardingController, :update
 
     post "/oauth/google/start", GoogleOAuthController, :create
 

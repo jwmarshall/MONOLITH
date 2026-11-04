@@ -9,6 +9,7 @@
 @import "./scenes.css";
 @import "./modals.css";
 @import "./status.css";
+@import "./onboarding.css";
 @source "../css";
 @source "../js";
 @source "../../lib/lovelace_web";

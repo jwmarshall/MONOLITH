@@ -54,12 +54,12 @@ jobs:
           path: |
             deps
             _build
-          key: ${{ runner.os }}-sqlcipher-4.20.0-beam-${{ hashFiles('.tool-versions', 'mix.lock', 'config/**', 'bin/lovelace-sqlcipher', '.formatter.exs') }}
+          key: ${{ runner.os }}-sqlcipher-4.20.0-beam-${{ hashFiles('.tool-versions', 'mix.lock', 'config/**', 'bin/lovelace', '.formatter.exs') }}
       - name: Fetch dependencies
-        run: bin/lovelace-sqlcipher mix deps.get
+        run: bin/lovelace mix deps.get
       - name: Install asset tools
-        run: bin/lovelace-sqlcipher mix assets.setup
+        run: bin/lovelace mix assets.setup
       - name: Check formatting, compilation, Credo, Sobelow, schema drift, tests, and assets
-        run: bin/lovelace-sqlcipher mix check
+        run: bin/lovelace check
       - name: Check dependency advisories and retired Hex packages
-        run: bin/lovelace-sqlcipher mix audit
+        run: bin/lovelace audit

@@ -76,17 +76,28 @@ Verify implementation in code; the coverage map below is not evidence that check
   scenery mode still hides Lock and dims the legend. Both monogram and Lock appear only in an entered,
   focused live workspace. The corner stays hidden through the centered entrance/exit;
   both hide in landscape mode. Center navigation and Lock also lose keyboard access there.
-- Static unlock/terminal-setup pages share the stage, using only a fixed public bundled
+- Static unlock/first-run setup pages share the stage, using only a fixed public bundled
   fallback while locked; protected generated imagery and the persisted bundled choice
-  become available only after unlock. They
-  show the corner immediately and stay focused. They have no idle timer, entrance gate or
-  LiveView dependency. Keep a persistent accessible “Unlock LOVELACE” heading even when
-  visible title/wordmark copy is omitted.
+  become available only after unlock. They show the corner immediately and stay focused,
+  without an idle timer, entrance gate, or LiveView dependency. Keep an accessible heading
+  for the current password/pairing/guide step; narrow layouts reserve space for the fixed
+  monogram outside scrolling instructions.
+- `/setup` is available only for new/interrupted storage and requires a private, single-use,
+  expiring terminal pairing code before accepting an owner password. Explain permanent
+  password loss before entry and require acknowledgement. Passwords/client credentials
+  use ordinary CSRF-protected forms consumed before instrumentation, never LiveView state.
+- `/onboarding` is an owner-protected, resumable Google project/authentication/audience/
+  Desktop-client/Gmail guide. External console links explicitly open a safe new tab.
+  Continuing records local progress, not verification of Google's settings. Saving client
+  credentials makes no provider request. Connectivity and first-read claims derive from
+  saved account observations; skipping never implies a Gmail connection.
 
 ## Home, workspace and integration navigation
 
-- `/` is Home, the default after ordinary unlock. Reload and copied deep links restore their
-  destination; a protected deep link resumes after unlock when its local return URL is safe
+- `/` is Home, the default after ordinary unlock for completed/existing installations.
+  Explicitly started unfinished onboarding resumes its saved step by default. Reload and
+  copied protected deep links restore their destination; a protected deep link resumes
+  after unlock when its local return URL is safe
   and bounded. Escape/idle wake preserves the current view, scroll and forms; it never navigates
   Home. Successful Gmail consent returns to the receiving workspace; Calendar consent
   returns to its global provider page for calendar selection.
@@ -330,7 +341,7 @@ Verify implementation in code; the coverage map below is not evidence that check
 ## Verification map
 
 Use native Node and synchronous LiveView/ConnTest suites plus the explicit
-`LOVELACE_STAGE_ENABLED=false bin/lovelace-sqlcipher mix test.ui` Chrome/Chromium regression
+`LOVELACE_STAGE_ENABLED=false bin/lovelace mix test.ui` Chrome/Chromium regression
 gate. No real mailbox, real credential or billable provider calls are needed. Native
 keychain creation/cancellation/resume verification is a separate, explicitly attended
 disposable-keychain check, never an unattended CI prompt. See [DEVELOPMENT.md](DEVELOPMENT.md)

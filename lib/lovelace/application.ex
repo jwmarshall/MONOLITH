@@ -17,7 +17,7 @@ defmodule Lovelace.Application do
         {DNSCluster, query: Application.get_env(:lovelace, :dns_cluster_query) || :ignore},
         {Phoenix.PubSub, name: Lovelace.PubSub},
         Lovelace.Owner.Throttle
-      ] ++ protected_children(startup_id) ++ [LovelaceWeb.Endpoint]
+      ] ++ protected_children(startup_id) ++ [Lovelace.Security.Bootstrap, LovelaceWeb.Endpoint]
 
     # See https://elixir.hexdocs.pm/Supervisor.html
     # for other strategies and supported options

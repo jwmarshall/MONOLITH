@@ -75,6 +75,8 @@ defmodule LovelaceWeb.OwnerAuthTest do
           "/workspaces/../unlock",
           "/unlock",
           "/lock",
+          "/setup",
+          "/setup/password",
           "/oauth/google/start",
           "/oauth/google/callback?code=synthetic-code",
           "/stage/background/synthetic.jpg",
@@ -98,6 +100,8 @@ defmodule LovelaceWeb.OwnerAuthTest do
           "/accounts/synthetic-account/mail/threads/synthetic-thread",
           "/connections",
           "/connections/gmail",
+          "/onboarding",
+          "/onboarding/audience",
           "/scenes",
           "/settings"
         ] do

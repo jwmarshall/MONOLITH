@@ -59,6 +59,7 @@ config :lovelace,
     Lovelace.Mail,
     Lovelace.Calendar,
     Lovelace.GitHub,
+    Lovelace.Onboarding,
     Lovelace.Owner
   ],
   ecto_repos: [Lovelace.Repo],

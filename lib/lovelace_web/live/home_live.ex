@@ -46,6 +46,7 @@ defmodule LovelaceWeb.HomeLive do
         navigation_path: nil,
         home_accounts: [],
         home_error: false,
+        onboarding_pending: Lovelace.Onboarding.pending?(),
         background: background,
         selected: nil,
         connections: false,
@@ -888,6 +889,11 @@ defmodule LovelaceWeb.HomeLive do
               current
             />
           </div>
+          <p :if={@onboarding_pending} class="mail-muted">
+            <.link id="finish-onboarding" href="/onboarding/complete" class="workspace-action">
+              Finish setup
+            </.link>
+          </p>
 
           <LovelaceWeb.ModalComponents.modal
             :if={@editor}

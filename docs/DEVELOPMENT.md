@@ -16,72 +16,103 @@ For a **new installation with no existing local data**, run:
 ```sh
 asdf install                 # if these runtimes are not already installed
 brew install sqlcipher pkg-config
-bin/lovelace-sqlcipher mix setup
-bin/lovelace-sqlcipher mix deps.clean --build exqlite
-bin/lovelace-sqlcipher mix deps.compile exqlite --force
-bin/lovelace-sqlcipher mix lovelace.keychain.build
-bin/lovelace-sqlcipher mix lovelace.owner.setup
-bin/lovelace-sqlcipher mix phx.server
+bin/lovelace setup
+bin/lovelace server
 ```
 
-`mix setup` fetches dependencies and installs/builds the Mix-managed Tailwind and
-esbuild binaries; it does **not** create, migrate, seed or reset managed storage.
-The explicit Exqlite rebuild replaces any cached ordinary-SQLite native build.
-Use `bin/lovelace-sqlcipher` for Mix commands so native builds link SQLCipher;
-managed startup checks the actual SQLCipher version and fails closed if unavailable.
+`bin/lovelace setup` fetches dependencies, rebuilds Exqlite against SQLCipher, verifies the
+actual in-memory SQLCipher version, builds a missing native helper, and installs/builds
+the Mix-managed Tailwind and esbuild binaries. It does **not** initialize application
+storage, an owner, a keychain, or provider credentials. An existing current helper is
+preserved; a stale/non-executable helper requires an explicit rebuild because replacing
+it can change its Keychain ACL identity. `bin/lovelace` handles the SQLCipher environment
+internally. Use `bin/lovelace help` for actions, or `bin/lovelace mix TASK` for other Mix tasks.
 Initial setup needs network access and native build tools. No npm install, Docker,
 separate database service, or Google credentials are required. Node is needed for
 the JavaScript hook tests in `mix check`, not asset building.
 
-Owner setup, vault migration and Google credential configuration load
-`config/runtime.exs` before resolving storage, without starting LOVELACE or its queues.
-For production maintenance, supply the same `MIX_ENV=prod`, `DATABASE_PATH` and
-`SECRET_KEY_BASE` as normal production startup; never let maintenance select another
-installation's database.
+Open <http://localhost:4321>. New storage redirects to **first-run setup**:
 
-Owner setup requires a local terminal, prompts without echo (no password arguments),
-and creates the encrypted schema and dedicated password-unlocked macOS file keychain,
-separate from the login keychain. The independently generated SQLite encryption key
-is stored in that keychain, not derived from the owner password. Setup refuses unrelated
-existing storage: use the stopped migration procedure below instead. Native creation may
-show a macOS authorization dialog for the dedicated keychain; use the same owner password.
-Only explicit terminal setup/migration can enable that UI; ordinary unlock and background
-access remain noninteractive. Cancelled/interrupted setup retains private markers and
-resumes by rerunning owner setup with the original password, without replacing an owner
-or initialized database key. Never delete markers to force a reset.
-Creation publishes the final keychain only after its random database key is verified.
-An interruption before publication may leave unused encrypted `.keychain-creating-*`
-files beside the private marker; retry does not overwrite an initialized keychain.
-**There is no password reset or recovery: forgetting the password permanently loses
-access to the encrypted data.**
+1. Copy the one-time pairing code printed in the server terminal into the browser.
+   The code is private, expires after 15 minutes, and can pair only one browser.
+   Restart the server to issue another code if it expires or you lose the paired session.
+   This is not public signup; the listener must remain on loopback.
+2. Choose and confirm your owner password (12–1024 characters, at most 1024 UTF-8 bytes)
+   and acknowledge that there is **no password reset or recovery**. Forgetting it
+   permanently loses access to the encrypted data. Never put passwords in shell arguments.
+3. LOVELACE creates the dedicated password-unlocked macOS file keychain, independently
+   generated database key, SQLCipher schema, owner, and Personal workspace.
+   Native creation may request macOS authorization for that dedicated keychain; use
+   the same owner password. Explicit setup/migration alone can enable attended UI;
+   ordinary unlock and background access remain noninteractive.
+4. Continue through the in-app Google project, authentication/scopes, audience/test users,
+   Desktop OAuth client, and Gmail connection guide. Client credentials go directly
+   into the unlocked dedicated keychain; saving makes no Google request and needs no restart.
+   Google changes and consent remain your explicit actions. You can skip Gmail honestly.
 
-Every server startup is locked. Open <http://localhost:4000> and unlock with the owner
+Interrupted setup retains private markers and resumes at `/setup` with a new terminal
+pairing code and the **original password**, without replacing an owner or initialized
+database key. Never delete markers to force a reset. Creation publishes the final keychain
+only after verifying its random database key. Unused encrypted `.keychain-creating-*`
+staging files may remain after interruption; they are not recovery keys.
+The Google guide saves progress in encrypted storage when you continue. After restart,
+ordinary unlock resumes unfinished onboarding unless a safe requested destination takes
+precedence. Existing installations without guide state still land on Home. `/onboarding`
+reopens the guide; **Finish setup** remains available while it is unfinished.
+
+The attended terminal tasks `lovelace.owner.setup` and `lovelace.google.configure` remain
+available for explicit maintenance, not required developer setup. They and vault migration
+load `config/runtime.exs` without starting LOVELACE or queues. Production maintenance must
+use the same `MIX_ENV=prod`, `DATABASE_PATH`, and `SECRET_KEY_BASE` as ordinary startup.
+
+Every server startup is locked. Open <http://localhost:4321> and unlock with the owner
 password to start the protected Repo, Oban queues and provider work. Explicit **Lock**
 globally stops that work, closes the Repo and locks the keychain; Escape/visual idle
 only changes scenery and continues work. Normal shutdown locks the keychain. After
 an abrupt crash the macOS daemon may retain an unlocked keychain until startup relocks
 it; do not assume an instantaneous crash lock.
 Stop the server with Ctrl-C (twice if prompted), or use
-`bin/lovelace-sqlcipher iex -S mix phx.server` for an interactive Elixir shell.
+`bin/lovelace console` for an interactive Elixir shell running the server.
 
 To connect an account, follow the [Gmail setup guide](GMAIL.md); optionally add
 [Google Calendar](CALENDAR.md). Neither is connected by local setup alone.
 Scenery generation is optional; see [stage-designer setup](STAGE_DESIGNER.md)
 before enabling potentially billable requests.
 
-The server binds to `127.0.0.1:4000`; `PORT=4001 bin/lovelace-sqlcipher mix phx.server` changes the port.
+The server binds to `127.0.0.1:4321`; `PORT=4322 bin/lovelace server` changes the port.
 Keep it local: owner unlock does not make network exposure safe. Development-only
 [Tidewave](#tidewave-safety) can execute code and SQL; never expose it through a tunnel.
+
+### Fresh onboarding without resetting existing data
+
+Use a new private directory under your home directory, not a copied database or `.vault`.
+Keep this path to resume the same installation; a new path means a separate installation.
+The database parent must not contain symlinks (on macOS, `/tmp` and `/var` are aliases).
+
+```sh
+fresh=$(mktemp -d "$HOME/lovelace-onboarding.XXXXXX")
+DATABASE_PATH="$fresh/lovelace.db" \
+LOVELACE_STAGE_STORAGE_DIR="$fresh/scenery" \
+LOVELACE_STAGE_ENABLED=false PORT=4322 \
+bin/lovelace server
+```
+
+Open <http://localhost:4322> and use the pairing code from this server's terminal.
+This isolates the database, dedicated keychain, and scenery from your existing installation.
+Do not load a copied `.env` or delete existing files/markers. Keep scenery generation off
+for onboarding review; Google credentials and consent are entered in the browser.
+
 
 ### Existing plaintext data: stopped terminal migration
 
 Stop **every** LOVELACE instance before upgrading/cutover; this procedure cannot
-secure an already-running old instance. Install the prerequisites and rebuild Exqlite
-and the native helper as above, but do **not** run owner setup against existing data.
+secure an already-running old instance. Install prerequisites, run `mix setup` through
+the SQLCipher wrapper, and explicitly rebuild a stale helper if requested. Do **not**
+start browser owner creation against existing plaintext data.
 With all servers stopped, run in a separate local terminal:
 
 ```sh
-bin/lovelace-sqlcipher mix lovelace.vault.migrate
+bin/lovelace mix lovelace.vault.migrate
 ```
 
 The task requires `STOPPED`, verifies the existing owner password through hidden input,
@@ -107,7 +138,7 @@ helper reports locked login storage, required/denied authorization, unavailable 
 storage, timeout and genuine value conflicts separately. A conflict never authorizes
 overwriting or deleting either credential.
 
-After explicitly rebuilding the helper with `bin/lovelace-sqlcipher mix lovelace.keychain.build`,
+After explicitly rebuilding the helper with `bin/lovelace mix lovelace.keychain.build`,
 rerun migration with the same configuration and owner password to resume. Rebuilding
 can change the helper's Keychain identity. Only explicit migration may request
 macOS approval for legacy reads and the **existing** Database-key item; it never
@@ -124,7 +155,7 @@ Native keychain lifecycle verification is attended and separately opt-in; defaul
 never post an authorization dialog. On macOS, run:
 
 ```sh
-bin/lovelace-sqlcipher mix test test/lovelace/integrations/keychain_helper_io_test.exs --include attended_keychain
+bin/lovelace test test/lovelace/integrations/keychain_helper_io_test.exs --include attended_keychain
 ```
 
 This builds a disposable helper with login-keychain migration code compiled out and
@@ -135,7 +166,7 @@ resumption, independent database-key persistence, and ten lock/unlock cycles.
 Actual item-authorization recovery is a separate attended opt-in:
 
 ```sh
-LOVELACE_KEYCHAIN_AUTHORIZATION_SMOKE=1 bin/lovelace-sqlcipher mix test test/lovelace/integrations/keychain_helper_io_test.exs --only authorization_smoke
+LOVELACE_KEYCHAIN_AUTHORIZATION_SMOKE=1 bin/lovelace test test/lovelace/integrations/keychain_helper_io_test.exs --only authorization_smoke
 ```
 
 It uses only disposable keychains and the same `synthetic diagnostic password`.
@@ -168,7 +199,7 @@ checkout folder name are separate from application identifiers and were not chan
 | `ash`, `ash_sqlite`, `ash_phoenix` | Resources/domains/actions/policies, SQLite persistence, Phoenix forms | Runtime |
 | `ash_sql` | Shared Ash SQL query planning | Runtime; locked to 0.8.7; releases before 0.8.6 are retired for an Ecto query-cache defect |
 | `simple_sat` | Pure-Elixir SAT solver required by the first production Ash policies | Runtime |
-| `ash_authentication`, `ash_authentication_phoenix` | Single local owner unlock | AshAuthentication password strategy; terminal-only setup |
+| `ash_authentication`, `ash_authentication_phoenix` | Single local owner unlock | AshAuthentication password strategy; terminal-paired initial browser setup |
 | `req` | HTTP request/response contracts; built-in `Req.Test` stubs/expectations | Runtime; test utilities used in tests |
 | `mint` | Private unpooled Gemini and Google transport, avoiding credential-bearing Finch telemetry | Runtime; pinned direct dependency |
 | `oban` | Durable Gmail/Calendar polling and tracked Gemini scenery with bundled SQLite Lite engine | Runtime; 2.24.2, concurrency 1, cron/Lifeline/pruning |
@@ -223,9 +254,10 @@ No DrawSVG/SplitText plugin, `unsafe-eval` or remote script allowance is needed.
 See [stage-designer setup](STAGE_DESIGNER.md) for optional non-secret settings.
 `.env.example` is a readable, secret-free template; plain Mix does not load it.
 Do not use plaintext environment variables or dotenv files to supply provider secrets.
-Google OAuth client configuration is entered through hidden terminal prompts with
-`bin/lovelace-sqlcipher mix lovelace.google.configure` and stored in the dedicated
-keychain; there is no environment fallback. Gemini keys use Connections and the same
+Google OAuth client configuration is entered through the protected `/onboarding/client`
+form and stored in the dedicated keychain, without a provider probe or environment fallback.
+The stopped-terminal `lovelace.google.configure` task remains an explicit maintenance option.
+Gemini keys use Connections and the same
 dedicated vault; `GEMINI_API_KEY` is ignored. Saving/removing a key never generates,
 verifies provider access or changes startup opt-in. Tests/CI must use fake credentials.
 
@@ -457,14 +489,19 @@ for Developer API MIME-schema findings and the PNG final-IDAT padding correction
 ## Daily commands
 
 ```sh
-bin/lovelace-sqlcipher mix setup
-bin/lovelace-sqlcipher mix phx.server
-bin/lovelace-sqlcipher mix format
-bin/lovelace-sqlcipher mix check
-bin/lovelace-sqlcipher mix audit
+bin/lovelace setup
+bin/lovelace server
+bin/lovelace console
+bin/lovelace test test/lovelace/security/developer_setup_test.exs
+bin/lovelace mix format
+bin/lovelace check
+bin/lovelace audit
+bin/lovelace help
 ```
 
-Use the wrapper for the Mix commands below as well. `mix check` selects `MIX_ENV=test` and executes:
+The launcher runs commands from the project root and preserves their exit status.
+Use `bin/lovelace mix TASK [arguments]` for the underlying Mix commands below.
+`bin/lovelace check` selects `MIX_ENV=test` and executes:
 
 1. `mix format --check-formatted`
 2. `mix lint` (compile with warnings as errors, then `mix credo --strict`)
@@ -608,10 +645,10 @@ When adding a domain resource:
 4. Test from an empty database as well as the current development database.
 
 ```sh
-bin/lovelace-sqlcipher mix ash.codegen meaningful_change_name
+bin/lovelace mix ash.codegen meaningful_change_name
 # Managed migrations apply through vault unlock, not standalone ash.migrate.
 # Check generated schema drift in the synthetic test environment:
-MIX_ENV=test bin/lovelace-sqlcipher mix ash.codegen --check
+MIX_ENV=test bin/lovelace mix ash.codegen --check
 ```
 
 Codegen drift is part of `mix check` now that `Lovelace.StageDesigner` owns a production
@@ -662,7 +699,7 @@ usage rules (currently Req and AshSqlite don't); use their HexDocs directly:
 ## Tidewave safety
 
 `Tidewave` is included **only in dev** and plugged under `if Mix.env() == :dev`.
-Its MCP endpoint is <http://localhost:4000/tidewave/mcp> while the development server
+Its MCP endpoint is <http://localhost:4321/tidewave/mcp> while the development server
 runs. It can execute Elixir and SQL with the process's access to local data.
 
 - Never set `allow_remote_access: true`, expose through a tunnel, or include it in
