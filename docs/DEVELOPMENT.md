@@ -3,7 +3,39 @@
 LOVELACE is the project name, always uppercase in prose and UI. The OTP app is
 `:lovelace`, modules use `Lovelace`/`LovelaceWeb`, and the Tailwind/esbuild profile is `lovelace`.
 Sources live in `lib/lovelace/` and `lib/lovelace_web/`; local databases use `lovelace_*.db`.
-The default UI theme is `sea-glass`. See the [README](../README.md#identity-and-naming).
+The default UI theme is `sea-glass`. See the [visual and interaction contract](UI_CONTRACT.md).
+
+## Local setup
+
+Use the runtime versions in `.tool-versions`. Real Google connections require macOS
+and Apple's Command Line Tools for the Keychain helper.
+
+```sh
+asdf install                 # if these runtimes are not already installed
+mix setup
+mix lovelace.keychain.build
+mix lovelace.owner.setup      # hidden terminal password prompt; no web signup
+mix phx.server
+```
+
+Open <http://localhost:4000> and unlock with the local owner password. Stop the
+server with Ctrl-C (twice if prompted), or use `iex -S mix phx.server` for an
+interactive Elixir shell.
+
+`mix setup` fetches dependencies, creates/migrates the development SQLite database,
+runs seeds, and installs/builds the Mix-managed Tailwind and esbuild binaries.
+Initial setup needs network access and native build tools. No npm install, Docker,
+separate database service, or Google credentials are required. Node is needed for
+the JavaScript hook tests in `mix check`, not asset building.
+
+To connect an account, follow the [Gmail setup guide](GMAIL.md); optionally add
+[Google Calendar](CALENDAR.md). Neither is connected by local setup alone.
+Scenery generation is optional; see [stage-designer setup](STAGE_DESIGNER.md)
+before enabling potentially billable requests.
+
+The server binds to `127.0.0.1:4000`; `PORT=4001 mix phx.server` changes the port.
+Keep it local: owner unlock does not make network exposure safe. Development-only
+[Tidewave](#tidewave-safety) can execute code and SQL; never expose it through a tunnel.
 
 ## Namespace and local data
 
