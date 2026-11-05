@@ -16,12 +16,14 @@ defmodule Lovelace.TestGitHub do
             user_response: :ok,
             installation_response: :ok,
             refresh_response: :ok,
-            device_response: :ok,
             exchange_response: :ok,
             keychain_error: nil,
             keychain_put_error: nil,
             keychain_delete_error: nil,
-            rows: [row()]
+            rows: [row()],
+            repositories: nil,
+            issues: [issue()],
+            workflow_runs: [workflow_run()]
           },
           Map.new(options)
         )
@@ -37,30 +39,14 @@ defmodule Lovelace.TestGitHub do
     do: Agent.update(__MODULE__, &Map.update!(&1, :calls, fn calls -> calls ++ [call] end))
 
   @impl true
-  def device_code(client_id) do
-    record({:device_code, client_id})
-
-    respond(
-      state().device_response,
-      {:ok,
-       %{
-         device_code: "synthetic_device_secret",
-         user_code: "FAKE-CODE",
-         expires_in: 900,
-         interval: 5
-       }}
-    )
-  end
-
-  @impl true
-  def exchange_device(client_id, code) do
-    record({:exchange_device, client_id, code})
+  def exchange_code(client_id, client_secret, code, verifier, redirect_uri) do
+    record({:exchange_code, client_id, client_secret, code, verifier, redirect_uri})
     respond(state().exchange_response, {:ok, bundle()})
   end
 
   @impl true
-  def refresh_token(client_id, refresh) do
-    record({:refresh_token, client_id, refresh})
+  def refresh_token(client_id, client_secret, refresh) do
+    record({:refresh_token, client_id, client_secret, refresh})
     respond(state().refresh_response, {:ok, bundle("github_access_rotated")})
   end
 
@@ -101,6 +87,13 @@ defmodule Lovelace.TestGitHub do
       {:ok,
        %{
          pull_requests: state().rows,
+         repositories:
+           state().repositories || [repository(%{"full_name" => owner.login <> "/repo"})],
+         issues: state().issues,
+         workflow_runs: state().workflow_runs,
+         issue_count: length(state().issues),
+         issues_truncated: false,
+         actions_truncated: false,
          total_count: length(state().rows),
          truncated: false,
          partial_reasons: []
@@ -143,12 +136,52 @@ defmodule Lovelace.TestGitHub do
         "title" => "Synthetic pull request",
         "url" => "https://github.com/acme/repo/pull/7",
         "repository" => "acme/repo",
+        "repository_id" => "REPO_SYNTHETIC",
         "author" => "synthetic",
         "is_draft" => false,
         "review_decision" => "REVIEW_REQUIRED",
         "checks" => "SUCCESS",
         "updated_at" => "2026-11-04T01:00:00Z",
         "created_at" => "2026-11-03T01:00:00Z"
+      },
+      overrides
+    )
+  end
+
+  def repository(overrides \\ %{}) do
+    Map.merge(
+      %{"id" => "REPO_SYNTHETIC", "name" => "repo", "full_name" => "acme/repo"},
+      overrides
+    )
+  end
+
+  def issue(overrides \\ %{}) do
+    Map.merge(
+      %{
+        "number" => 8,
+        "title" => "Synthetic issue",
+        "url" => "https://github.com/acme/repo/issues/8",
+        "repository" => "acme/repo",
+        "repository_id" => "REPO_SYNTHETIC",
+        "author" => "synthetic",
+        "updated_at" => "2026-11-04T01:00:00Z"
+      },
+      overrides
+    )
+  end
+
+  def workflow_run(overrides \\ %{}) do
+    Map.merge(
+      %{
+        "id" => 9,
+        "name" => "Synthetic CI",
+        "url" => "https://github.com/acme/repo/actions/runs/9",
+        "status" => "completed",
+        "conclusion" => "success",
+        "repository" => "acme/repo",
+        "repository_id" => "REPO_SYNTHETIC",
+        "author" => "synthetic",
+        "updated_at" => "2026-11-04T01:00:00Z"
       },
       overrides
     )

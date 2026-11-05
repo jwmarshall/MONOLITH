@@ -23,6 +23,7 @@ defmodule Lovelace.Integrations.GitHubTest do
   use ExUnit.Case, async: false
   import Kernel, except: [node: 0, node: 1]
   import ExUnit.CaptureLog
+  alias Lovelace.GitHub.Auth
   alias Lovelace.Integrations.GitHub
   alias Lovelace.Integrations.GitHubTest.Transport
 
@@ -99,7 +100,11 @@ defmodule Lovelace.Integrations.GitHubTest do
           "updatedAt" => "2026-11-04T00:00:00Z",
           "createdAt" => "2026-11-03T00:00:00Z",
           "author" => %{"login" => "octocat"},
-          "repository" => %{"name" => "example1", "owner" => graphql_owner(owner())},
+          "repository" => %{
+            "id" => "REPO_1",
+            "name" => "example1",
+            "owner" => graphql_owner(owner())
+          },
           "url" => "https://evil.invalid/private",
           "commits" => %{
             "nodes" => [%{"commit" => %{"statusCheckRollup" => %{"state" => "SUCCESS"}}}]
@@ -113,6 +118,7 @@ defmodule Lovelace.Integrations.GitHubTest do
       "id" => repo["node_id"],
       "name" => repo["name"],
       "owner" => graphql_owner(owner),
+      "issues" => %{"totalCount" => 0, "nodes" => [], "pageInfo" => %{"hasNextPage" => false}},
       "pullRequests" => %{
         "totalCount" => count || length(nodes),
         "nodes" => nodes,
@@ -129,10 +135,13 @@ defmodule Lovelace.Integrations.GitHubTest do
     [
       response(installations([selected])),
       response(repositories(repos)),
-      response(body),
-      response(installations([selected])),
-      response(repositories(repos))
-    ]
+      response(body)
+    ] ++
+      List.duplicate(
+        response(%{"total_count" => 0, "workflow_runs" => []}),
+        min(length(repos), 10)
+      ) ++
+      [response(installations([selected])), response(repositories(repos))]
   end
 
   defp token_bundle,
@@ -145,79 +154,61 @@ defmodule Lovelace.Integrations.GitHubTest do
       "scope" => ""
     }
 
-  test "device authorization requests offline access without broad scopes or credentials in headers" do
-    enqueue([
-      response(%{
-        "device_code" => "synthetic_device",
-        "user_code" => "ABCD-EFGH",
-        "expires_in" => 900,
-        "interval" => 5,
-        "verification_uri" => "https://evil.invalid/"
-      })
-    ])
+  defp exchange(code \\ "synthetic_code", uri \\ Auth.callback_url()) do
+    GitHub.exchange_code(
+      "Iv1.synthetic",
+      "synthetic_secret",
+      code,
+      String.duplicate("v", 43),
+      uri
+    )
+  end
 
-    assert {:ok,
-            %{
-              device_code: "synthetic_device",
-              user_code: "ABCD-EFGH",
-              expires_in: 900,
-              interval: 5
-            }} = GitHub.device_code("Iv1.synthetic")
-
+  test "web exchange sends client secret PKCE and exact callback only in the private POST body" do
+    enqueue([response(token_bundle())])
+    assert {:ok, %{access_token: "ghu_synthetic"}} = exchange()
     [request] = requests()
     assert request.host == "github.com"
-    assert request.path == "/login/device/code"
+    assert request.path == "/login/oauth/access_token"
 
     assert URI.decode_query(request.body) == %{
              "client_id" => "Iv1.synthetic",
-             "scope" => "offline_access"
+             "client_secret" => "synthetic_secret",
+             "code" => "synthetic_code",
+             "code_verifier" => String.duplicate("v", 43),
+             "redirect_uri" => Auth.callback_url()
            }
 
     refute List.keymember?(request.headers, "authorization", 0)
   end
 
-  test "device polling handles pending, provider slowdown interval and sanitized terminal errors" do
+  test "web exchange sanitizes provider failures without retrying" do
     for {body, expected} <- [
-          {%{"error" => "authorization_pending"}, {:error, :authorization_pending}},
-          {%{"error" => "slow_down", "interval" => 17}, {:slow_down, 17}},
-          {%{"error" => "slow_down", "interval" => 0}, {:error, :provider}},
           {%{"error" => "access_denied"}, {:error, :denied}},
-          {%{"error" => "expired_token"}, {:error, :expired}},
-          {%{"error" => "incorrect_device_code"}, {:error, :expired}},
-          {%{"error" => "device_flow_disabled"}, {:error, :configuration}},
+          {%{"error" => "bad_verification_code"}, {:error, :expired}},
+          {%{"error" => "redirect_uri_mismatch"}, {:error, :configuration}},
           {%{"error" => "incorrect_client_credentials"}, {:error, :configuration}},
           {%{"error" => "unknown private detail", "error_description" => "synthetic_secret"},
            {:error, :provider}}
         ] do
       enqueue([response(body)])
-      assert GitHub.exchange_device("Iv1.synthetic", "synthetic_device") == expected
+      assert exchange() == expected
     end
 
-    request = List.last(requests())
-
-    assert URI.decode_query(request.body) == %{
-             "client_id" => "Iv1.synthetic",
-             "device_code" => "synthetic_device",
-             "grant_type" => "urn:ietf:params:oauth:grant-type:device_code"
-           }
+    assert length(requests()) == 5
   end
 
-  test "exchanges and secretless refresh require expiring GitHub App token pairs" do
-    enqueue([response(token_bundle()), response(token_bundle())])
-
-    assert {:ok,
-            %{access_token: "ghu_synthetic", refresh_token: "ghr_synthetic", expires_in: 28_800}} =
-             GitHub.exchange_device("Iv1.synthetic", "synthetic_device")
+  test "refresh sends stored client secret and accepts only expiring App token pairs" do
+    enqueue([response(token_bundle())])
 
     assert {:ok, %{refresh_token: "ghr_synthetic"}} =
-             GitHub.refresh_token("Iv1.synthetic", "ghr_old")
+             GitHub.refresh_token("Iv1.synthetic", "synthetic_secret", "ghr_old")
 
-    [_, refresh] = requests()
-    assert refresh.host == "github.com"
-    assert refresh.path == "/login/oauth/access_token"
+    [refresh] = requests()
 
     assert URI.decode_query(refresh.body) == %{
              "client_id" => "Iv1.synthetic",
+             "client_secret" => "synthetic_secret",
              "refresh_token" => "ghr_old",
              "grant_type" => "refresh_token"
            }
@@ -233,34 +224,34 @@ defmodule Lovelace.Integrations.GitHubTest do
           Map.put(token_bundle(), "access_token", "ghu_header\r\n")
         ] do
       enqueue([response(body)])
-      assert {:error, :provider} = GitHub.exchange_device("Iv1.synthetic", "synthetic_device")
+      assert {:error, :provider} = exchange()
     end
 
-    enqueue([
-      response(%{"error" => "bad_refresh_token", "error_description" => "synthetic_secret"})
-    ])
+    enqueue([response(%{"error" => "bad_refresh_token", "error_description" => "private"})])
 
-    assert {:error, :reconnect} = GitHub.refresh_token("Iv1.synthetic", "ghr_old")
+    assert {:error, :reconnect} =
+             GitHub.refresh_token("Iv1.synthetic", "synthetic_secret", "ghr_old")
   end
 
-  test "invalid request values and malformed device responses never become public codes" do
-    assert {:error, :configuration} = GitHub.device_code("client\r\n")
-    assert {:error, :provider} = GitHub.exchange_device("Iv1.synthetic", "device\r\n")
-    assert {:error, :reconnect} = GitHub.refresh_token("Iv1.synthetic", "ghp_pat")
+  test "invalid credentials callback or verifier never reach the transport" do
+    assert {:error, :configuration} = exchange("bad\r\ncode")
+
+    assert {:error, :configuration} =
+             exchange("synthetic_code", "https://evil.invalid/auth/github/callback")
+
+    assert {:error, :configuration} =
+             GitHub.exchange_code(
+               "Iv1.synthetic",
+               "synthetic_secret",
+               "synthetic_code",
+               "short",
+               Auth.callback_url()
+             )
+
+    assert {:error, :reconnect} =
+             GitHub.refresh_token("Iv1.synthetic", "synthetic_secret", "ghp_pat")
+
     assert requests() == []
-
-    for code <- ["<script>", "ABCD-EFGH<script>", nil] do
-      enqueue([
-        response(%{
-          "device_code" => "device",
-          "user_code" => code,
-          "expires_in" => 900,
-          "interval" => 5
-        })
-      ])
-
-      assert {:error, :provider} = GitHub.device_code("Iv1.synthetic")
-    end
   end
 
   test "user identity accepts only an immutable safe personal account identity" do
@@ -342,7 +333,7 @@ defmodule Lovelace.Integrations.GitHubTest do
     assert row["url"] == "https://github.com/Acme/example1/pull/42"
     assert row["checks"] == "SUCCESS"
     assert row["review_decision"] == "APPROVED"
-    assert length(requests()) == 5
+    assert length(requests()) == 6
     query_request = Enum.find(requests(), &(&1.path == "/graphql"))
     assert Jason.decode!(query_request.body)["variables"] == %{"id0" => "REPO_1"}
     assert Enum.all?(requests(), &(&1.timeout_ms > 0 and &1.timeout_ms <= 20_000))
@@ -350,7 +341,16 @@ defmodule Lovelace.Integrations.GitHubTest do
 
   test "personal installation owner is not interpreted as an organization" do
     selected = owner(:user)
-    row = node(%{"repository" => %{"name" => "example1", "owner" => graphql_owner(selected)}})
+
+    row =
+      node(%{
+        "repository" => %{
+          "id" => "REPO_1",
+          "name" => "example1",
+          "owner" => graphql_owner(selected)
+        }
+      })
+
     body = %{"data" => %{"r0" => graph_repo(selected, repository(selected), [row])}}
     enqueue(snapshot_responses(body, selected))
 
@@ -376,7 +376,7 @@ defmodule Lovelace.Integrations.GitHubTest do
   end
 
   test "installation removal or repository selection change during reads cannot publish public PRs" do
-    initial = Enum.take(snapshot_responses(graph()), 3)
+    initial = Enum.take(snapshot_responses(graph()), 4)
     enqueue(initial ++ [response(installations([]))])
     assert {:error, :reconnect} = GitHub.pull_requests("ghu_synthetic", owner())
     enqueue(initial ++ [response(installations([owner()])), response(repositories([]))])
@@ -427,7 +427,11 @@ defmodule Lovelace.Integrations.GitHubTest do
             Enum.map(1..3, fn number ->
               node(%{
                 "number" => number,
-                "repository" => %{"name" => repo["name"], "owner" => graphql_owner(selected)},
+                "repository" => %{
+                  "id" => repo["node_id"],
+                  "name" => repo["name"],
+                  "owner" => graphql_owner(selected)
+                },
                 "updatedAt" => "2026-11-04T00:#{String.pad_leading(to_string(index), 2, "0")}:00Z"
               })
             end)
@@ -438,14 +442,16 @@ defmodule Lovelace.Integrations.GitHubTest do
       response(%{"data" => data})
     end
 
-    enqueue([
-      response(installations([selected])),
-      response(repositories(repos)),
-      batch,
-      batch,
-      response(installations([selected])),
-      response(repositories(repos))
-    ])
+    enqueue(
+      [
+        response(installations([selected])),
+        response(repositories(repos)),
+        batch,
+        batch
+      ] ++
+        List.duplicate(response(%{"total_count" => 0, "workflow_runs" => []}), 10) ++
+        [response(installations([selected])), response(repositories(repos))]
+    )
 
     assert {:ok,
             %{pull_requests: rows, total_count: 75, truncated: true, partial_reasons: reasons}} =
@@ -547,7 +553,8 @@ defmodule Lovelace.Integrations.GitHubTest do
 
     logs =
       capture_log(fn ->
-        assert {:error, :provider} = GitHub.refresh_token("Iv1.synthetic", "ghr_synthetic")
+        assert {:error, :provider} =
+                 GitHub.refresh_token("Iv1.synthetic", "synthetic_client_secret", "ghr_synthetic")
       end)
 
     refute logs =~ "synthetic_secret"
@@ -555,9 +562,268 @@ defmodule Lovelace.Integrations.GitHubTest do
 
     logs =
       capture_log(fn ->
-        assert {:error, :provider} = GitHub.refresh_token("Iv1.synthetic", "ghr_synthetic")
+        assert {:error, :provider} =
+                 GitHub.refresh_token("Iv1.synthetic", "synthetic_client_secret", "ghr_synthetic")
       end)
 
     refute logs =~ "synthetic_secret"
+  end
+
+  test "verified repositories, issues and recent workflow statuses use constructed GitHub URLs" do
+    body = put_in(graph(), ["data", "r0", "issues"], issue_connection([issue_node()]))
+    replies = snapshot_responses(body)
+
+    replies =
+      List.replace_at(replies, 3, response(%{"total_count" => 1, "workflow_runs" => [run()]}))
+
+    enqueue(replies)
+
+    assert {:ok, snapshot} = GitHub.pull_requests("ghu_synthetic", owner())
+
+    assert snapshot.repositories == [
+             %{"id" => "REPO_1", "name" => "example1", "full_name" => "Acme/example1"}
+           ]
+
+    assert [pr] = snapshot.pull_requests
+    assert pr["repository_id"] == "REPO_1"
+    assert [issue] = snapshot.issues
+    assert issue["repository_id"] == "REPO_1"
+    assert issue["url"] == "https://github.com/Acme/example1/issues/43"
+    assert issue["author"] == "octocat"
+    assert issue["title"] == "Synthetic issue"
+    assert snapshot.issue_count == 1
+    refute snapshot.issues_truncated
+    assert [workflow] = snapshot.workflow_runs
+    assert workflow["url"] == "https://github.com/Acme/example1/actions/runs/99"
+    assert workflow["repository_id"] == "REPO_1"
+    assert workflow["status"] == "completed"
+    assert workflow["conclusion"] == "success"
+    refute snapshot.actions_truncated
+    assert snapshot.partial_reasons == []
+
+    assert Enum.any?(
+             requests(),
+             &(&1.path == "/repos/Acme/example1/actions/runs?per_page=10&page=1")
+           )
+
+    query =
+      requests() |> Enum.find(&(&1.path == "/graphql")) |> Map.fetch!(:body) |> Jason.decode!()
+
+    assert query["query"] =~ "issues(first: 50"
+    refute query["query"] =~ "comments"
+    refute query["query"] =~ "diff"
+  end
+
+  test "missing Issues and Actions permission preserves verified repository and PR data without false zero" do
+    body =
+      graph()
+      |> put_in(["data", "r0", "issues"], nil)
+      |> Map.put("errors", [
+        %{"path" => ["r0", "issues"], "type" => "FORBIDDEN", "message" => "synthetic_secret"}
+      ])
+
+    replies = snapshot_responses(body) |> List.replace_at(3, response("synthetic_secret", 403))
+    enqueue(replies)
+    assert {:ok, snapshot} = GitHub.pull_requests("ghu_synthetic", owner())
+    assert length(snapshot.pull_requests) == 1
+    assert length(snapshot.repositories) == 1
+    refute snapshot.truncated
+    assert snapshot.issues == [] and snapshot.workflow_runs == []
+    assert snapshot.issue_count == nil
+    assert snapshot.issues_truncated and snapshot.actions_truncated
+    assert "issues_unavailable" in snapshot.partial_reasons
+    assert "actions_unavailable" in snapshot.partial_reasons
+    refute inspect(snapshot) =~ "synthetic_secret"
+  end
+
+  test "nested issue field errors retain usable rows but mark the issue readout partial" do
+    body =
+      graph()
+      |> put_in(["data", "r0", "issues"], issue_connection([issue_node(%{"author" => nil})]))
+      |> Map.put("errors", [
+        %{"path" => ["r0", "issues", "nodes", 0, "author"], "type" => "FORBIDDEN"}
+      ])
+
+    enqueue(snapshot_responses(body))
+    assert {:ok, snapshot} = GitHub.pull_requests("ghu_synthetic", owner())
+    assert [%{"author" => nil}] = snapshot.issues
+    assert snapshot.issue_count == 1
+    assert snapshot.issues_truncated
+    assert "issues_unavailable" in snapshot.partial_reasons
+    refute snapshot.truncated
+  end
+
+  test "issues are bounded independently and retain verified owner counts" do
+    nodes = Enum.map(1..50, &issue_node(%{"number" => &1}))
+    body = put_in(graph(), ["data", "r0", "issues"], issue_connection(nodes, 120, true))
+    enqueue(snapshot_responses(body))
+    assert {:ok, snapshot} = GitHub.pull_requests("ghu_synthetic", owner())
+    assert length(snapshot.issues) == 50
+    assert snapshot.issue_count == 120
+    assert snapshot.issues_truncated
+    refute snapshot.truncated
+    assert "issues_first_50" in snapshot.partial_reasons
+  end
+
+  test "malformed, duplicate and cross-repository issue identities never become cached rows" do
+    for issues <- [
+          issue_connection([issue_node(%{"number" => -1})]),
+          issue_connection([issue_node(%{"updatedAt" => "invalid"})]),
+          issue_connection([issue_node(), issue_node()]),
+          issue_connection([put_in(issue_node(), ["repository", "id"], "PUBLIC_UNSELECTED")]),
+          issue_connection([put_in(issue_node(), ["repository", "owner", "id"], "OTHER_OWNER")])
+        ] do
+      enqueue(snapshot_responses(put_in(graph(), ["data", "r0", "issues"], issues)))
+      assert {:error, :provider} = GitHub.pull_requests("ghu_synthetic", owner())
+    end
+  end
+
+  test "malformed or foreign workflow runs remain unavailable instead of leaking data" do
+    for invalid <- [
+          run(%{"status" => "invented"}),
+          run(%{"conclusion" => nil}),
+          run(%{"updated_at" => "invalid"}),
+          put_in(run(), ["repository", "node_id"], "PUBLIC_UNSELECTED"),
+          put_in(run(), ["repository", "owner", "node_id"], "OTHER_OWNER")
+        ] do
+      replies = snapshot_responses(graph())
+
+      enqueue(
+        List.replace_at(replies, 3, response(%{"total_count" => 1, "workflow_runs" => [invalid]}))
+      )
+
+      assert {:ok, snapshot} = GitHub.pull_requests("ghu_synthetic", owner())
+      assert snapshot.workflow_runs == []
+      assert snapshot.actions_truncated
+      assert "actions_unavailable" in snapshot.partial_reasons
+      assert length(snapshot.repositories) == 1
+    end
+  end
+
+  test "recent Actions pages never follow links and explicitly label older omitted runs" do
+    runs = Enum.map(1..10, &run(%{"id" => &1, "status" => "in_progress", "conclusion" => nil}))
+
+    replies =
+      snapshot_responses(graph())
+      |> List.replace_at(
+        3,
+        response(%{"total_count" => 11, "workflow_runs" => runs}, 200, [
+          {"link", "<https://evil.invalid/logs>; rel=next"}
+        ])
+      )
+
+    enqueue(replies)
+    assert {:ok, snapshot} = GitHub.pull_requests("ghu_synthetic", owner())
+    assert length(snapshot.workflow_runs) == 10
+
+    assert Enum.all?(
+             snapshot.workflow_runs,
+             &(&1["status"] == "in_progress" and &1["conclusion"] == nil)
+           )
+
+    assert snapshot.actions_truncated
+    assert "actions_recent_only" in snapshot.partial_reasons
+    assert Enum.count(requests(), &String.contains?(&1.path, "/actions/")) == 1
+  end
+
+  test "Actions work is bounded across repositories with at most fifty cached runs" do
+    selected = owner()
+    repos = Enum.map(1..11, &repository(selected, &1))
+
+    batch = fn request ->
+      data =
+        Jason.decode!(request.body)["variables"]
+        |> Map.new(fn {key, id} ->
+          repo = Enum.find(repos, &(&1["node_id"] == id))
+          {String.replace_prefix(key, "id", "r"), graph_repo(selected, repo, [])}
+        end)
+
+      response(%{"data" => data})
+    end
+
+    actions = fn request ->
+      repo = Enum.find(repos, &String.contains?(request.path, "/#{&1["name"]}/"))
+      index = repo["id"]
+      runs = Enum.map(1..10, &run(%{"id" => index * 100 + &1, "repository" => repo}))
+      response(%{"total_count" => 10, "workflow_runs" => runs})
+    end
+
+    enqueue(
+      [response(installations([selected])), response(repositories(repos)), batch] ++
+        List.duplicate(actions, 10) ++
+        [response(installations([selected])), response(repositories(repos))]
+    )
+
+    assert {:ok, snapshot} = GitHub.pull_requests("ghu_synthetic", selected)
+    assert length(snapshot.repositories) == 11
+    assert length(snapshot.workflow_runs) == 50
+    assert snapshot.actions_truncated
+    assert "actions_repository_limit" in snapshot.partial_reasons
+    assert "actions_first_50" in snapshot.partial_reasons
+    assert Enum.count(requests(), &String.contains?(&1.path, "/actions/")) == 10
+  end
+
+  test "rate-limited Actions are explicitly partial rather than a successful zero" do
+    replies = snapshot_responses(graph()) |> List.replace_at(3, response("private", 429))
+    enqueue(replies)
+    assert {:ok, snapshot} = GitHub.pull_requests("ghu_synthetic", owner())
+    assert snapshot.workflow_runs == []
+    assert snapshot.actions_truncated
+    assert "actions_rate_limited" in snapshot.partial_reasons
+    assert length(snapshot.pull_requests) == 1
+    assert length(snapshot.repositories) == 1
+  end
+
+  test "access revoked after populated optional reads discards the complete snapshot" do
+    body = put_in(graph(), ["data", "r0", "issues"], issue_connection([issue_node()]))
+
+    replies =
+      snapshot_responses(body)
+      |> List.replace_at(3, response(%{"total_count" => 1, "workflow_runs" => [run()]}))
+      |> List.replace_at(4, response(installations([])))
+
+    enqueue(replies)
+    assert {:error, :reconnect} = GitHub.pull_requests("ghu_synthetic", owner())
+  end
+
+  defp issue_node(overrides \\ %{}) do
+    Map.merge(
+      %{
+        "number" => 43,
+        "title" => "Synthetic issue",
+        "updatedAt" => "2026-11-04T00:00:00Z",
+        "author" => %{"login" => "octocat"},
+        "repository" => %{
+          "id" => "REPO_1",
+          "name" => "example1",
+          "owner" => graphql_owner(owner())
+        },
+        "url" => "https://evil.invalid/private"
+      },
+      overrides
+    )
+  end
+
+  defp issue_connection(nodes, count \\ nil, more \\ false),
+    do: %{
+      "totalCount" => count || length(nodes),
+      "nodes" => nodes,
+      "pageInfo" => %{"hasNextPage" => more}
+    }
+
+  defp run(overrides \\ %{}) do
+    Map.merge(
+      %{
+        "id" => 99,
+        "name" => "Synthetic CI",
+        "status" => "completed",
+        "conclusion" => "success",
+        "updated_at" => "2026-11-04T00:00:00Z",
+        "actor" => %{"login" => "octocat"},
+        "repository" => repository(owner()),
+        "html_url" => "https://evil.invalid/private"
+      },
+      overrides
+    )
   end
 end

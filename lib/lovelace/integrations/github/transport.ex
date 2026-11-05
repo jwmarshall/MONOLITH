@@ -8,6 +8,8 @@ defmodule Lovelace.Integrations.GitHub.Transport do
   Test builds categorically refuse the production connector.
   """
 
+  alias Lovelace.GitHub.Auth
+
   @callback request(map(), keyword()) ::
               {:ok, %{status: integer(), headers: list(), body: binary()}} | {:error, atom()}
 
@@ -87,7 +89,7 @@ defmodule Lovelace.Integrations.GitHub.Transport do
   end
 
   defp allowed_target?("POST", "github.com", path),
-    do: path in ["/login/device/code", "/login/oauth/access_token"]
+    do: path == "/login/oauth/access_token"
 
   defp allowed_target?("POST", "api.github.com", "/graphql"), do: true
   defp allowed_target?("GET", "api.github.com", "/user"), do: true
@@ -97,7 +99,11 @@ defmodule Lovelace.Integrations.GitHub.Transport do
       Regex.match?(
         ~r"\A/user/installations(?:/[1-9][0-9]{0,18}/repositories)?\?per_page=100&page=[1-5]\z",
         path
-      )
+      ) or
+        Regex.match?(
+          ~r"\A/repos/[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?/(?!(?:\.|\.\.)/)[A-Za-z0-9_.-]{1,100}/actions/runs\?per_page=10&page=1\z",
+          path
+        )
 
   defp allowed_target?(_, _, _), do: false
 
@@ -119,21 +125,19 @@ defmodule Lovelace.Integrations.GitHub.Transport do
            List.keyfind(headers, "content-type", 0),
          params = URI.decode_query(body),
          true <- length(String.split(body, "&")) == map_size(params),
-         true <- Regex.match?(~r/\A[A-Za-z0-9_.-]{1,128}\z/, params["client_id"]) do
+         true <- Regex.match?(~r/\A[A-Za-z0-9_.-]{1,128}\z/, params["client_id"]),
+         true <- Regex.match?(~r/\A[A-Za-z0-9_-]{1,1024}\z/, params["client_secret"]) do
       case {path, params} do
-        {"/login/device/code", %{"scope" => "offline_access"}} ->
-          map_size(params) == 2
-
         {"/login/oauth/access_token",
          %{"grant_type" => "refresh_token", "refresh_token" => refresh}} ->
-          map_size(params) == 3 and Regex.match?(~r/\Aghr_[A-Za-z0-9_-]{1,1020}\z/, refresh)
+          map_size(params) == 4 and Regex.match?(~r/\Aghr_[A-Za-z0-9_-]{1,1020}\z/, refresh)
 
         {"/login/oauth/access_token",
-         %{
-           "grant_type" => "urn:ietf:params:oauth:grant-type:device_code",
-           "device_code" => device
-         }} ->
-          map_size(params) == 3 and Regex.match?(~r/\A[A-Za-z0-9_-]{1,1024}\z/, device)
+         %{"code" => code, "code_verifier" => verifier, "redirect_uri" => uri}} ->
+          map_size(params) == 5 and
+            Regex.match?(~r/\A[A-Za-z0-9_-]{1,1024}\z/, code) and
+            Regex.match?(~r/\A[A-Za-z0-9_-]{43}\z/, verifier) and
+            is_binary(uri) and uri == Auth.callback_url()
 
         _ ->
           false

@@ -28,11 +28,6 @@ config :lovelace, LovelaceWeb.Endpoint,
 config :lovelace, :gmail,
   redirect_uri: "http://localhost:#{System.get_env("PORT", "4321")}/oauth/google/callback"
 
-# Public GitHub App identifiers only; device authorization needs no client secret.
-config :lovelace, :github,
-  client_id: System.get_env("LOVELACE_GITHUB_CLIENT_ID"),
-  app_slug: System.get_env("LOVELACE_GITHUB_APP_SLUG")
-
 # dotenvx injects these before startup. API keys are resolved only at the HTTP boundary,
 # never retained in application configuration, Ash attributes, or LiveView assigns.
 config :lovelace,

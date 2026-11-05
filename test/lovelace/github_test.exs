@@ -15,11 +15,6 @@ defmodule Lovelace.GitHubTest do
     Application.put_env(:lovelace, :github_provider, TestGitHub)
     Application.put_env(:lovelace, :github_keychain, Lovelace.TestGitHubKeychain)
 
-    Application.put_env(:lovelace, :github,
-      client_id: "synthetic_client",
-      app_slug: "synthetic-app"
-    )
-
     on_exit(fn ->
       for {key, value} <- previous do
         if value,
@@ -29,6 +24,14 @@ defmodule Lovelace.GitHubTest do
     end)
 
     Lovelace.Owner.configure!("synthetic GitHub owner password", actor: %{role: :owner_setup})
+
+    GitHub.save_client_credentials!(
+      "Iv1.synthetic",
+      "synthetic_client_secret",
+      "lovelace-synthetic",
+      actor: @owner
+    )
+
     session = Base.url_encode64(:crypto.strong_rand_bytes(32), padding: false)
 
     Lovelace.Owner.issue_session!(
@@ -45,6 +48,12 @@ defmodule Lovelace.GitHubTest do
   defp directory, do: GitHub.directory!(actor: @owner)
   defp current(id), do: Enum.find(directory().organizations, &(&1.id == id))
   defp account(id), do: Enum.find(directory().connections, &(&1.id == id))
+
+  defp tokens do
+    Map.reject(TestGitHub.state().tokens, fn {_id, value} ->
+      match?({:ok, %{"client_secret" => _}}, Jason.decode(value))
+    end)
+  end
 
   defp authorize(c, token \\ "github_access_fake") do
     assert {:ok, result} = Operations.authorize(c.session, TestGitHub.bundle(token))
@@ -74,7 +83,20 @@ defmodule Lovelace.GitHubTest do
   end
 
   defp empty_snapshot,
-    do: {:ok, %{pull_requests: [], total_count: 0, truncated: false, partial_reasons: []}}
+    do:
+      {:ok,
+       %{
+         pull_requests: [],
+         repositories: [],
+         issues: [],
+         workflow_runs: [],
+         issue_count: 0,
+         issues_truncated: false,
+         actions_truncated: false,
+         total_count: 0,
+         truncated: false,
+         partial_reasons: []
+       }}
 
   test "one account discovers personal and organization installations, reusable across workspaces",
        c do
@@ -96,7 +118,7 @@ defmodule Lovelace.GitHubTest do
     end
 
     assert length(directory().memberships) == 4
-    assert Map.keys(TestGitHub.state().tokens) == [result.connection.id]
+    assert Map.keys(tokens()) == [result.connection.id]
     {:ok, stored} = Lovelace.TestGitHubKeychain.get(result.connection.id)
     assert Jason.decode!(stored)["access_token"] == "github_access_fake"
     refute inspect(directory()) =~ "github_access_fake"
@@ -129,6 +151,10 @@ defmodule Lovelace.GitHubTest do
       assert {:error, _} = GitHub.discover(connection.id, actor: actor)
       assert {:error, _} = GitHub.disconnect_account(connection.id, actor: actor)
       assert {:error, _} = GitHub.attach(c.b.id, org.id, actor: actor)
+
+      assert {:error, _} =
+               GitHub.attach_repositories(c.b.id, org.id, ["REPO_SYNTHETIC"], actor: actor)
+
       assert {:error, _} = GitHub.detach(c.a.id, org.id, actor: actor)
       assert {:error, _} = GitHub.disconnect(org.id, actor: actor)
       assert {:error, _} = GitHub.refresh(org.id, actor: actor)
@@ -168,7 +194,7 @@ defmodule Lovelace.GitHubTest do
              Operations.authorize(c.session, %{TestGitHub.bundle() | refresh_token: ""})
 
     assert TestGitHub.state().calls == []
-    assert TestGitHub.state().tokens == %{}
+    assert tokens() == %{}
   end
 
   test "renames and same-user reauthorization preserve immutable owner and memberships", c do
@@ -186,7 +212,7 @@ defmodule Lovelace.GitHubTest do
     assert result.connection.id == connection.id
     GitHub.attach!(c.b.id, org.id, actor: @owner)
     assert length(directory().memberships) == 2
-    assert Map.keys(TestGitHub.state().tokens) == [connection.id]
+    assert Map.keys(tokens()) == [connection.id]
     assert {:ok, "replacement"} = Operations.access_token(connection.id)
   end
 
@@ -218,7 +244,7 @@ defmodule Lovelace.GitHubTest do
     GitHub.attach!(c.b.id, other.id, actor: @owner)
     GitHub.poll!(other.id, other.generation, actor: @owner)
     assert first_account.id != second.connection.id
-    assert map_size(TestGitHub.state().tokens) == 2
+    assert map_size(tokens()) == 2
     GitHub.disconnect_account!(first_account.id, actor: @owner)
     assert current(first.id).status == :disconnected
     assert current(other.id).total_count == 1
@@ -352,7 +378,7 @@ defmodule Lovelace.GitHubTest do
     send(worker, :continue)
     assert {:error, :denied} = Task.await(task)
     assert current(org.id).status == :disconnected
-    assert TestGitHub.state().tokens == %{}
+    assert tokens() == %{}
   end
 
   test "Auth commit cancellation prevents all final credential and resource writes", c do
@@ -361,7 +387,7 @@ defmodule Lovelace.GitHubTest do
 
     assert directory().connections == []
     assert directory().organizations == []
-    assert TestGitHub.state().tokens == %{}
+    assert tokens() == %{}
   end
 
   test "delayed discovery cannot reattach an owner disconnected during HTTP", c do
@@ -564,7 +590,7 @@ defmodule Lovelace.GitHubTest do
     assert {:error, :unavailable} = Task.await(task)
     assert account(connection.id).status == :disconnected
     assert current(org.id).status == :disconnected
-    assert TestGitHub.state().tokens == %{}
+    assert tokens() == %{}
   end
 
   test "successful reauthorization fences a previously running poll", c do
@@ -618,7 +644,7 @@ defmodule Lovelace.GitHubTest do
       assert {:error, :provider} = Operations.authorize(c.session, TestGitHub.bundle())
       assert directory().connections == []
       assert directory().organizations == []
-      assert TestGitHub.state().tokens == %{}
+      assert tokens() == %{}
     end
   end
 
@@ -642,5 +668,175 @@ defmodule Lovelace.GitHubTest do
 
     assert TestGitHub.state().calls == calls
     assert current(org.id).generation != org.generation
+  end
+
+  test "repository selections are independent per workspace, editable and immutable-ID scoped",
+       c do
+    first = TestGitHub.repository()
+
+    second =
+      TestGitHub.repository(%{
+        "id" => "REPO_SECOND",
+        "name" => "second",
+        "full_name" => "acme/second"
+      })
+
+    TestGitHub.configure(
+      repositories: [first, second],
+      rows: [
+        TestGitHub.row(),
+        TestGitHub.row(%{
+          "number" => 10,
+          "repository_id" => "REPO_SECOND",
+          "repository" => "acme/second"
+        })
+      ],
+      issues: [
+        TestGitHub.issue(),
+        TestGitHub.issue(%{
+          "number" => 11,
+          "repository_id" => "REPO_SECOND",
+          "repository" => "acme/second"
+        })
+      ],
+      workflow_runs: [
+        TestGitHub.workflow_run(),
+        TestGitHub.workflow_run(%{
+          "id" => 12,
+          "repository_id" => "REPO_SECOND",
+          "repository" => "acme/second"
+        })
+      ]
+    )
+
+    {org, _} = connect(c)
+    assert org.repositories == [first, second]
+    assert org.issue_count == 2
+    assert length(org.pull_requests) == 2
+    assert length(org.issues) == 2
+    assert length(org.workflow_runs) == 2
+    refute org.issues_truncated
+    refute org.actions_truncated
+
+    assert {:ok, true} = GitHub.attach_repositories(c.a.id, org.id, [first["id"]], actor: @owner)
+    assert {:ok, true} = GitHub.attach_repositories(c.b.id, org.id, [second["id"]], actor: @owner)
+    memberships = directory().memberships
+    a = Enum.find(memberships, &(&1.workspace_id == c.a.id))
+    b = Enum.find(memberships, &(&1.workspace_id == c.b.id))
+    assert a.repository_ids == [first["id"]]
+    assert b.repository_ids == [second["id"]]
+
+    assert {:ok, true} =
+             GitHub.attach_repositories(c.a.id, org.id, [second["id"], second["id"]],
+               actor: @owner
+             )
+
+    edited = Enum.find(directory().memberships, &(&1.workspace_id == c.a.id))
+    assert edited.id == a.id
+    assert edited.repository_ids == [second["id"]]
+    assert length(directory().memberships) == 2
+
+    assert {:ok, true} = GitHub.attach(c.a.id, org.id, actor: @owner)
+    assert Enum.find(directory().memberships, &(&1.workspace_id == c.a.id)).repository_ids == []
+
+    assert Enum.find(directory().memberships, &(&1.workspace_id == c.b.id)).repository_ids == [
+             second["id"]
+           ]
+  end
+
+  test "repository attach rejects empty, unknown, cross-owner and expired selections", c do
+    {org, _} = connect(c)
+    personal = Enum.find(directory().organizations, &(&1.owner_type == :user))
+    foreign = TestGitHub.repository(%{"id" => "PERSONAL_REPO", "full_name" => "synthetic/repo"})
+    TestGitHub.configure(repositories: [foreign], rows: [], issues: [], workflow_runs: [])
+    GitHub.poll!(personal.id, personal.generation, actor: @owner)
+    assert current(personal.id).repositories == [foreign]
+
+    for selection <- [[], ["UNKNOWN"], ["PERSONAL_REPO"], ["REPO_SYNTHETIC", "UNKNOWN"]] do
+      assert {:error, _} = GitHub.attach_repositories(c.b.id, org.id, selection, actor: @owner)
+    end
+
+    assert length(directory().memberships) == 1
+    update_org(org, %{fetched_at: DateTime.add(DateTime.utc_now(), -86_401)})
+
+    assert {:error, _} =
+             GitHub.attach_repositories(c.b.id, org.id, ["REPO_SYNTHETIC"], actor: @owner)
+
+    assert current(org.id).repositories == []
+    assert {:ok, true} = GitHub.attach(c.b.id, org.id, actor: @owner)
+  end
+
+  test "missing optional snapshot fields clear old optional rows without fabricating zero", c do
+    {org, _} = connect(c)
+    assert org.issues != [] and org.workflow_runs != []
+    due(org)
+
+    TestGitHub.configure(
+      response: {:ok, %{pull_requests: [], total_count: 0, truncated: false, partial_reasons: []}}
+    )
+
+    GitHub.poll!(org.id, org.generation, actor: @owner)
+    current = current(org.id)
+    assert current.repositories == []
+    assert current.issues == [] and current.workflow_runs == []
+    assert current.issue_count == nil
+    assert current.issues_truncated and current.actions_truncated
+    assert "issues_unavailable" in current.partial_reasons
+    assert "actions_unavailable" in current.partial_reasons
+    assert current.total_count == 0
+  end
+
+  test "all read caches expire together and reauthorization clears every readout", c do
+    {org, _} = connect(c)
+    update_org(org, %{fetched_at: DateTime.add(DateTime.utc_now(), -86_401)})
+    expired = current(org.id)
+    assert_empty_readouts(expired)
+
+    due(expired)
+    GitHub.poll!(org.id, org.generation, actor: @owner)
+    assert current(org.id).issues != []
+    authorize(c, "replacement")
+    assert_empty_readouts(current(org.id))
+    assert length(directory().memberships) == 1
+  end
+
+  test "late populated readouts cannot reappear after owner disconnect", c do
+    {org, _} = connect(c)
+    due(org)
+
+    late =
+      {:ok,
+       %{
+         repositories: org.repositories,
+         pull_requests: org.pull_requests,
+         issues: org.issues,
+         workflow_runs: org.workflow_runs,
+         issue_count: org.issue_count,
+         total_count: org.total_count,
+         issues_truncated: false,
+         actions_truncated: false,
+         truncated: false,
+         partial_reasons: []
+       }}
+
+    TestGitHub.configure(response: {:wait, self(), late})
+    task = Task.async(fn -> GitHub.poll(org.id, org.generation, actor: @owner) end)
+    assert_receive {:github_waiting, worker}
+    GitHub.disconnect!(org.id, actor: @owner)
+    send(worker, :continue)
+    assert {:ok, %{skipped: true}} = Task.await(task)
+    assert_empty_readouts(current(org.id))
+    assert directory().memberships == []
+  end
+
+  defp assert_empty_readouts(org) do
+    assert org.repositories == []
+    assert org.pull_requests == []
+    assert org.issues == []
+    assert org.workflow_runs == []
+    assert org.issue_count == nil
+    assert org.total_count == nil
+    refute org.issues_truncated
+    refute org.actions_truncated
   end
 end

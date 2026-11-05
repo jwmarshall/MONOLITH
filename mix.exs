@@ -7,6 +7,7 @@ defmodule Lovelace.MixProject do
       version: "0.1.0",
       elixir: "~> 1.20",
       elixirc_paths: elixirc_paths(Mix.env()),
+      test_coverage: [summary: [threshold: 90]],
       start_permanent: Mix.env() == :prod,
       aliases: aliases(),
       usage_rules: usage_rules(),
@@ -54,7 +55,10 @@ defmodule Lovelace.MixProject do
       {:simple_sat, "~> 0.1"},
       {:ash_sqlite, "~> 0.3.1"},
       {:ash_phoenix, "~> 2.3"},
-      {:ash_authentication, "~> 4.15"},
+      {:ash_authentication, "~> 4.15.1"},
+      # AshAuthentication 4.x still caps Assent below its CVE-2026-117656 fix.
+      # Its Assent calls retain their APIs in 0.3; owner auth uses only passwords.
+      {:assent, "~> 0.3.2", override: true},
       {:ash_authentication_phoenix, "~> 2.17"},
       {:req, "~> 0.7"},
       {:oban, "~> 2.24.2"},
@@ -162,7 +166,7 @@ defmodule Lovelace.MixProject do
         "lint",
         "security",
         "ash.codegen --check",
-        "test",
+        "test --cover",
         "test.js",
         "assets.build"
       ],

@@ -1,6 +1,8 @@
 defmodule Lovelace.Security.MaintenanceTaskTest do
   use ExUnit.Case, async: false
 
+  alias Lovelace.TestSupport.SubprocessCoverage
+
   @tag timeout: 300_000
   test "production maintenance uses runtime storage without starting protected work or replacing originals" do
     root = Path.expand("tmp/vault-maintenance-#{System.unique_integer([:positive])}")
@@ -10,7 +12,7 @@ defmodule Lovelace.Security.MaintenanceTaskTest do
       directory = Path.join(root, mode)
 
       {output, status} =
-        System.cmd(
+        SubprocessCoverage.cmd(
           System.find_executable("elixir"),
           [
             "-r",
@@ -42,7 +44,10 @@ defmodule Lovelace.Security.MaintenanceTaskTest do
           stderr_to_stdout: true
         )
 
-      assert status == 0, output
+      assert status == 0, "#{mode} maintenance failed:\n#{output}"
+
+      assert output =~
+               "Production maintenance #{mode}: configured path, retained original, no protected runtime"
     end
   end
 end

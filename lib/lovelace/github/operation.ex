@@ -23,6 +23,17 @@ defmodule Lovelace.GitHub.Operation do
       run Lovelace.GitHub.Operations
     end
 
+    action :attach_repositories, :boolean do
+      argument :workspace_id, :uuid, allow_nil?: false
+      argument :organization_id, :uuid, allow_nil?: false
+
+      argument :repository_ids, {:array, :string},
+        allow_nil?: false,
+        constraints: [min_length: 1, max_length: 100, items: [max_length: 255]]
+
+      run Lovelace.GitHub.Operations
+    end
+
     action :detach, :boolean do
       argument :workspace_id, :uuid, allow_nil?: false
       argument :organization_id, :uuid, allow_nil?: false

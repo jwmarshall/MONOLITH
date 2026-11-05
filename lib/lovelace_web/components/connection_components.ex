@@ -33,7 +33,7 @@ defmodule LovelaceWeb.ConnectionComponents do
         <.icon name="hero-code-bracket" class="size-6" />
         <span class="connection-provider-copy">
           <span class="connection-provider-name">GitHub</span>
-          <span class="mail-muted">Personal &amp; organization pull requests</span>
+          <span class="mail-muted">Pull requests, issues &amp; Actions</span>
         </span>
         <.icon name="hero-arrow-up-right" class="size-5" />
       </.link>
