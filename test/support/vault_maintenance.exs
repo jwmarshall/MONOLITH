@@ -1,5 +1,7 @@
 # Loaded before Mix boot so each real maintenance task must load runtime config itself.
 # Only a synthetic DATABASE_PATH is used; terminal input stops before authentication/export.
+Code.require_file("subprocess_coverage.ex", __DIR__)
+
 defmodule Lovelace.SyntheticMaintenanceIO do
   def start(lines, observer), do: spawn_link(fn -> loop(lines, observer) end)
 
@@ -27,9 +29,11 @@ end
 
 defmodule Mix.Tasks.Lovelace.SyntheticMaintenance do
   use Mix.Task
+  alias Lovelace.TestSupport.SubprocessCoverage
 
   def run([mode, root]) do
     unless Mix.env() == :prod, do: raise("Production configuration required")
+    SubprocessCoverage.start()
     source = Path.join(root, "original.db")
     original = "synthetic retained original; never authenticate or export"
     File.mkdir_p!(root)

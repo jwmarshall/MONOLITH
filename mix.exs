@@ -7,6 +7,7 @@ defmodule Lovelace.MixProject do
       version: "0.1.0",
       elixir: "~> 1.20",
       elixirc_paths: elixirc_paths(Mix.env()),
+      test_coverage: [summary: [threshold: 90]],
       start_permanent: Mix.env() == :prod,
       aliases: aliases(),
       usage_rules: usage_rules(),
@@ -162,7 +163,7 @@ defmodule Lovelace.MixProject do
         "lint",
         "security",
         "ash.codegen --check",
-        "test",
+        "test --cover",
         "test.js",
         "assets.build"
       ],

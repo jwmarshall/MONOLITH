@@ -109,6 +109,67 @@ defmodule LovelaceWeb.SetupControllerTest do
     assert {:ok, false} = Owner.configured()
   end
 
+  test "setup GET exposes only terminal pairing until this browser is paired", %{
+    conn: conn,
+    code: code
+  } do
+    page = get(conn, "/setup")
+    document = page |> html_response(200) |> LazyHTML.from_fragment()
+    assert get_resp_header(page, "cache-control") == ["no-store"]
+    assert get_resp_header(page, "referrer-policy") == ["no-referrer"]
+
+    assert exists?(document, "#setup-pair-form input[name='pairing_code'][type='password']")
+    assert exists?(document, "#setup-pair-form input[name='_csrf_token']")
+    refute exists?(document, "#setup-password-form")
+    refute html_response(page, 200) =~ code
+
+    paired = submit(recycle(page), "/setup/pair", %{"pairing_code" => code})
+    page = get(recycle(paired), "/setup")
+    document = page |> html_response(200) |> LazyHTML.from_fragment()
+    refute exists?(document, "#setup-pair-form")
+    assert exists?(document, "#setup-password-form input[name='_csrf_token']")
+    assert exists?(document, "#setup-acknowledge[required]")
+    assert exists?(document, "#setup-password[aria-describedby]")
+    assert {:ok, false} = Owner.configured()
+  end
+
+  test "validation errors render accessibly without retaining passwords or consuming pairing", %{
+    conn: conn,
+    code: code
+  } do
+    rejected = submit(conn, "/setup/pair", %{"pairing_code" => String.duplicate("x", 43)})
+    page = get(recycle(rejected), redirected_to(rejected, 303))
+    document = page |> html_response(200) |> LazyHTML.from_fragment()
+    assert exists?(document, "#setup-error[role='alert']")
+    assert exists?(document, "#setup-pair-form")
+
+    paired = submit(recycle(page), "/setup/pair", %{"pairing_code" => code})
+
+    for {params, category} <- [
+          {%{password_params() | "password" => "short"}, "password"},
+          {%{password_params() | "password_confirmation" => "different confirmation"},
+           "confirmation"},
+          {Map.delete(password_params(), "acknowledge_recovery"), "acknowledgement"}
+        ] do
+      result = submit(recycle(paired), "/setup/password", params)
+      assert redirected_to(result, 303) == "/setup?error=" <> category
+      page = get(recycle(result), redirected_to(result, 303))
+      document = page |> html_response(200) |> LazyHTML.from_fragment()
+      assert exists?(document, "#setup-error[role='alert']")
+      assert exists?(document, "#setup-password-form")
+      refute exists?(document, "input[type='password'][value]")
+      refute html_response(page, 200) =~ @password
+      assert Bootstrap.paired?(get_session(page, :bootstrap_capability))
+      assert {:ok, false} = Owner.configured()
+    end
+
+    result = submit(recycle(paired), "/setup/password", password_params())
+    assert redirected_to(result, 303) == "/onboarding"
+    assert {:ok, true} = Owner.configured()
+  end
+
+  defp exists?(document, selector), do: Enum.any?(LazyHTML.query(document, selector))
+
   defp password_params do
     %{
       "password" => @password,

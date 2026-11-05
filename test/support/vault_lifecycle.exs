@@ -2,6 +2,8 @@
 # native store only. Never starts a real credential helper or provider transport.
 import ExUnit.Assertions
 
+Lovelace.TestSupport.SubprocessCoverage.start()
+
 alias Lovelace.Owner
 alias Lovelace.Security.{CipherKey, Database, Keychain, Vault}
 
@@ -284,6 +286,7 @@ Process.register(self(), :lovelace_vault_observer)
 password = "synthetic vault lifecycle owner password"
 alias Lovelace.SyntheticVaultScenario, as: Scenario
 {:ok, _} = Application.ensure_all_started(:telemetry)
+{:ok, _} = Application.ensure_all_started(:oban)
 
 assert :ok =
          :telemetry.attach(
@@ -292,6 +295,77 @@ assert :ok =
            &Scenario.dispatched/4,
            self()
          )
+
+# Exercise the browser bootstrap's real default configure callback, not a fake
+# owner-creation function. A separate synthetic database preserves the interrupted
+# terminal-setup scenario below.
+original_repo = Application.fetch_env!(:lovelace, Lovelace.Repo)
+
+Application.put_env(
+  :lovelace,
+  Lovelace.Repo,
+  Keyword.put(original_repo, :database, Path.join(root, "bootstrap.db"))
+)
+
+{:ok, bootstrap_maintenance} = Vault.start_maintenance()
+observer = self()
+
+{:ok, bootstrap} =
+  Lovelace.Security.Bootstrap.start_link(
+    status: &Vault.configuration_status/0,
+    announce: fn code -> send(observer, {:browser_pairing, code}) end
+  )
+
+assert_receive {:browser_pairing, pairing_code}
+assert {:ok, capability} = Lovelace.Security.Bootstrap.pair(pairing_code)
+
+assert {:ok, bootstrap_token} =
+         Lovelace.Security.Bootstrap.configure(capability, password, password, true)
+
+assert {:ok, _} = Owner.verify_session(bootstrap_token)
+assert Scenario.await(fn -> is_pid(Oban.Registry.whereis(Oban)) end)
+assert Vault.open?()
+assert Lovelace.Onboarding.pending?()
+assert Vault.configuration_status() == :configured
+refute Keychain.setup_pending?()
+
+assert {:error, :setup} =
+         Lovelace.Security.Bootstrap.configure(capability, password, password, true)
+
+refute inspect(:sys.get_status(bootstrap)) =~ password
+refute inspect(:sys.get_status(bootstrap)) =~ capability
+refute inspect(:sys.get_status(Vault)) =~ password
+
+assert {:error, :already_open} =
+         Vault.setup(password, fn -> flunk("cannot replace an open owner") end)
+
+observer = self()
+
+{borrower, borrower_ref} =
+  spawn_monitor(fn ->
+    assert {:ok, _lease} = Vault.track()
+    send(observer, :borrower_admitted)
+  end)
+
+assert_receive :borrower_admitted
+assert_receive {:DOWN, ^borrower_ref, :process, ^borrower, :normal}
+assert Scenario.await(fn -> map_size(:sys.get_state(Vault).leases) == 0 end)
+assert {:ok, true} = Vault.lock()
+refute Vault.open?()
+
+for authenticate <- [
+      fn -> raise "synthetic authentication storage failure" end,
+      fn -> throw(:synthetic_authentication_failure) end
+    ] do
+  assert {:error, _} = Vault.unlock(password, authenticate, maintenance: true)
+  refute Vault.open?()
+  assert Process.whereis(Lovelace.Repo) == nil
+  assert {:ok, :locked} = Lovelace.SyntheticNativeStore.status()
+end
+
+GenServer.stop(bootstrap)
+Supervisor.stop(bootstrap_maintenance)
+Application.put_env(:lovelace, Lovelace.Repo, original_repo)
 
 assert :ok = Keychain.begin_setup()
 {:ok, maintenance} = Vault.start_maintenance()

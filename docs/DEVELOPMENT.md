@@ -553,7 +553,7 @@ Use `bin/lovelace mix TASK [arguments]` for the underlying Mix commands below.
 2. `mix lint` (compile with warnings as errors, then `mix credo --strict`)
 3. `mix security` (`mix sobelow --private --exit low`)
 4. `mix ash.codegen --check` (migration/snapshot drift)
-5. `mix test`
+5. `mix test --cover` (90% minimum line coverage)
 6. `mix test.js` (native Node test runner, no npm dependencies)
 7. `mix assets.build`
 
@@ -673,9 +673,21 @@ Their table is created transactionally within the sandbox and rolled back after 
 test. They exercise Ash reads/creates, validation, and transaction rollback without
 creating real application tables or migration snapshots.
 
-Mix has built-in coverage reporting (`mix test --cover`); no ExCoveralls service or
-coverage gate is configured yet. Set a meaningful threshold with the first product
-resources rather than claiming coverage of unimplemented behavior.
+`bin/lovelace test --cover` uses Mix's built-in line coverage with an explicit
+90% threshold in `mix.exs`; `bin/lovelace check` and CI enforce the same gate.
+HTML reports are generated locally in the ignored `cover/` directory. Plain
+`bin/lovelace test` remains available for focused runs without the full-suite gate.
+No coverage service or production-module exclusions are configured.
+
+Managed-vault and terminal-maintenance scenarios run in separate BEAMs.
+`test/support/subprocess_coverage.ex` collects their counters during coverage runs
+and imports only byte-identical modules; production builds are never replaced
+with test builds to merge coverage. Failed children still fail their regression
+tests, and a successful child without a readable coverage export fails collection.
+Temporary manifests/counters are removed after each child. Ordinary test runs
+do not instrument children. Attended native-keychain tests remain opt-in and
+excluded from the automated suite; line coverage does not certify browser visuals,
+native authorization dialogs, or live-provider behavior.
 
 ## Ash development and migrations
 
