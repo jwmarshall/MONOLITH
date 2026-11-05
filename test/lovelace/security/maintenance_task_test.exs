@@ -44,7 +44,10 @@ defmodule Lovelace.Security.MaintenanceTaskTest do
           stderr_to_stdout: true
         )
 
-      assert status == 0, output
+      assert status == 0, "#{mode} maintenance failed:\n#{output}"
+
+      assert output =~
+               "Production maintenance #{mode}: configured path, retained original, no protected runtime"
     end
   end
 end

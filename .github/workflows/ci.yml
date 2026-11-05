@@ -2,17 +2,25 @@ name: CI
 
 on:
   push:
+    branches: [main]
   pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   checks:
     name: Quality, tests, and security
     runs-on: ubuntu-latest
+    timeout-minutes: 25
     env:
       MIX_ENV: test
+      LOVELACE_STAGE_ENABLED: "false"
     steps:
       - uses: actions/checkout@v4
       - uses: erlef/setup-beam@v1
@@ -46,20 +54,32 @@ jobs:
           # Upstream still names its pkg-config descriptor sqlite3.pc.
           sed 's/-lsqlite3/-lsqlcipher/g' "$prefix/lib/pkgconfig/sqlite3.pc" \
             > "$prefix/lib/pkgconfig/sqlcipher.pc"
-          echo "PKG_CONFIG_PATH=$prefix/lib/pkgconfig" >> "$GITHUB_ENV"
-          echo "LD_LIBRARY_PATH=$prefix/lib" >> "$GITHUB_ENV"
-          echo "EXQLITE_USE_SYSTEM=1" >> "$GITHUB_ENV"
+          {
+            echo "PKG_CONFIG_PATH=$prefix/lib/pkgconfig"
+            echo "LD_LIBRARY_PATH=$prefix/lib"
+            echo "EXQLITE_USE_SYSTEM=1"
+          } >> "$GITHUB_ENV"
       - uses: actions/cache@v4
         with:
           path: |
             deps
             _build
-          key: ${{ runner.os }}-sqlcipher-4.20.0-beam-${{ hashFiles('.tool-versions', 'mix.lock', 'config/**', 'bin/lovelace', '.formatter.exs') }}
+          key: ${{ runner.os }}-${{ runner.arch }}-sqlcipher-4.20.0-beam-${{ hashFiles('.tool-versions', 'mix.exs', 'mix.lock', 'config/**', 'bin/lovelace', '.formatter.exs') }}
       - name: Fetch dependencies
+        id: dependencies
         run: bin/lovelace mix deps.get
       - name: Install asset tools
         run: bin/lovelace mix assets.setup
       - name: Check formatting, compilation, Credo, Sobelow, schema drift, tests, and assets
         run: bin/lovelace check
       - name: Check dependency advisories and retired Hex packages
+        if: ${{ !cancelled() && steps.dependencies.outcome == 'success' }}
         run: bin/lovelace audit
+      - name: Retain synthetic line-coverage report
+        if: ${{ !cancelled() && hashFiles('cover/*.html') != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: line-coverage-${{ github.run_id }}-${{ github.run_attempt }}
+          path: cover/*.html
+          retention-days: 7
+          if-no-files-found: error

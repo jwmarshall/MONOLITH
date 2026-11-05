@@ -586,6 +586,21 @@ for retired packages. It is intentionally separate from the local quality gate
 because it accesses external registries/advisory repositories. CI runs both gates.
 A clean audit is a point-in-time result, not a guarantee about all transitive code.
 
+Hosted CI runs the full `bin/lovelace check` gate on pull requests and pushes to
+`main`; use the workflow's manual dispatch for a development branch without a PR.
+Branch pushes with an open PR do not create a second identical run. New commits
+cancel superseded runs for the same ref, and each job has a 25-minute deadline.
+The dependency audit still runs after a quality/test failure when dependency
+installation succeeded. Generated synthetic HTML coverage reports are retained
+as GitHub Actions artifacts for seven days, including failed coverage runs.
+Scenery generation is disabled in CI; providers and credentials remain synthetic.
+This is a verification workflow, not an automatic deployment or release pipeline.
+
+The Linux runner verifies that production maintenance refuses unavailable native
+keychain access without changing original storage or starting protected work.
+That is not proof of macOS native-keychain availability or authorization; attended
+native checks remain explicit, and the browser UI gate below remains separate.
+
 ## Browser UI regressions
 
 ```sh

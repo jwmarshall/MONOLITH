@@ -206,6 +206,9 @@ defmodule LovelaceWeb.SceneErrorStatesTest do
 
     reject_writes("BEFORE INSERT ON stage_designer_attempts", fn ->
       view |> element("#scene-generation-confirm") |> render_click()
+      # Request completion starts :scene_gallery, but render_async/1 only waits
+      # for tasks present when called. Await both phases before checking readiness.
+      render_async(view)
       render_async(view)
       assert has_element?(view, ".scene-status", "Generation could not be started")
       refute has_element?(view, "#scene-generation-modal")
