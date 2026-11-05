@@ -38,7 +38,7 @@ function page(t, initial = {}) {
       value, type: "checkbox", checked: value === "primary", fieldset,
     })) : []
     const button = node({id: "onboarding-calendar-load-button", disabled: !!options.loading})
-    const save = fieldset ? node({id: "onboarding-calendar-save", fieldset}) : null
+    const save = fieldset ? node({id: "onboarding-calendar-save", disabled: !!options.loading}) : null
     const form = node({action: win.location.href, elements: {}})
     for (const [name, value] of Object.entries({
       operation: "refresh_calendars",
@@ -51,6 +51,7 @@ function page(t, initial = {}) {
       "[data-calendar-progress]": progress, "[data-calendar-client-error]": error,
       "[data-calendar-poll-stopped]": pending, "[data-calendar-loading-message]": loading,
       "[data-calendar-load]": form, "[data-calendar-status]": status, fieldset, h2: heading,
+      "#onboarding-calendar-save": save,
     }
     section.querySelector = selector => selectors[selector] ?? null
     section.querySelectorAll = selector => {
@@ -135,6 +136,7 @@ test("manual refresh preserves edited choices and restores keyboard focus on sta
   current.doc.picker.button.focus()
   current.doc.picker.form.emit("submit")
   assert.equal(current.requests[0].options.body.get("operation"), "refresh_calendars")
+  assert.equal(current.doc.picker.save.disabled, true)
   await current.respond(0, {loading: true})
   assert.deepEqual(current.doc.picker.choices.map(input => input.checked), [false, true])
   assert.equal(current.doc.activeElement, current.doc.picker.heading)
@@ -143,6 +145,7 @@ test("manual refresh preserves edited choices and restores keyboard focus on sta
   await current.respond(1, {})
   assert.deepEqual(current.doc.picker.choices.map(input => input.checked), [false, true])
   assert.equal(current.doc.activeElement, current.doc.picker.status)
+  assert.equal(current.doc.picker.save.disabled, false)
 })
 
 test("an enabled choice retains focus and its unsaved value across status-only replacement", async t => {
@@ -164,7 +167,7 @@ test("focus moving to selection save during a status request survives its replac
   current.doc.picker.save.focus()
   await current.respond(0, {})
   assert.equal(current.doc.activeElement, current.doc.picker.save)
-  assert.equal(current.doc.picker.save.fieldset.disabled, false)
+  assert.equal(current.doc.picker.save.disabled, false)
 })
 
 test("duplicate submits are ignored and an older poll cannot overwrite a newer load", async t => {
@@ -285,6 +288,7 @@ test("status-only entry never autoloads or automatically polls and failures reta
   current.requests[0].reject(new Error("offline"))
   await current.settle()
   assert.equal(current.doc.picker.fieldset.disabled, false)
+  assert.equal(current.doc.picker.save.disabled, false)
   assert.equal(current.doc.picker.choices[1].checked, true)
   assert.equal(current.doc.picker.button.attributes.has("aria-disabled"), false)
   assert.equal(current.doc.picker.error.hidden, false)
@@ -342,6 +346,7 @@ for (const awaitingText of [false, true]) {
     assert.equal(current.requests[0].options.signal.aborted, true)
     assert.equal(current.doc.picker.error.hidden, false)
     assert.equal(current.doc.picker.fieldset.disabled, false)
+    assert.equal(current.doc.picker.save.disabled, false)
     assert.equal(current.doc.picker.button.attributes.has("aria-disabled"), false)
     assert.equal(current.doc.picker.choices[1].checked, true)
     assert.equal(current.timers.size, 0)

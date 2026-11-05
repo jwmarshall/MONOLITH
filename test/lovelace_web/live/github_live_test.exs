@@ -4,6 +4,7 @@ defmodule LovelaceWeb.GitHubLiveTest do
 
   alias Lovelace.{GitHub, TestGitHub, Workspaces}
   alias Lovelace.GitHub.{Auth, Operations}
+  alias Lovelace.Owner.Actions
 
   @owner %{role: :local_owner}
 
@@ -143,6 +144,15 @@ defmodule LovelaceWeb.GitHubLiveTest do
     {:ok, view, _} = live(conn, "/connections/github")
     assert has_element?(view, "#connections-github[aria-current=page]")
     assert has_element?(view, "#github-connection-#{org.id}", "acme")
+    assert has_element?(view, "#github-account-status-#{org.connection_id}", "Connected")
+    render_async(view)
+    assert has_element?(view, "#github-client-editor:not([open])")
+    assert has_element?(view, "#github-app-setup:not([open])")
+
+    {:ok, reopened, _} = live(conn, "/connections/github")
+    render_async(reopened)
+    assert has_element?(reopened, "#github-account-status-#{org.connection_id}", "Connected")
+    assert has_element?(reopened, "#github-client-editor:not([open])")
     refute has_element?(view, "#connections-panel, #calendar-connections, #gemini-connection")
 
     render_patch(view, "/workspaces/#{workspace.id}")
@@ -160,9 +170,16 @@ defmodule LovelaceWeb.GitHubLiveTest do
 
   test "saved settings enable sign-in without returning the secret; keychain errors are not missing settings",
        %{conn: conn} do
+    loading = conn |> get("/connections/github") |> html_response(200) |> LazyHTML.from_document()
+    assert Enum.empty?(LazyHTML.query(loading, "#github-client-editor, #github-app-setup"))
+
     {:ok, view, _} = live(conn, "/connections/github")
     html = render_async(view)
     assert has_element?(view, "#github-sign-in-form")
+    assert has_element?(view, "#github-client-editor:not([open])")
+    assert has_element?(view, "#github-app-setup:not([open])")
+    assert has_element?(view, "#github-client-status")
+    refute has_element?(view, "[id^=github-account-status-]")
     refute html =~ "synthetic_client_secret"
     refute inspect(:sys.get_state(view.pid).socket.assigns) =~ "synthetic_client_secret"
     assert TestGitHub.state().calls == []
@@ -188,9 +205,52 @@ defmodule LovelaceWeb.GitHubLiveTest do
 
     send(view.pid, :github_auth_tick)
     render(view)
-    assert has_element?(view, "#github-authorization-error", "sign-in could not finish")
+    assert has_element?(view, "#github-authorization-error")
     assert has_element?(view, "#github-sign-in-form")
     refute has_element?(view, "#github-browser-authorization")
+  end
+
+  test "a rejected GitHub return remains recovery rather than waiting after reload", %{
+    conn: conn,
+    session: session
+  } do
+    {:ok, _} = Auth.begin(session)
+    returned = get(conn, "/auth/github/callback?code=private_unlinked_code")
+
+    for _ <- 1..2 do
+      {:ok, view, _} = live(recycle(returned), "/connections/github")
+      render_async(view)
+      send(view.pid, :github_auth_tick)
+      html = render(view)
+      assert has_element?(view, "#github-authorization-error")
+      assert has_element?(view, "#github-sign-in-form")
+      refute has_element?(view, "#github-browser-authorization")
+      refute has_element?(view, "[id^=github-account-status-]")
+      refute html =~ "private_unlinked_code"
+    end
+
+    assert Auth.status(Actions.digest(session)) == %{status: :pending}
+    assert TestGitHub.state().calls == []
+  end
+
+  test "repository access discovery makes an existing connected account attachable without signing in again",
+       %{conn: conn, workspace: workspace, session: session} do
+    {:ok, view, _} = live(conn, "/workspaces/#{workspace.id}/integrations")
+    assert has_element?(view, "#github-workspace-connect")
+    refute has_element?(view, "#github-attach-form")
+
+    TestGitHub.configure(installation_response: {:ok, []})
+    {:ok, authorized} = Operations.authorize(session, TestGitHub.bundle())
+    render(view)
+    assert has_element?(view, "#github-workspace-connect")
+    refute has_element?(view, "#github-attach-form")
+
+    TestGitHub.configure(installation_response: :ok)
+    assert {:ok, _} = GitHub.discover(authorized.connection.id, actor: @owner)
+    render(view)
+    assert has_element?(view, "#github-attach-form option")
+    refute has_element?(view, "#github-workspace-connect")
+    refute Enum.any?(TestGitHub.state().calls, &match?({:exchange_code, _, _, _, _, _}, &1))
   end
 
   test "workspace repository selections isolate pull requests, issues and Actions without hiding Home owners",

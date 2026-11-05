@@ -135,6 +135,7 @@ defmodule LovelaceWeb.GitHubComponents do
   attr :organizations, :list, required: true
   attr :connections, :list, required: true
   attr :auth, :map, required: true
+  attr :authorization_error, :string, default: nil
   attr :configured, :boolean, required: true
   attr :configuration_status, :atom, required: true
   attr :installation_url, :string, default: nil
@@ -145,6 +146,19 @@ defmodule LovelaceWeb.GitHubComponents do
   attr :now, :any, required: true
 
   def connections(assigns) do
+    assigns = assign(assigns, :connected, Enum.any?(assigns.connections, &(&1.status == :ready)))
+
+    assigns =
+      assign(
+        assigns,
+        :authorization_message,
+        assigns.authorization_error ||
+          if(assigns.auth.status == :failed,
+            do:
+              "The GitHub connection could not finish. No new account was connected. Start again below."
+          )
+      )
+
     ~H"""
     <section
       id="github-connections"
@@ -162,14 +176,29 @@ defmodule LovelaceWeb.GitHubComponents do
         <.icon name="hero-code-bracket" class="empty-state-mark size-6" />
         <div class="empty-state-body">
           <h4 class="empty-state-title">
-            {if @configured, do: "Connect with GitHub", else: "Set up GitHub"}
+            <%= cond do %>
+              <% @connected -> %>
+                GitHub connected
+              <% @configured -> %>
+                Connect your GitHub account
+              <% @configuration_status in [:unknown, :loading] -> %>
+                GitHub
+              <% true -> %>
+                Set up GitHub
+            <% end %>
           </h4>
-          <p class="empty-state-copy">
-            {if @configured,
-              do:
-                "Install your app on the desired accounts, then sign in to authorize read-only access. Organization membership alone does not grant app access.",
-              else:
-                "Register a GitHub App, save its OAuth client settings here, then sign in. No personal access token or private key is needed."}
+          <p
+            :if={@configuration_status not in [:unknown, :loading]}
+            class="empty-state-copy"
+          >
+            <%= cond do %>
+              <% @connected -> %>
+                Your authorized accounts are listed below. Add their repository owners to a workspace, or connect another account.
+              <% @configured -> %>
+                App settings are saved. Choose which repositories the app may read on GitHub, then connect your account to LOVELACE. These are separate steps.
+              <% true -> %>
+                Register a GitHub App, save its OAuth client settings here, then sign in. No personal access token or private key is needed.
+            <% end %>
           </p>
           <p
             :if={@configuration_status in [:unknown, :loading]}
@@ -184,13 +213,71 @@ defmodule LovelaceWeb.GitHubComponents do
           <p :if={@configuration_status == :unavailable} class="connection-warning" role="alert">
             App settings could not be read from the dedicated keychain. Unlock LOVELACE and check keychain access; this is not a GitHub authorization failure.
           </p>
+          <p
+            :if={@authorization_message}
+            id="github-authorization-error"
+            class="connection-warning"
+            role="alert"
+          >
+            {@authorization_message}
+          </p>
+          <p :if={@configured} id="github-client-status" class="mail-muted" role="status">
+            App settings saved locally · this alone does not connect a GitHub account.
+          </p>
+          <a
+            :if={@configured && @installation_url}
+            id="github-install-app"
+            href={@installation_url}
+            target="_blank"
+            rel="noopener noreferrer"
+            class="workspace-action workspace-action-link"
+          >
+            Choose repositories on GitHub<span class="sr-only"> (opens GitHub in a new tab)</span>
+          </a>
+          <.form
+            :if={@configured && @auth.status != :exchanging}
+            for={%{}}
+            id="github-sign-in-form"
+            action="/connections/github"
+            method="post"
+          >
+            <input type="hidden" name="operation" value="sign_in" />
+            <button type="submit" class="workspace-action workspace-action-primary">
+              <%= cond do %>
+                <% @authorization_message || @auth.status in [:pending, :failed] -> %>
+                  Start connection again
+                <% @connected -> %>
+                  Connect another account
+                <% true -> %>
+                  Connect GitHub account
+              <% end %>
+            </button>
+          </.form>
+          <div
+            :if={@auth.status in [:pending, :exchanging] && !@authorization_message}
+            id="github-browser-authorization"
+            role="status"
+          >
+            <p :if={@auth.status == :pending} class="mail-muted">
+              Not connected yet. Approve the app on GitHub to finish connecting to LOVELACE.
+              If GitHub already returned you here without connecting, start the connection again.
+            </p>
+            <p :if={@auth.status == :exchanging} class="mail-muted">
+              Finishing connection… LOVELACE is checking GitHub access and saving the account.
+            </p>
+            <.form for={%{}} id="github-cancel-sign-in" action="/connections/github" method="post">
+              <input type="hidden" name="operation" value="cancel_sign_in" />
+              <button type="submit" class="workspace-action">Cancel connection attempt</button>
+            </.form>
+          </div>
           <details
+            :if={@configuration_status not in [:unknown, :loading]}
             id="github-app-setup"
             class="connection-help"
             open={!@configured}
             phx-mounted={JS.ignore_attributes("open")}
           >
-            <summary class="workspace-action">GitHub App setup guide</summary>
+            <summary class="workspace-action workspace-action-link">GitHub App setup guide</summary>
             <ol class="github-setup-steps">
               <li>
                 Open <a
@@ -206,7 +293,8 @@ defmodule LovelaceWeb.GitHubComponents do
                 to <code id="github-callback-url">{@callback_url}</code>.
                 Leave <strong>Expire user authorization tokens</strong>
                 enabled.
-                Device flow and authorization during installation are not required.
+                Leave <strong>Request user authorization (OAuth) during installation</strong>
+                off. Start the account connection from LOVELACE so the return can be matched to this browser.
               </li>
               <li>
                 Disable <strong>Webhook → Active</strong>. Under Repository permissions, choose <strong>Pull requests: Read-only</strong>, <strong>Issues: Read-only</strong>,
@@ -219,20 +307,21 @@ defmodule LovelaceWeb.GitHubComponents do
                 for installation if you want organizations or other personal accounts,
                 then create the app. Copy its <strong>Client ID</strong>
                 (not App ID),
-                generate a <strong>client secret</strong>, and copy the slug from <code>github.com/apps/your-app-slug</code>.
+                generate a <strong>client secret</strong>, and copy the app URL or slug from <code>https://github.com/apps/your-app-slug</code>.
               </li>
               <li>
-                Save those settings below, then <strong>Install / manage app access</strong>.
+                Save those settings below, then <strong>Choose repositories on GitHub</strong>.
                 Choose only the repositories you want to read, at most 100 per installation.
                 An organization administrator may need to approve installation and permissions.
               </li>
               <li>
-                Choose <strong>Sign in with GitHub</strong>, review authorization on GitHub, then return here.
-                Add an owner or selected repositories to a workspace. Each workspace keeps its own selection.
+                Choose <strong>Connect GitHub account</strong>, approve access on GitHub, then return here.
+                Add an account, organization or selected repositories to a workspace. Each workspace keeps its own selection.
               </li>
             </ol>
           </details>
           <details
+            :if={@configuration_status not in [:unknown, :loading]}
             id="github-client-editor"
             class="connection-help"
             open={!@configured}
@@ -276,20 +365,23 @@ defmodule LovelaceWeb.GitHubComponents do
                 spellcheck="false"
                 aria-describedby="github-client-hint"
               />
-              <label for="github-app-slug">App URL slug</label>
+              <label for="github-app-slug">App URL or slug</label>
               <input
                 id="github-app-slug"
                 name="app_slug"
                 type="text"
                 class="workspace-name-input"
                 required
-                maxlength="100"
-                pattern="[a-z0-9][a-z0-9-]*"
+                maxlength="125"
                 autocomplete="off"
                 autocapitalize="none"
                 spellcheck="false"
-                placeholder="your-app-slug"
+                placeholder="https://github.com/apps/your-app-slug"
+                aria-describedby="github-app-slug-hint"
               />
+              <p id="github-app-slug-hint" class="mail-muted">
+                Paste the full https://github.com/apps/ URL or just its lowercase slug.
+              </p>
               <p id="github-client-hint" class="mail-muted">
                 Stored in the dedicated LOVELACE keychain. The secret is never shown again.
                 Saving is local only: it does not contact GitHub, grant access or require a restart.
@@ -298,53 +390,6 @@ defmodule LovelaceWeb.GitHubComponents do
               <button type="submit" class="workspace-action workspace-action-primary">Save app settings</button>
             </.form>
           </details>
-          <p :if={@configured} id="github-client-status" class="mail-muted" role="status">
-            App settings stored locally · GitHub access not verified by saving.
-          </p>
-          <a
-            :if={@configured && @installation_url}
-            id="github-install-app"
-            href={@installation_url}
-            target="_blank"
-            rel="noopener noreferrer"
-            class="workspace-action workspace-action-link"
-          >
-            Install / manage app access<span class="sr-only"> (opens GitHub in a new tab)</span>
-          </a>
-          <.form
-            :if={@configured && @auth.status not in [:pending, :exchanging]}
-            for={%{}}
-            id="github-sign-in-form"
-            action="/connections/github"
-            method="post"
-          >
-            <input type="hidden" name="operation" value="sign_in" />
-            <button type="submit" class="workspace-action workspace-action-primary">Sign in with GitHub</button>
-          </.form>
-          <div
-            :if={@auth.status in [:pending, :exchanging]}
-            id="github-browser-authorization"
-            role="status"
-          >
-            <p class="mail-muted">
-              Sign-in is waiting for authorization in GitHub. Complete it in the browser before it expires, or cancel and start again.
-            </p>
-            <.form for={%{}} id="github-cancel-sign-in" action="/connections/github" method="post">
-              <input type="hidden" name="operation" value="cancel_sign_in" />
-              <button type="submit" class="workspace-action">Cancel sign-in</button>
-            </.form>
-          </div>
-          <p :if={@auth.status == :connected} id="github-authorized" class="mail-muted" role="status">
-            GitHub sign-in complete. Add an accessible owner or selected repositories to a workspace below.
-          </p>
-          <p
-            :if={@auth.status == :failed}
-            id="github-authorization-error"
-            class="connection-warning"
-            role="alert"
-          >
-            GitHub sign-in could not finish. Check app settings, installation access and connectivity, then start sign-in again.
-          </p>
         </div>
       </div>
       <article
@@ -356,8 +401,16 @@ defmodule LovelaceWeb.GitHubComponents do
         <div class="github-org-heading">
           <div>
             <h4>Signed in as {connection.login}</h4>
+            <p
+              :if={connection.status == :ready}
+              id={"github-account-status-#{connection.id}"}
+              class="mail-muted"
+              role="status"
+            >
+              Connected · read-only GitHub access authorized
+            </p>
             <p :if={connection.status in [:reauthorization, :refreshing]} class="connection-warning">
-              Sign in again to restore this account's access.
+              Connect this account again to restore its access.
             </p>
             <p :if={connection.status == :disconnected} class="connection-warning" role="alert">
               Disconnected locally. Credential removal failed; retry to remove it from the dedicated keychain.
@@ -373,7 +426,7 @@ defmodule LovelaceWeb.GitHubComponents do
             >
               <input type="hidden" name="operation" value="discover" />
               <input type="hidden" name="connection_id" value={connection.id} />
-              <button type="submit" class="workspace-action">Refresh app installations</button>
+              <button type="submit" class="workspace-action">Refresh account access</button>
             </.form>
             <.form
               for={%{}}
@@ -399,7 +452,7 @@ defmodule LovelaceWeb.GitHubComponents do
           {error_label(connection.last_error)}
         </p>
       </article>
-      <h4 :if={@organizations != []}>Repository owners</h4>
+      <h4 :if={@organizations != []}>Accounts &amp; organizations</h4>
       <article :for={org <- @organizations} id={"github-connection-#{org.id}"} class="connection-card">
         <div class="github-org-heading">
           <div>
@@ -436,7 +489,7 @@ defmodule LovelaceWeb.GitHubComponents do
         </div>
         <.health :if={org.status == :ready} organization={org} now={@now} />
         <p :if={org.status == :reauthorization} class="connection-warning">
-          Sign in with GitHub and install the app for this owner to restore access.
+          Choose repositories on GitHub for this owner, then connect your account again to restore access.
           Previous personal-token credentials are not used.
         </p>
         <p :if={org.legacy_credential} class="connection-warning" role="alert">
@@ -469,7 +522,7 @@ defmodule LovelaceWeb.GitHubComponents do
           >
             <option :for={{name, id} <- @workspace_options} value={id}>{name}</option>
           </select>
-          <button type="submit" class="workspace-action workspace-action-primary">Add whole owner to workspace</button>
+          <button type="submit" class="workspace-action workspace-action-primary">Add to workspace</button>
         </.form>
         <.repository_picker
           :if={org.status == :ready && @workspace_options != []}
@@ -477,8 +530,9 @@ defmodule LovelaceWeb.GitHubComponents do
           workspace_options={@workspace_options}
         />
       </article>
-      <p :if={@connections != [] && @organizations == []} class="mail-muted">
-        No accessible app installations. Install the app on the desired owner, obtain organization approval if required, then refresh app installations.
+      <p :if={@connected && @organizations == []} class="mail-muted">
+        Your account is connected, but the app has no accessible repository accounts or organizations.
+        Choose repositories on GitHub, obtain organization approval if required, then refresh account access.
       </p>
       <details
         id="github-setup-help"
@@ -513,6 +567,7 @@ defmodule LovelaceWeb.GitHubComponents do
 
   attr :organizations, :list, required: true
   attr :memberships, :list, required: true
+  attr :connections, :list, required: true
   attr :workspace, :any, required: true
   attr :error, :boolean, required: true
   attr :adding, :boolean, default: false
@@ -527,7 +582,8 @@ defmodule LovelaceWeb.GitHubComponents do
     assigns =
       assign(assigns,
         attached: Enum.filter(assigns.organizations, &(&1.id in ids)),
-        available: Enum.filter(assigns.organizations, &(&1.status == :ready && &1.id not in ids))
+        available: Enum.filter(assigns.organizations, &(&1.status == :ready && &1.id not in ids)),
+        connected: Enum.any?(assigns.connections, &(&1.status == :ready))
       )
 
     ~H"""
@@ -548,15 +604,23 @@ defmodule LovelaceWeb.GitHubComponents do
         <div class="empty-state-body">
           <h4 class="empty-state-title">Add GitHub to this workspace</h4>
           <p class="empty-state-copy">
-            {if @available == [],
-              do:
-                "Connect GitHub, then add an owner or selected repositories for pull requests, issues and Actions status.",
-              else:
-                "Add a whole owner or choose specific repositories below. Connections can be reused across workspaces."}
+            <%= cond do %>
+              <% @available != [] -> %>
+                Add an account or organization, or choose specific repositories below. Connections can be reused across workspaces.
+              <% @connected -> %>
+                Your GitHub account is connected, but no repository owners are available to add.
+                Choose repository access for the app on GitHub, then refresh account access in Connections.
+              <% true -> %>
+                No GitHub account is connected to LOVELACE yet. Finish connecting in Connections, then return here to choose an account, organization or repositories.
+            <% end %>
           </p>
           <div :if={@available == []} class="empty-state-actions">
-            <.link patch="/connections/github" class="workspace-action workspace-action-primary">
-              Connect GitHub
+            <.link
+              id="github-workspace-connect"
+              patch="/connections/github"
+              class="workspace-action workspace-action-primary"
+            >
+              {if @connected, do: "Review GitHub repository access", else: "Finish connecting GitHub"}
             </.link>
           </div>
         </div>
@@ -601,7 +665,7 @@ defmodule LovelaceWeb.GitHubComponents do
         phx-mounted={JS.ignore_attributes("open")}
       >
         <summary class={["workspace-action", @attached == [] && "workspace-action-primary"]}>
-          Add GitHub owner / repositories
+          Add GitHub account / organization
         </summary>
         <.form
           for={%{}}
@@ -612,7 +676,7 @@ defmodule LovelaceWeb.GitHubComponents do
         >
           <input type="hidden" name="operation" value="attach" />
           <input type="hidden" name="workspace_id" value={@workspace.id} />
-          <label for="github-existing-organization">Accessible repository owner</label>
+          <label for="github-existing-organization">GitHub account or organization</label>
           <select
             id="github-existing-organization"
             name="organization_id"
@@ -621,7 +685,7 @@ defmodule LovelaceWeb.GitHubComponents do
           >
             <option :for={org <- @available} value={org.id}>{org.login}</option>
           </select>
-          <button type="submit" class="workspace-action workspace-action-primary">Add whole owner</button>
+          <button type="submit" class="workspace-action workspace-action-primary">Add to workspace</button>
         </.form>
         <.repository_picker :for={org <- @available} organization={org} workspace_id={@workspace.id} />
       </details>

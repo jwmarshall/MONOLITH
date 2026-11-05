@@ -6,6 +6,7 @@ defmodule LovelaceWeb.HomeGitHub do
   alias Lovelace.Owner.Actions
 
   @owner %{role: :local_owner}
+  @authorization_errors ~w(authorization_unlinked authorization_unmatched authorization_denied callback_invalid authorization_failed keychain_failed locked)
 
   def init(socket, session) do
     if connected?(socket) do
@@ -18,6 +19,7 @@ defmodule LovelaceWeb.HomeGitHub do
       github_organizations: [],
       github_connections: [],
       github_auth: %{status: :idle},
+      github_authorization_error: authorization_error(session["github_authorization_result"]),
       github_auth_key: Actions.digest(session["owner_session_token"]),
       github_configured: false,
       github_configuration_status: :unknown,
@@ -112,7 +114,14 @@ defmodule LovelaceWeb.HomeGitHub do
     delay = if active && auth.status in [:pending, :exchanging], do: 1_000, else: 5_000
     Process.send_after(self(), :github_auth_tick, delay)
     changed = socket.assigns.github_auth != auth
-    socket = assign(socket, github_auth: auth)
+
+    socket =
+      assign(socket,
+        github_auth: auth,
+        github_authorization_error:
+          if(auth.status == :connected, do: nil, else: socket.assigns.github_authorization_error)
+      )
+
     {:noreply, if(changed && auth.status == :connected, do: reload(socket), else: socket)}
   end
 
@@ -163,16 +172,30 @@ defmodule LovelaceWeb.HomeGitHub do
   @result_messages %{
     "pending" => {:info, "Complete GitHub authorization in the browser to connect your account."},
     "authorized" =>
-      {:info, "GitHub sign-in complete. Add an owner or selected repositories to a workspace."},
+      {:info,
+       "GitHub account connected. Add an account, organization or selected repositories to a workspace."},
     "settings_saved" =>
       {:info,
        "GitHub app settings saved in the dedicated keychain. No provider access was requested."},
-    "settings_failed" =>
+    "invalid_client_id" =>
       {:error,
-       "GitHub app settings could not be saved. Check the values and dedicated keychain access."},
-    "cancelled" => {:info, "GitHub sign-in cancelled locally."},
+       "Client ID is invalid. Copy the GitHub App's Client ID, not its App ID, without spaces or line breaks. Nothing was saved or sent to GitHub."},
+    "invalid_client_secret" =>
+      {:error,
+       "Client secret is invalid. Copy the generated client secret, not a private key, without spaces or line breaks. Nothing was saved or sent to GitHub."},
+    "invalid_app_slug" =>
+      {:error,
+       "App URL or slug is invalid. Enter https://github.com/apps/ followed by the lowercase app slug, or just the slug. Nothing was saved or sent to GitHub."},
+    "invalid_settings" =>
+      {:error,
+       "Client ID, client secret and app URL or slug are all required. Reload Connections and enter all three fields."},
+    "locked" =>
+      {:error,
+       "LOVELACE locked before the GitHub operation could finish. Unlock it and try again."},
+    "cancelled" => {:info, "GitHub connection attempt cancelled locally."},
     "discovered" =>
-      {:info, "GitHub installations refreshed. Choose an owner to add to a workspace."},
+      {:info,
+       "GitHub account access refreshed. Choose an account or organization to add to a workspace."},
     "attached" => {:info, "GitHub owner added to workspace."},
     "detached" =>
       {:info, "GitHub owner removed from this workspace. Its connection is unchanged."},
@@ -185,10 +208,25 @@ defmodule LovelaceWeb.HomeGitHub do
        "Save the GitHub App Client ID, client secret and app slug here, and check its exact callback URL."},
     "keychain_failed" =>
       {:error,
-       "GitHub credential storage failed. The token could not be read, saved or removed in the dedicated LOVELACE keychain. Check native helper access; do not reset the vault."},
+       "GitHub credential storage failed. The credentials could not be read, saved or removed in the dedicated LOVELACE keychain. Check native helper access; do not reset the vault."},
     "access_failed" =>
       {:error,
-       "GitHub access expired or was denied. Sign in again and check the app's installation, selected repositories and organization approval."},
+       "This GitHub account needs to be connected again. Check the app's repository access and organization approval, then connect the account again below."},
+    "authorization_unlinked" =>
+      {:error,
+       "GitHub returned without a LOVELACE connection request. Installing the app or signing in to GitHub does not connect an account here. Start the connection again below to authorize LOVELACE."},
+    "authorization_unmatched" =>
+      {:error,
+       "This GitHub return does not match an active connection request. It may be an older attempt or a different browser session. No new account was connected. Start the connection again from this localhost browser."},
+    "authorization_denied" =>
+      {:error,
+       "GitHub authorization was cancelled or denied. No new account was connected. You can start the connection again below."},
+    "callback_invalid" =>
+      {:error,
+       "GitHub returned an unexpected authorization response. No new account was connected. Start the connection again from LOVELACE; do not reuse an old GitHub return URL."},
+    "authorization_failed" =>
+      {:error,
+       "GitHub authorization could not finish. No new account was connected. Check the saved app credentials, callback URL and GitHub connectivity, then try again."},
     "rate_limited" =>
       {:error, "GitHub rate-limited the connection attempt. Wait before trying again."},
     "provider_failed" =>
@@ -206,9 +244,24 @@ defmodule LovelaceWeb.HomeGitHub do
   }
 
   def resume(socket, params) do
-    case @result_messages[params["github"]] do
-      {level, message} -> put_flash(socket, level, message)
-      nil -> socket
+    result = params["github"]
+
+    case @result_messages[result] do
+      {:error, message} when result in @authorization_errors ->
+        assign(socket, github_authorization_error: message)
+
+      {level, message} ->
+        put_flash(socket, level, message)
+
+      nil ->
+        socket
     end
   end
+
+  defp authorization_error(result) when result in @authorization_errors do
+    {:error, message} = Map.fetch!(@result_messages, result)
+    message
+  end
+
+  defp authorization_error(_), do: nil
 end

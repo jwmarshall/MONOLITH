@@ -136,8 +136,10 @@ Use the same hierarchy on static setup/unlock pages and authenticated views.
   available only after unlock. Unlock stays focused without an entrance or idle timer.
 - Before the first eligible setup/onboarding visit in a tab's browser session, automatically
   play the centered LOVELACE entrance/exit before exposing the pairing form, then focus the
-  step heading. A session-storage noncredential marker prevents replay on subsequent steps,
-  reloads, errors or returns; an old persistent marker cannot suppress a fresh session.
+  step heading without a decorative focus outline on the static setup heading; keyboard
+  focus rings on inputs and buttons remain visible. A session-storage noncredential marker
+  prevents replay on subsequent steps, reloads, errors or returns; an old persistent marker
+  cannot suppress a fresh session.
   Reloading before any eligible entrance still plays it. Unavailable session storage skips
   the introduction rather than blocking setup. Escape or reduced motion completes immediately,
   including a preference change mid-animation. Without JavaScript, branding stays hidden and
@@ -171,6 +173,9 @@ Use the same hierarchy on static setup/unlock pages and authenticated views.
   fenced by the guide's workspace, account, and connection generation. Show persisted partial
   result and Google-selected selection-limit warnings independently. Optional consent denial
   leaves Gmail intact.
+  **Save calendar selection** and **Refresh calendars** share one action row, including
+  at narrow widths; labels may wrap inside their controls. Keep their separate submission
+  operations and disable selection saving during Calendar loading or reconnection.
 - Setup and onboarding use one horizontally centered, left-aligned reading column capped
   at 60rem (960px at the default font size), including headings, step navigation, forms,
   notices and footer copy. Step links use the 1rem body size and wrap as needed.
@@ -285,6 +290,19 @@ Use the same hierarchy on static setup/unlock pages and authenticated views.
   Saving settings is local-only, never provider verification. Secrets are never prefilled
   or returned. Hide sign-in while settings are missing, checking or unavailable; failed
   sign-in remains a usable recovery page. OAuth uses single-use state and PKCE.
+  Do not mount setup/editor disclosures until the local settings check settles: missing
+  settings start open; stored settings start collapsed, preserving later user toggles.
+  Saved app settings without an authorized account explicitly show that sign-in is still
+  required. Ready account cards show Connected from persisted account state across reloads,
+  never from the settings-save flash or an expired browser authorization attempt.
+  Separate **Choose repositories on GitHub** (installation access) from **Connect GitHub
+  account** (LOVELACE authorization). Rejected returns show a specific, safe inline
+  recovery state across reloads, not stale waiting or a claim that GitHub denied access.
+  **Start connection again** replaces the pending request explicitly; state/session
+  validation and single-use exchange remain mandatory. Exchanging requests cannot restart.
+  Workspace setup distinguishes no authorized account from an authorized account with
+  no accessible repository owners; available owners can be added natively without
+  reconnecting the account.
   Workspaces attach whole owners or independent immutable repository selections, with
   matching PR/issue/Actions readouts. Filtered owner snapshots are labeled as subsets,
   not selected-repository totals. Removing membership is not global disconnect.

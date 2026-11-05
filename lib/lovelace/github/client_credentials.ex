@@ -40,6 +40,8 @@ defmodule Lovelace.GitHub.ClientCredentials do
   end
 
   def save(id, secret, slug) do
+    slug = normalize_slug(slug)
+
     with :ok <- validate(id, secret, slug) do
       access(fn -> save_locked(id, secret, slug) end)
     end
@@ -75,12 +77,31 @@ defmodule Lovelace.GitHub.ClientCredentials do
     end
   end
 
+  defp normalize_slug("https://github.com/apps/" <> _ = url) do
+    case Regex.run(~r/\Ahttps:\/\/github\.com\/apps\/([a-z0-9][a-z0-9-]{0,99})\/?\z/, url,
+           capture: :all_but_first
+         ) do
+      [slug] -> slug
+      _ -> url
+    end
+  end
+
+  defp normalize_slug(slug), do: slug
+
   defp validate(id, secret, slug) do
-    if is_binary(id) and Regex.match?(~r/\A[A-Za-z0-9_.-]{1,128}\z/, id) and
-         is_binary(secret) and Regex.match?(~r/\A[A-Za-z0-9_-]{1,1024}\z/, secret) and
-         is_binary(slug) and Regex.match?(~r/\A[a-z0-9][a-z0-9-]{0,99}\z/, slug),
-       do: :ok,
-       else: {:error, :configuration}
+    cond do
+      !is_binary(id) || !Regex.match?(~r/\A[A-Za-z0-9_.-]{1,128}\z/, id) ->
+        {:error, :invalid_client_id}
+
+      !is_binary(secret) || !Regex.match?(~r/\A[A-Za-z0-9_-]{1,1024}\z/, secret) ->
+        {:error, :invalid_client_secret}
+
+      !is_binary(slug) || !Regex.match?(~r/\A[a-z0-9][a-z0-9-]{0,99}\z/, slug) ->
+        {:error, :invalid_app_slug}
+
+      true ->
+        :ok
+    end
   end
 
   defp keychain,

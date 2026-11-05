@@ -1135,6 +1135,7 @@ defmodule LovelaceWeb.HomeLive do
             organizations={@github_organizations}
             connections={@github_connections}
             auth={@github_auth}
+            authorization_error={@github_authorization_error}
             configured={@github_configured}
             installation_url={@github_installation_url}
             callback_url={@github_callback_url}
@@ -1162,6 +1163,7 @@ defmodule LovelaceWeb.HomeLive do
             <GitHubComponents.workspace
               :if={!@mail.account_id}
               organizations={@github_organizations}
+              connections={@github_connections}
               memberships={@github_memberships}
               workspace={@selected}
               error={@github_error}

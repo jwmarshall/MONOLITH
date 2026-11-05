@@ -69,6 +69,11 @@
   outline-offset: 4px;
 }
 
+/* Entrance focus announces the step; only interactive controls need a focus ring. */
+.setup-content h1[tabindex="-1"]:focus {
+  outline: none;
+}
+
 .onboarding-steps ol {
   display: flex;
   flex-wrap: wrap;
@@ -147,6 +152,18 @@
 
 .onboarding-form fieldset > * + * {
   margin-top: 0.75rem;
+}
+
+.onboarding-calendar-actions {
+  display: flex;
+  align-items: stretch;
+  gap: 1rem;
+  margin-top: 0.75rem;
+}
+
+.onboarding-calendar-actions > * {
+  flex: 0 1 auto;
+  min-width: 0;
 }
 
 .onboarding-actions {

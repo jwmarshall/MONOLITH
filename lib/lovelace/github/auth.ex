@@ -231,6 +231,8 @@ defmodule Lovelace.GitHub.Auth do
     end
   end
 
+  defp exchange(_attempt, %{"error" => "access_denied"}, _parent), do: {:error, :denied}
+
   defp exchange(attempt, params, parent) do
     with true <- is_nil(params["error"]),
          code when is_binary(code) and byte_size(code) in 1..4096 <- params["code"],

@@ -2,7 +2,7 @@ defmodule LovelaceWeb.GitHubCredentialsTest do
   use LovelaceWeb.ConnCase, async: false
   import ExUnit.CaptureLog
   alias Lovelace.GitHub
-  alias Lovelace.GitHub.{Auth, Operations}
+  alias Lovelace.GitHub.{Auth, ClientCredentials, Operations}
   alias Lovelace.Owner.Actions
   alias Lovelace.TestGitHub
   alias LovelaceWeb.Plugs.GitHubCredentials
@@ -226,6 +226,74 @@ defmodule LovelaceWeb.GitHubCredentialsTest do
              Lovelace.GitHub.client_status(actor: %{role: :local_owner})
   end
 
+  test "GitHub App URLs save only the canonical slug without provider contact", %{conn: conn} do
+    for slug <- ["new-readonly-app", String.duplicate("a", 100)],
+        suffix <- ["", "/"] do
+      response =
+        submit(conn, %{
+          "operation" => "save_client",
+          "client_id" => "Iv1.new",
+          "client_secret" => "private_new_secret",
+          "app_slug" => "https://github.com/apps/#{slug}#{suffix}"
+        })
+
+      assert redirected_to(response, 303) == "/connections/github?github=settings_saved"
+      assert {:ok, %{app_slug: ^slug}} = ClientCredentials.current()
+      assert TestGitHub.state().calls == []
+    end
+  end
+
+  test "the equivalent app URL preserves pending sign-in and the stored generation", %{
+    conn: conn,
+    session: session
+  } do
+    {:ok, client} = ClientCredentials.current()
+    {:ok, _url} = Auth.begin(session)
+
+    response =
+      submit(conn, %{
+        "operation" => "save_client",
+        "client_id" => "Iv1.synthetic",
+        "client_secret" => "synthetic_client_secret",
+        "app_slug" => "https://github.com/apps/lovelace-synthetic/"
+      })
+
+    assert redirected_to(response, 303) == "/connections/github?github=settings_saved"
+    assert {:ok, ^client} = ClientCredentials.current()
+    assert Auth.status(Actions.digest(session)).status == :pending
+  end
+
+  test "unrelated or malformed app URLs cannot replace stored credentials", %{conn: conn} do
+    initial = TestGitHub.state().tokens
+
+    for url <- [
+          "http://github.com/apps/private-app",
+          "https://github.com.evil.example/apps/private-app",
+          "https://github.com@evil.example/apps/private-app",
+          "https://user@github.com/apps/private-app",
+          "https://github.com:443/apps/private-app",
+          "https://github.com/settings/apps/private-app",
+          "https://github.com/apps/private-app/installations/new",
+          "https://github.com/apps/private-app?other=1",
+          "https://github.com/apps/private-app#fragment",
+          "https://github.com/apps/private-app//",
+          "https://github.com/apps/%70rivate-app",
+          "https://github.com/apps/#{String.duplicate("a", 101)}"
+        ] do
+      response =
+        submit(conn, %{
+          "operation" => "save_client",
+          "client_id" => "Iv1.new",
+          "client_secret" => "private_new_secret",
+          "app_slug" => url
+        })
+
+      assert redirected_to(response, 303) == "/connections/github?github=invalid_app_slug"
+      assert TestGitHub.state().tokens == initial
+      assert TestGitHub.state().calls == []
+    end
+  end
+
   test "failed client saves do not replace the current stored client", %{conn: conn} do
     for secret <- ["", "bad secret", "line\nbreak"] do
       response =
@@ -236,7 +304,7 @@ defmodule LovelaceWeb.GitHubCredentialsTest do
           "app_slug" => "new-app"
         })
 
-      assert redirected_to(response, 303) == "/connections/github?github=settings_failed"
+      assert redirected_to(response, 303) == "/connections/github?github=invalid_client_secret"
     end
 
     Lovelace.TestGitHub.configure(keychain_put_error: :unavailable)
@@ -249,10 +317,53 @@ defmodule LovelaceWeb.GitHubCredentialsTest do
         "app_slug" => "new-app"
       })
 
-    assert redirected_to(response, 303) == "/connections/github?github=settings_failed"
+    assert redirected_to(response, 303) == "/connections/github?github=keychain_failed"
 
     assert {:ok, %{client_id: "Iv1.synthetic"}} =
              Lovelace.GitHub.client_status(actor: %{role: :local_owner})
+  end
+
+  test "invalid client fields identify only the field and preserve stored credentials", %{
+    conn: conn
+  } do
+    initial = TestGitHub.state().tokens
+
+    for {field, value} <- [
+          {"client_id", " private-client-id "},
+          {"client_id", String.duplicate("a", 129)},
+          {"client_secret", "private secret"},
+          {"client_secret", String.duplicate("a", 1025)},
+          {"app_slug", "https://example.com/apps/private-app"},
+          {"app_slug", String.duplicate("a", 101)}
+        ] do
+      fields =
+        Map.put(
+          %{
+            "operation" => "save_client",
+            "client_id" => "Iv1.new",
+            "client_secret" => "private_new_secret",
+            "app_slug" => "new-readonly-app"
+          },
+          field,
+          value
+        )
+
+      logs =
+        capture_log(fn ->
+          response = submit(conn, fields)
+          destination = redirected_to(response, 303)
+          assert destination == "/connections/github?github=invalid_#{field}"
+          assert response.params == %{}
+          assert response.body_params == %{}
+          refute destination =~ value
+          refute destination =~ "private_new_secret"
+        end)
+
+      refute logs =~ value
+      refute logs =~ "private_new_secret"
+      assert TestGitHub.state().tokens == initial
+      assert TestGitHub.state().calls == []
+    end
   end
 
   test "callback exchanges once before instrumentation and scrubs code and state", %{
@@ -279,7 +390,11 @@ defmodule LovelaceWeb.GitHubCredentialsTest do
           get(
             conn,
             "/auth/github/callback?" <>
-              URI.encode_query(%{"state" => state, "code" => "private_callback_code"})
+              URI.encode_query(%{
+                "state" => state,
+                "code" => "private_callback_code",
+                "iss" => "https://github.com/login/oauth"
+              })
           )
 
         assert redirected_to(response, 303) == "/connections/github?github=authorized"
@@ -298,6 +413,72 @@ defmodule LovelaceWeb.GitHubCredentialsTest do
            ) == 1
   end
 
+  test "invalid or duplicated issuers cannot exchange tokens or consume a valid request", %{
+    conn: conn,
+    session: session
+  } do
+    {:ok, url} = Auth.begin(session)
+    state = URI.decode_query(URI.parse(url).query)["state"]
+    tokens = TestGitHub.state().tokens
+    query = URI.encode_query(%{"state" => state, "code" => "private_code"})
+    issuer = URI.encode_query(%{"iss" => "https://github.com/login/oauth"})
+
+    for invalid <- [
+          URI.encode_query(%{"iss" => ""}),
+          URI.encode_query(%{"iss" => "https://attacker.invalid/login/oauth"}),
+          URI.encode_query(%{"iss" => "http://github.com/login/oauth"}),
+          URI.encode_query(%{"iss" => "https://github.com/login/oauth/"}),
+          URI.encode_query(%{"iss" => "https://github.com/login/oauth?unexpected=1"}),
+          URI.encode_query(%{"iss" => "https://github.com/login/oauth#unexpected"}),
+          issuer <> "&" <> issuer
+        ] do
+      response = get(conn, "/auth/github/callback?" <> query <> "&" <> invalid)
+      assert redirected_to(response, 303) == "/connections/github?github=callback_invalid"
+      assert response.query_string == ""
+      assert response.params == %{}
+      assert Auth.status(Actions.digest(session)) == %{status: :pending}
+      assert TestGitHub.state().calls == []
+      assert TestGitHub.state().tokens == tokens
+      assert directory().connections == []
+    end
+
+    accepted = get(conn, "/auth/github/callback?" <> query <> "&" <> issuer)
+    assert redirected_to(accepted, 303) == "/connections/github?github=authorized"
+    assert [%{status: :ready}] = directory().connections
+
+    calls = TestGitHub.state().calls
+    replay = get(conn, "/auth/github/callback?" <> query <> "&" <> issuer)
+    assert redirected_to(replay, 303) == "/connections/github?github=authorization_unmatched"
+    assert TestGitHub.state().calls == calls
+  end
+
+  test "a denial from GitHub's issuer consumes only its matching attempt without exchanging", %{
+    conn: conn,
+    session: session
+  } do
+    {:ok, url} = Auth.begin(session)
+    state = URI.decode_query(URI.parse(url).query)["state"]
+
+    query =
+      URI.encode_query(%{
+        "state" => state,
+        "error" => "access_denied",
+        "error_description" => "private_denial_detail",
+        "iss" => "https://github.com/login/oauth"
+      })
+
+    response = get(conn, "/auth/github/callback?" <> query)
+    assert redirected_to(response, 303) == "/connections/github?github=authorization_denied"
+    assert Auth.status(Actions.digest(session)) == %{status: :failed}
+    assert TestGitHub.state().calls == []
+    assert directory().connections == []
+    refute response.resp_body =~ "private_denial_detail"
+
+    replay = get(conn, "/auth/github/callback?" <> query)
+    assert redirected_to(replay, 303) == "/connections/github?github=authorization_unmatched"
+    assert TestGitHub.state().calls == []
+  end
+
   test "duplicate unknown malformed and denied callbacks cannot exchange tokens", %{
     conn: conn,
     session: session
@@ -305,21 +486,65 @@ defmodule LovelaceWeb.GitHubCredentialsTest do
     {:ok, url} = Auth.begin(session)
     state = URI.decode_query(URI.parse(url).query)["state"]
 
-    for query <- [
-          "state=#{state}&state=#{state}&code=private_code",
-          "state=#{state}&code=private_code&extra=unexpected",
-          "state=#{state}&code=private_code&error=access_denied",
-          "state=#{state}&error=access_denied&error_description=private_detail"
+    for {query, notice} <- [
+          {"state=#{state}&state=#{state}&code=private_code", "callback_invalid"},
+          {"state=#{state}&code=private_code&extra=unexpected", "callback_invalid"},
+          {"state=#{state}&code=private_code&error=access_denied", "callback_invalid"},
+          {"state=#{state}&error=access_denied&error_description=private_detail",
+           "authorization_denied"}
         ] do
-      response = conn |> recycle() |> get("/auth/github/callback?" <> query)
-      assert redirected_to(response, 303) == "/connections/github?github=access_failed"
+      response = get(conn, "/auth/github/callback?" <> query)
+      assert redirected_to(response, 303) == "/connections/github?github=#{notice}"
+      assert get_session(response, :github_authorization_result) == notice
       assert response.query_string == ""
       assert response.params == %{}
     end
 
-    response = conn |> recycle() |> get("/auth/github/callback?state=#{state}&code=private_code")
-    assert redirected_to(response, 303) == "/connections/github?github=access_failed"
+    response = get(conn, "/auth/github/callback?state=#{state}&code=private_code")
+    assert redirected_to(response, 303) == "/connections/github?github=authorization_unmatched"
     assert Lovelace.TestGitHub.state().calls == []
+  end
+
+  test "an unlinked callback preserves pending authorization and a fresh sign-in clears recovery",
+       %{
+         conn: conn,
+         session: session
+       } do
+    {:ok, old_url} = Auth.begin(session)
+    old_state = URI.decode_query(URI.parse(old_url).query)["state"]
+    returned = get(conn, "/auth/github/callback?code=private_unlinked_code")
+    assert redirected_to(returned, 303) == "/connections/github?github=authorization_unlinked"
+    assert get_session(returned, :github_authorization_result) == "authorization_unlinked"
+    assert Auth.status(Actions.digest(session)) == %{status: :pending}
+    assert TestGitHub.state().calls == []
+    assert directory().connections == []
+
+    restarted = submit(recycle(returned), %{"operation" => "sign_in"})
+    assert get_session(restarted, :github_authorization_result) == nil
+    state = URI.decode_query(URI.parse(redirected_to(restarted, 303)).query)["state"]
+    refute state == old_state
+
+    stale =
+      restarted
+      |> recycle()
+      |> get(
+        "/auth/github/callback?" <> URI.encode_query(%{"state" => old_state, "code" => "stale"})
+      )
+
+    assert redirected_to(stale, 303) == "/connections/github?github=authorization_unmatched"
+    assert Auth.status(Actions.digest(session)) == %{status: :pending}
+    assert TestGitHub.state().calls == []
+
+    accepted =
+      stale
+      |> recycle()
+      |> get(
+        "/auth/github/callback?" <> URI.encode_query(%{"state" => state, "code" => "accepted"})
+      )
+
+    assert redirected_to(accepted, 303) == "/connections/github?github=authorized"
+    assert get_session(accepted, :github_authorization_result) == nil
+    assert [%{status: :ready}] = directory().connections
   end
 
   test "repository selection cannot silently attach the entire owner", %{conn: conn} do
@@ -364,7 +589,7 @@ defmodule LovelaceWeb.GitHubCredentialsTest do
       |> recycle()
       |> get("/auth/github/callback?" <> URI.encode_query(%{"state" => state, "code" => "late"}))
 
-    assert redirected_to(callback, 303) == "/connections/github?github=access_failed"
+    assert redirected_to(callback, 303) == "/connections/github?github=authorization_unmatched"
     assert directory().connections == []
     assert TestGitHub.state().tokens == tokens
     assert TestGitHub.state().calls == []
@@ -707,7 +932,7 @@ defmodule LovelaceWeb.GitHubCredentialsTest do
           %{"client_id" => "Iv1.attacker", "client_secret" => %{"nested" => "secret"}}
         ] do
       response = submit(c.conn, Map.put(fields, "operation", "save_client"))
-      assert redirected_to(response, 303) == "/connections/github?github=settings_failed"
+      assert redirected_to(response, 303) == "/connections/github?github=invalid_settings"
     end
 
     for selection <- ["REPO_SYNTHETIC", %{"id" => "REPO_SYNTHETIC"}] do

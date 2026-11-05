@@ -9,6 +9,18 @@ defmodule LovelaceWeb.Plugs.GitHubCredentials do
   alias Plug.Conn.{Query, Utils}
 
   @owner %{role: :local_owner}
+  @failure_categories %{
+    invalid_client_id: "invalid_client_id",
+    invalid_client_secret: "invalid_client_secret",
+    invalid_app_slug: "invalid_app_slug",
+    locked: "locked",
+    keychain: "keychain_failed",
+    reconnect: "access_failed",
+    rate_limited: "rate_limited",
+    provider: "provider_failed",
+    unavailable: "unavailable",
+    configuration: "configuration"
+  }
 
   def init(opts), do: opts
 
@@ -51,7 +63,9 @@ defmodule LovelaceWeb.Plugs.GitHubCredentials do
     end
   end
 
-  defp redirect_operation(conn, _params, {:authorization_url, url}), do: redirect(conn, url)
+  defp redirect_operation(conn, _params, {:authorization_url, url}),
+    do: conn |> delete_session(:github_authorization_result) |> redirect(url)
+
   defp redirect_operation(conn, params, notice), do: redirect(conn, destination(params, notice))
 
   defp perform(%{"operation" => "sign_in"}, session) do
@@ -73,11 +87,11 @@ defmodule LovelaceWeb.Plugs.GitHubCredentials do
        when is_binary(id) and is_binary(secret) and is_binary(slug) do
     case Vault.with_access(fn -> save_client(session, id, secret, slug) end) do
       :saved -> "settings_saved"
-      _ -> "settings_failed"
+      error -> result(error, "failed")
     end
   end
 
-  defp perform(%{"operation" => "save_client"}, _), do: "settings_failed"
+  defp perform(%{"operation" => "save_client"}, _), do: "invalid_settings"
 
   defp perform(%{"operation" => "cancel_sign_in"}, session) do
     case Auth.cancel(session) do
@@ -144,17 +158,15 @@ defmodule LovelaceWeb.Plugs.GitHubCredentials do
 
   defp result(_, _), do: "failed"
 
-  defp failure_category(%Error{reason: reason}) do
-    case reason do
-      :keychain -> "keychain_failed"
-      :reconnect -> "access_failed"
-      :rate_limited -> "rate_limited"
-      :provider -> "provider_failed"
-      :unavailable -> "unavailable"
-      :configuration -> "configuration"
-      _ -> nil
-    end
-  end
+  defp failure_category(%Error{reason: reason}), do: Map.get(@failure_categories, reason)
+
+  defp failure_category(%Ash.Error.Action.InvalidArgument{field: field})
+       when field in [:client_id, :client_secret, :app_slug],
+       do: "invalid_#{field}"
+
+  defp failure_category(%Ash.Error.Changes.Required{field: field})
+       when field in [:client_id, :client_secret, :app_slug],
+       do: "invalid_#{field}"
 
   defp failure_category(%Ash.Error.Action.InvalidArgument{field: field})
        when field in [:connection_id, :organization_id, :workspace_id],

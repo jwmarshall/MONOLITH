@@ -521,40 +521,47 @@ defmodule LovelaceWeb.OnboardingHTML do
                   />
                   <span>{calendar.name}</span>
                 </label>
-                <button
-                  id="onboarding-calendar-save"
-                  type="submit"
-                  class="workspace-action workspace-action-primary"
-                >Save calendar selection</button>
               </fieldset>
             </form>
-            <form
-              id="onboarding-calendar-load"
-              action="/onboarding/calendar"
-              method="post"
-              class="onboarding-form"
-              data-calendar-load
-            >
-              <input type="hidden" name="_csrf_token" value={@csrf_token} />
-              <input type="hidden" name="operation" value="refresh_calendars" />
-              <input type="hidden" name="workspace_id" value={setup.workspace_id} />
-              <input type="hidden" name="account_id" value={setup.account_id} />
-              <input type="hidden" name="generation" value={setup.generation} />
-              <input
-                :for={field <- ["from", "to", "date", "timezone"]}
-                type="hidden"
-                name={field}
-                value=""
-              />
+            <div class="onboarding-calendar-actions">
               <button
-                id="onboarding-calendar-load-button"
+                :if={setup.available?}
+                id="onboarding-calendar-save"
                 type="submit"
-                class="workspace-action"
-                disabled={setup.loading || setup.error == :reconnect || calendar_cooling_down?(setup)}
+                form="onboarding-calendar-selection"
+                class="workspace-action workspace-action-primary"
+                disabled={setup.loading || setup.error == :reconnect}
+              >Save calendar selection</button>
+              <form
+                id="onboarding-calendar-load"
+                action="/onboarding/calendar"
+                method="post"
+                class="onboarding-form"
+                data-calendar-load
               >
-                {if setup.available?, do: "Refresh calendars", else: "Load calendars"}
-              </button>
-            </form>
+                <input type="hidden" name="_csrf_token" value={@csrf_token} />
+                <input type="hidden" name="operation" value="refresh_calendars" />
+                <input type="hidden" name="workspace_id" value={setup.workspace_id} />
+                <input type="hidden" name="account_id" value={setup.account_id} />
+                <input type="hidden" name="generation" value={setup.generation} />
+                <input
+                  :for={field <- ["from", "to", "date", "timezone"]}
+                  type="hidden"
+                  name={field}
+                  value=""
+                />
+                <button
+                  id="onboarding-calendar-load-button"
+                  type="submit"
+                  class="workspace-action"
+                  disabled={
+                    setup.loading || setup.error == :reconnect || calendar_cooling_down?(setup)
+                  }
+                >
+                  {if setup.available?, do: "Refresh calendars", else: "Load calendars"}
+                </button>
+              </form>
+            </div>
             <noscript>
               <p>Enable JavaScript to load calendars using this browser's local day.</p>
             </noscript>

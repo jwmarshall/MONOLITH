@@ -142,7 +142,9 @@ export function initOnboardingCalendar(doc = document) {
     const token = ++request
     polls = 0
     const fieldset = picker.querySelector("fieldset"), wasDisabled = fieldset?.disabled
+    const save = picker.querySelector("#onboarding-calendar-save"), wasSaveDisabled = save?.disabled
     if (fieldset) fieldset.disabled = true
+    if (save) save.disabled = true
     const button = form.querySelector("button")
     button.setAttribute("aria-disabled", "true")
     for (const [key, value] of Object.entries(calendarDay())) form.elements[key].value = value
@@ -160,6 +162,7 @@ export function initOnboardingCalendar(doc = document) {
         showError()
         button.removeAttribute("aria-disabled")
         if (fieldset) fieldset.disabled = wasDisabled
+        if (save) save.disabled = wasSaveDisabled
       }
     } finally {
       loadingRequest = false

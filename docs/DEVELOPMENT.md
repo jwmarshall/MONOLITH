@@ -343,14 +343,17 @@ The same guide is available directly in **Connections → GitHub**.
    account permissions are needed. Set **Any account** for installation if you want
    organizations or other personal accounts. Create the app.
 4. Copy its **Client ID** (not App ID), generate a **client secret**, and copy the
-   URL slug from `github.com/apps/your-app-slug`. Enter all three in
-   **Connections → GitHub → Add app client settings**. They are saved directly into
-   the dedicated LOVELACE keychain. Saving does not contact GitHub, verify permissions,
+   app URL (`https://github.com/apps/your-app-slug`) or just its lowercase slug.
+   Enter all three in **Connections → GitHub → Add app client settings**.
+   A full HTTPS GitHub App URL, with an optional trailing slash, is normalized to
+   the slug before saving; unrelated hosts, paths, queries and fragments are rejected.
+   Settings are saved directly into the dedicated LOVELACE keychain.
+   Saving does not contact GitHub, verify permissions,
    grant account access or require a restart. Never put secrets in `.env`.
-5. Choose **Install / manage app access**. Install on the desired personal accounts
+5. Choose **Choose repositories on GitHub**. Install on the desired personal accounts
    or organizations, selecting at most **100 repositories per installation**.
    Organization administrators may need to approve installation and later permission changes.
-6. Choose **Sign in with GitHub**, review authorization on GitHub and return to LOVELACE.
+6. Choose **Connect GitHub account**, review authorization on GitHub and return to LOVELACE.
    Authorization uses [GitHub's web application flow](https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/generating-a-user-access-token-for-a-github-app)
    with PKCE S256 and a session-bound, single-use state expiring after ten minutes.
    `offline_access` requests an expiring access/refresh pair; it is not a repository
@@ -361,12 +364,34 @@ The same guide is available directly in **Connections → GitHub**.
    Other workspaces and GitHub permissions are unchanged. Refresh the owner first if
    repository choices are unavailable or expired.
 
-After changing installation access, choose **Refresh app installations**, then refresh
+After changing installation access, choose **Refresh account access**, then refresh
 the owner to reload repositories/activity. Missing an organization? Check your user's
 access, installation approval and selected repositories. For SAML SSO, start an active
 organization SSO session before signing in again. After permission changes, approve them
 on each installation. A callback mismatch requires the exact scheme, hostname, port and path.
 To omit optional PR check queries, set `config :lovelace, :github, checks: false`.
+
+Installing the app and authorizing an account are separate steps. GitHub's optional
+installation-time OAuth return has no LOVELACE-issued state and cannot connect this
+browser. Keep that registration option disabled and start **Connect GitHub account**
+from LOVELACE. Rejected callbacks distinguish missing state, unmatched/expired requests,
+explicit denial and other failures without displaying provider response details.
+A safe failure category survives reload so a rejected return does not misleadingly
+continue showing “waiting.” **Start connection again** starts a fresh, session-bound
+request; it never retries the rejected authorization code. Older returns cannot consume
+the newer pending request.
+
+GitHub's OAuth callback may include the RFC 9207 `iss` parameter. When present,
+LOVELACE requires exactly `https://github.com/login/oauth`, the
+[documented GitHub.com issuer](https://docs.github.com/en/apps/github-authentication-discovery-endpoints).
+Duplicate or mismatched issuers are rejected before consuming the authorization
+request or exchanging its code. Responses without `iss` still require the same
+session-bound, single-use state and PKCE; no runtime issuer discovery is needed.
+
+Workspace integration setup offers saved repository owners once account authorization
+has succeeded. With no authorized account, it explains why Connections is required;
+with an account but no accessible owners, it directs the owner to repository access
+and refresh instead. Saved app credentials alone are never attachable integrations.
 
 ### Credentials, disconnecting and migration
 
@@ -404,6 +429,11 @@ Old PATs are not used. Retained owner-UUID credentials remain explicitly removab
 by an App connection or account disconnect. Reauthorization never silently deletes originals.
 Early credential POSTs and callbacks scrub secrets before Phoenix instrumentation.
 Redirects contain only allowlisted result categories, never provider text, codes or tokens.
+App-settings failures distinguish invalid Client ID, client secret and app URL or slug,
+missing fields, a locked vault, and keychain failures without reflecting submitted values.
+Copy the Client ID (not the numeric App ID), generated client secret (not a private key),
+and full `https://github.com/apps/` URL or lowercase slug, without surrounding whitespace.
+Saving checks local format and storage only; it does not validate credentials with GitHub.
 Keychain failure does not mean GitHub rejected access; do not rebuild/reset storage indiscriminately.
 
 ### Read bounds and freshness
