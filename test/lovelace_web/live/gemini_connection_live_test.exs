@@ -1,10 +1,22 @@
 defmodule LovelaceWeb.GeminiConnectionLiveTest do
   use LovelaceWeb.ConnCase, async: false
   import Phoenix.LiveViewTest
-  alias Lovelace.TestSupport.GeminiVault
+  alias Lovelace.Integrations.Google.ClientCredentials
+  alias Lovelace.TestSupport.{GeminiVault, OnboardingKeychain}
 
   setup %{conn: conn} do
     start_supervised!(GeminiVault)
+    start_supervised!(OnboardingKeychain)
+    previous_google = Application.fetch_env(:lovelace, :google_client_keychain)
+
+    Application.put_env(:lovelace, :google_client_keychain, OnboardingKeychain)
+
+    :ok =
+      ClientCredentials.save(
+        "synthetic-subnav-client",
+        "synthetic-subnav-secret"
+      )
+
     previous = Application.get_env(:lovelace, :gemini_vault)
     Application.put_env(:lovelace, :gemini_vault, GeminiVault)
 
@@ -12,6 +24,11 @@ defmodule LovelaceWeb.GeminiConnectionLiveTest do
       if previous,
         do: Application.put_env(:lovelace, :gemini_vault, previous),
         else: Application.delete_env(:lovelace, :gemini_vault)
+
+      case previous_google do
+        {:ok, value} -> Application.put_env(:lovelace, :google_client_keychain, value)
+        :error -> Application.delete_env(:lovelace, :google_client_keychain)
+      end
     end)
 
     %{conn: authenticate_owner(conn)}
@@ -60,13 +77,14 @@ defmodule LovelaceWeb.GeminiConnectionLiveTest do
 
   test "provider subnav rejects invalid/out-of-view events and returns to the global index",
        %{conn: conn} do
+    workspace = Lovelace.Workspaces.create_workspace!("Studio", actor: %{role: :local_owner})
     {:ok, view, _} = live(conn, "/")
     render_click(view, "select_connection", %{"provider" => "gemini"})
     assert has_element?(view, "#home-overview")
     refute has_element?(view, "#connections-subnav")
 
     view |> element("#show-workspaces") |> render_click()
-    view |> element("#open-00000000-0000-4000-8000-000000000001") |> render_click()
+    view |> element("#open-#{workspace.id}") |> render_click()
     view |> element("#show-connections") |> render_click()
     assert_patch(view, "/connections")
     assert :sys.get_state(view.pid).socket.assigns.selected == nil
@@ -75,6 +93,7 @@ defmodule LovelaceWeb.GeminiConnectionLiveTest do
     view |> element("#open-connection-gmail") |> render_click()
     render_click(view, "select_connection", %{"provider" => "unknown"})
     assert has_element?(view, "#connections-gmail[aria-current=page]")
+    render_async(view)
     view |> element("#new-gmail-connection") |> render_click()
     # Same-provider selection cannot discard an open form/draft.
     view |> element("#connections-gmail") |> render_click()
@@ -95,8 +114,8 @@ defmodule LovelaceWeb.GeminiConnectionLiveTest do
     assert_patch(view, "/connections")
     assert has_element?(view, "#connections-overview")
     refute has_element?(view, "#connections-subnav, #back-from-connections")
-    render_patch(view, "/workspaces/00000000-0000-4000-8000-000000000001")
-    assert has_element?(view, "#directory-heading", "Personal")
+    render_patch(view, "/workspaces/#{workspace.id}")
+    assert has_element?(view, "#directory-heading", "Studio")
     refute has_element?(view, "#connections-subnav")
   end
 

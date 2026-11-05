@@ -1,7 +1,6 @@
 .github-readouts { grid-column: 1 / -1; min-width: 0; }
 .github-section-heading, .github-org-heading { display: flex; justify-content: space-between; align-items: baseline; flex-wrap: wrap; gap: 8px 20px; }
 .github-section-heading { margin-bottom: 16px; }
-.github-section-heading.home-section-heading { padding-bottom: 0; }
 .github-organization { border-top: 1px solid var(--border-default); padding-block: 20px; }
 .github-org-heading h4 { font-size: 17px; font-weight: 500; overflow-wrap: anywhere; }
 .github-org-heading .mail-muted { font-size: 12px; }

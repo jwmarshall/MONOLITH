@@ -17,10 +17,20 @@ A glass interface keeps your work in front of the scenery.
 
 ## Try it locally
 
-Start with the [local setup guide](docs/DEVELOPMENT.md#local-setup).
-Connecting an account requires your own [Google setup](docs/GMAIL.md#2-google-cloud-setup)
-and a manual connection; Calendar requires separate consent.
-You can open LOVELACE without Google credentials, but mail and agendas need a connection.
+After installing the [local prerequisites](docs/DEVELOPMENT.md#local-setup), run:
+
+```sh
+bin/lovelace setup
+bin/lovelace server
+```
+
+Open <http://localhost:4321>, pair the browser using the code printed in the terminal,
+and create your owner password and encrypted keychain. The app then guides your own
+[Google project and OAuth setup](docs/GMAIL.md#2-google-cloud-setup), audience/test users,
+Desktop client credentials, and Gmail connection. You can skip Gmail and resume later;
+Calendar requires separate consent. No password recovery is available.
+For a review without touching existing data, use the
+[isolated fresh-onboarding instructions](docs/DEVELOPMENT.md#fresh-onboarding-without-resetting-existing-data).
 GitHub uses App sign-in and selected personal/organization installations; see
 [GitHub setup](docs/DEVELOPMENT.md#github).
 
@@ -29,9 +39,9 @@ GitHub uses App sign-in and selected personal/organization installations; see
 Built with Elixir, Phoenix LiveView, Ash, and SQLite.
 
 ```sh
-bin/lovelace-sqlcipher mix check      # format, compile, lint/security, tests, and assets
-bin/lovelace-sqlcipher mix audit      # online dependency audit
-bin/lovelace-sqlcipher mix test.ui    # browser checks; requires Chrome/Chromium
+bin/lovelace check           # format, compile, lint/security, tests, and assets
+bin/lovelace audit           # online dependency audit
+bin/lovelace mix test.ui     # browser checks; requires Chrome/Chromium
 ```
 
 [Development guide](docs/DEVELOPMENT.md) · [Gmail](docs/GMAIL.md) ·

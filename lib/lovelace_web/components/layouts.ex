@@ -42,7 +42,6 @@ defmodule LovelaceWeb.Layouts do
         />
       </div>
       {render_slot(@inner_block)}
-      <.monogram id={"#{@id}-monogram"} class="stage-monogram" />
     </div>
     """
   end
@@ -71,6 +70,36 @@ defmodule LovelaceWeb.Layouts do
         stroke-linejoin="round"
       />
     </svg>
+    """
+  end
+
+  attr :id, :string, default: "workspace-brand"
+  attr :static, :boolean, default: false
+
+  def brand(assigns) do
+    ~H"""
+    <div
+      id={@id}
+      class="workspace-brand"
+      aria-hidden="true"
+      phx-hook={if !@static, do: "BrandReveal"}
+      phx-update={if !@static, do: "ignore"}
+      data-static-brand={@static && "true"}
+      hidden={@static}
+    >
+      <.monogram
+        id="lovelace-monogram"
+        class="workspace-monogram"
+        stroke_id="lovelace-monogram-stroke"
+      />
+      <p class="workspace-wordmark" aria-label="LOVELACE">
+        <span
+          :for={{letter, index} <- Enum.with_index(String.graphemes("LOVELACE"))}
+          id={"lovelace-letter-#{index}"}
+          class="workspace-letter"
+        >{letter}</span>
+      </p>
+    </div>
     """
   end
 

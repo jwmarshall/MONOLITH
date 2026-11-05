@@ -15,7 +15,6 @@
 .mail-account-open:hover { color: var(--color-primary-hover); }
 .mail-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 24px; }
 .mail-actions .workspace-action { font-size: 12px; }
-.mail-disconnect { color: var(--color-error-soft); }
 .mail-connect { padding-top: 24px; max-width: 540px; }
 .mail-notice { margin: 16px 0; padding: 12px 0; border-block: 1px solid var(--border-notice); color: var(--color-primary-hover); }
 .mail-search { display: flex; align-items: stretch; gap: 0; min-width: 0; margin: 0; }

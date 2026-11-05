@@ -31,7 +31,7 @@ defmodule Mix.Tasks.Lovelace.Vault.Migrate do
     {:ok, _} = Application.ensure_all_started(:crypto)
 
     unless Database.available?(),
-      do: Mix.raise("SQLCipher 4.20.0 is required; rebuild Exqlite with bin/lovelace-sqlcipher")
+      do: Mix.raise("SQLCipher 4.20.0 is required; rebuild Exqlite with bin/lovelace setup")
 
     unless Process.whereis(Lovelace.Repo) == nil,
       do: Mix.raise("Migration requires a separate terminal with LOVELACE stopped")

@@ -67,7 +67,7 @@
 .connection-card { padding: 20px; }
 .connection-identity { display: flex; align-items: flex-start; gap: 12px; margin-bottom: 16px; }
 .connection-identity h3 { font-size: 18px; overflow-wrap: anywhere; }
-.connections-subnav { display: flex; align-items: center; gap: 24px; flex-shrink: 0; }
+.connections-subnav { display: flex; flex-wrap: wrap; align-items: center; gap: 0 24px; flex-shrink: 0; max-width: 100%; }
 .connections-overview { display: grid; border-top: 1px solid var(--color-base-300); }
 .connection-provider { display: flex; align-items: center; gap: 20px; min-height: 88px; padding: 16px 0; border-bottom: 1px solid var(--color-base-300); }
 .connection-provider > :first-child, .connection-provider > :last-child { flex-shrink: 0; color: var(--color-primary); }
@@ -93,7 +93,7 @@
 .connections-panel .mail-oauth > div { margin-bottom: 0; min-width: min(220px, 100%); }
 .connections-panel .label { color: var(--color-secondary); font-size: 12px; }
 .gemini-connection { font-size: 14px; line-height: 1.65; }
-.gemini-actions { margin-top: 20px; align-items: flex-start; }
+.gemini-actions.empty-state-actions { align-items: flex-start; }
 .gemini-key-editor { min-width: 0; }
 .gemini-key-editor > summary { list-style: none; cursor: pointer; }
 .gemini-key-editor > summary::-webkit-details-marker { display: none; }
@@ -101,12 +101,33 @@
 .gemini-key-form .workspace-name-input { width: 100%; min-width: 0; }
 .gemini-key-form button { justify-self: start; }
 .connection-help { max-width: 80ch; }
-.connection-help > summary { display: flex; align-items: center; gap: 8px; min-height: 44px; width: fit-content; cursor: pointer; list-style: none; color: var(--color-secondary); }
+.connection-help > summary { display: flex; align-items: center; gap: 8px; min-height: 44px; width: fit-content; cursor: pointer; list-style: none; }
+.connection-help > summary:not(.workspace-action) { color: var(--color-secondary); }
 .connection-help > summary::-webkit-details-marker { display: none; }
 .connection-help > summary::after { content: "⌄"; }
 .connection-help[open] > summary::after { content: "⌃"; }
 .connection-help p { margin-top: 8px; }
-.gemini-safety { margin-top: 12px; }
+.gemini-safety { margin-top: 16px; }
+/* Empty content belongs to the working plane, not a placeholder dashboard. */
+.workspace-directory .empty-state {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr);
+  align-items: start;
+  gap: 16px;
+  min-width: 0;
+  padding-block: 24px;
+  border-top: 1px solid var(--border-default);
+  color: var(--color-base-content);
+}
+.empty-state-mark { margin-top: 2px; color: var(--color-primary); }
+.empty-state-body { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; min-width: 0; }
+.workspace-directory .empty-state-title { margin: 0; font-size: 18px; line-height: 1.5; font-weight: 400; letter-spacing: -0.015em; overflow-wrap: anywhere; }
+.workspace-directory .empty-state-copy { margin: 0; max-width: 60ch; font-size: 14px; line-height: 1.75; color: var(--color-secondary); overflow-wrap: anywhere; }
+.empty-state-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+.empty-state-body > .workspace-action, .empty-state-actions { margin-top: 4px; }
+.empty-state.empty-state-card { padding: clamp(20px, 3vw, 32px); }
+.empty-state-body > .connection-help { width: 100%; }
+.empty-state-body > .mail-account-identity { display: flex; flex-direction: column; gap: 10px; }
 @media (max-width: 640px) {
   .workspace-directory-heading { flex-direction: row; flex-wrap: wrap; }
   .workspace-list, .integration-grid { grid-template-columns: 1fr; }
@@ -125,6 +146,9 @@
   .workspace-card-open, .integration-tile-open, .workspace-action { transition: none; }
 }
 @media (forced-colors: active) {
+  .workspace-directory .empty-state { border-color: CanvasText; }
+  .workspace-directory .empty-state-title, .workspace-directory .empty-state-copy,
+  .workspace-directory .empty-state-mark { color: CanvasText; text-shadow: none; }
   .connections-overview, .connection-provider { border-color: CanvasText; }
   .connection-provider * { color: CanvasText; text-shadow: none; }
   .workspace-card, .integration-tile, .connection-card, .integration-add-panel,

@@ -46,6 +46,7 @@ defmodule LovelaceWeb.SceneComponents do
   attr :preparing, :boolean, default: false
   attr :prepared, :map, default: nil
   attr :acknowledgement, :map, default: nil
+  attr :gemini_status, :atom, required: true
 
   def gallery(assigns) do
     assigns =
@@ -56,17 +57,92 @@ defmodule LovelaceWeb.SceneComponents do
       )
 
     assigns = assign(assigns, :attempt, if(assigns.data, do: Map.get(assigns.data, :attempt)))
+    assigns = assign(assigns, :setup_only, assigns.gemini_status not in [:stored, :rechecking])
 
     ~H"""
     <section
       id="scenes-panel"
       class="scenes-panel"
       aria-label="Saved scenes"
-      aria-busy={to_string(@loading)}
+      aria-busy={to_string(@loading || @gemini_status in [:loading, :rechecking])}
       data-page={@data && @data.page}
     >
-      <.direction_editor direction={@direction} />
-      <div class="scene-toolbar">
+      <section
+        :if={@setup_only}
+        id="scene-gemini-setup"
+        class="connection-card empty-state empty-state-card mb-6"
+        aria-labelledby="scene-gemini-heading"
+      >
+        <.icon name="hero-sparkles" class="empty-state-mark size-6" />
+        <div class="empty-state-body">
+          <h3 id="scene-gemini-heading" class="empty-state-title">Set up generated scenery</h3>
+          <p class="empty-state-copy">
+            Generate app-wide scenery with Gemini. Bundled scenery remains available without a key.
+            New requests may incur API charges.
+          </p>
+          <p id="scene-gemini-status" class="empty-state-copy" role="status">
+            {case @gemini_status do
+              :loading ->
+                "Checking this device for a stored Gemini key…"
+
+              :not_connected ->
+                "No Gemini API key is stored."
+
+              :invalid ->
+                "The stored Gemini key has an invalid format. Replace it in Gemini settings."
+
+              :locked ->
+                "The Gemini keychain is locked or access was denied. Open Gemini settings to restore access."
+
+              :unknown ->
+                "Gemini key availability hasn’t been checked. Open Gemini settings to check the keychain."
+
+              _ ->
+                "Gemini key availability couldn’t be checked. Open Gemini settings to check the keychain."
+            end}
+          </p>
+          <.status_signal
+            :if={@loading}
+            id="scene-setup-loading-signal"
+            state={:active}
+            label="Loading scene status…"
+          />
+          <p :if={@error} class="connection-warning" role="alert">
+            Scenes couldn’t be loaded. Open Gemini settings to check access, then return here.
+            No generation was requested.
+          </p>
+          <p :if={@notice != ""} role="status">{@notice}</p>
+          <div
+            :if={
+              @data && !@error &&
+                (@attempt || !@data.eligible || @data.status not in [:ready, :idle])
+            }
+            id="scene-setup-generation-status"
+            role="status"
+          >
+            <.status_signal
+              id="scene-setup-attempt-signal"
+              state={signal_state(if @attempt, do: @attempt.status, else: @data.status)}
+              label={status_text(if @attempt, do: @attempt.status, else: @data.status)}
+              text
+            />
+            <p :if={!@data.eligible || (@attempt && @attempt.status == :abandoned)}>
+              Removing a Gemini key does not cancel an earlier request. Google may still be
+              working and charges may still apply. Restore Gemini access to manage the request.
+            </p>
+            <p :if={@attempt && Map.get(@attempt, :cleanup) == :failed} class="connection-warning">
+              {cleanup_text(@attempt.cleanup)}
+            </p>
+          </div>
+        </div>
+        <div class="empty-state-actions">
+          <.link patch="/connections/gemini" class="workspace-action workspace-action-primary">
+            Set up Gemini
+          </.link>
+        </div>
+      </section>
+      <.direction_editor :if={!@setup_only} direction={@direction} />
+      <div :if={!@setup_only} class="scene-toolbar">
         <div
           class="scene-status connection-card"
           role="status"
@@ -78,6 +154,12 @@ defmodule LovelaceWeb.SceneComponents do
             id="scene-loading-signal"
             state={:active}
             label="Loading scene status…"
+          />
+          <.status_signal
+            :if={@gemini_status == :rechecking}
+            id="scene-credential-check-signal"
+            state={:active}
+            label="Checking this device for a stored Gemini key…"
           />
           <p :if={@error}>
             Scenes couldn’t be loaded. Refresh status to retry. No generation was requested.
@@ -95,7 +177,7 @@ defmodule LovelaceWeb.SceneComponents do
             :if={@attempt && !@error}
             attempt={@attempt}
             origin="current"
-            loading={@loading}
+            loading={@loading || @gemini_status != :stored}
           />
           <p :if={@data && Map.get(@data, :last_attempt_at) && !@attempt}>
             Last attempt: <.timestamp value={@data.last_attempt_at} />
@@ -108,7 +190,7 @@ defmodule LovelaceWeb.SceneComponents do
             phx-click="scenes:acknowledge"
             phx-value-id="legacy"
             phx-value-origin="current"
-            disabled={@loading}
+            disabled={@loading || @gemini_status != :stored}
           >Acknowledge unknown outcome…</button>
           <p :if={@data && !@data.eligible} id="scene-generation-availability">
             New requests are blocked to avoid overlap. Check a paused job’s status, or review an
@@ -121,15 +203,16 @@ defmodule LovelaceWeb.SceneComponents do
             type="button"
             class="workspace-action"
             phx-click="scenes:refresh"
-            disabled={@loading}
+            aria-disabled={to_string(@loading || @gemini_status == :rechecking)}
           >Refresh status</button>
         </div>
       </div>
       <.generation_settings
+        :if={!@setup_only}
         settings={@settings}
         disabled={
-          @pending || @preparing || @loading || @error || !@data || !@data.eligible ||
-            !@direction_ready
+          @gemini_status != :stored || @pending || @preparing || @loading || @error || !@data ||
+            !@data.eligible || !@direction_ready
         }
         guidance={
           cond do
@@ -139,10 +222,24 @@ defmodule LovelaceWeb.SceneComponents do
           end
         }
       />
-      <p :if={@data && @data.scenes == [] && !@error} id="scenes-empty" class="home-empty">
-        No generated scenes yet. Bundled scenery remains available.
-      </p>
-      <ul :if={@data && !@error && @data.scenes != []} id="scene-gallery" class="scene-gallery">
+      <div
+        :if={!@setup_only && @data && @data.scenes == [] && !@error && !@loading}
+        id="scenes-empty"
+        class="empty-state"
+      >
+        <.icon name="hero-photo" class="empty-state-mark size-6" />
+        <div class="empty-state-body">
+          <h3 class="empty-state-title">No generated scenes yet</h3>
+          <p class="empty-state-copy">
+            Use the direction and settings above to request a scene. Bundled scenery remains available.
+          </p>
+        </div>
+      </div>
+      <ul
+        :if={!@setup_only && @data && !@error && @data.scenes != []}
+        id="scene-gallery"
+        class="scene-gallery"
+      >
         <li
           :for={
             {scene, index} <- Enum.with_index(@data.scenes, (@data.page - 1) * @data.page_size + 1)
@@ -187,7 +284,7 @@ defmodule LovelaceWeb.SceneComponents do
         </li>
       </ul>
       <nav
-        :if={@data && !@error && (@data.has_previous || @data.has_next)}
+        :if={!@setup_only && @data && !@error && (@data.has_previous || @data.has_next)}
         id="scene-pagination"
         class="scene-pagination"
         aria-label="Scene gallery pages"
@@ -210,9 +307,13 @@ defmodule LovelaceWeb.SceneComponents do
           disabled={@loading || !@data.has_next}
         >Older scenes</button>
       </nav>
-      <.attempt_history :if={@data && !@error} data={@data} loading={@loading} />
+      <.attempt_history
+        :if={!@setup_only && @data && !@error}
+        data={@data}
+        loading={@loading || @gemini_status != :stored}
+      />
       <LovelaceWeb.ModalComponents.modal
-        :if={@confirmation && @prepared}
+        :if={@gemini_status == :stored && @confirmation && @prepared}
         id="scene-generation-modal"
         title="Generate a new scene?"
         on_cancel="scenes:cancel"
@@ -267,7 +368,7 @@ defmodule LovelaceWeb.SceneComponents do
         </div>
       </LovelaceWeb.ModalComponents.modal>
       <LovelaceWeb.ModalComponents.modal
-        :if={@acknowledgement}
+        :if={@gemini_status == :stored && @acknowledgement}
         id="scene-acknowledgement-modal"
         title="Acknowledge an unknown outcome?"
         on_cancel="scenes:acknowledge-cancel"
@@ -284,7 +385,7 @@ defmodule LovelaceWeb.SceneComponents do
           <button
             id="scene-acknowledgement-confirm"
             type="button"
-            class="workspace-action"
+            class="workspace-action workspace-action-primary"
             phx-click="scenes:acknowledge-confirm"
             phx-disable-with="Acknowledging…"
           >Acknowledge and release slot</button>
@@ -493,7 +594,13 @@ defmodule LovelaceWeb.SceneComponents do
       aria-labelledby="scene-attempt-history-title"
     >
       <h3 id="scene-attempt-history-title">Generation attempts</h3>
-      <p :if={@attempts == []} class="mail-muted">No recorded attempts on this page.</p>
+      <div :if={@attempts == [] && !@loading} class="empty-state">
+        <.icon name="hero-clock" class="empty-state-mark size-6" />
+        <div class="empty-state-body">
+          <h4 class="empty-state-title">No recorded attempts on this page</h4>
+          <p class="empty-state-copy">Generation requests and their outcomes will appear here.</p>
+        </div>
+      </div>
       <ul :if={@attempts != []} class="scene-attempt-list">
         <li :for={attempt <- @attempts} id={"scene-history-#{attempt.id}"}>
           <.attempt attempt={attempt} origin="history" loading={@loading} />

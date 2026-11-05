@@ -4,9 +4,10 @@ defmodule LovelaceWeb.ConnectionsLiveTest do
   import Phoenix.LiveViewTest
 
   alias Ash.Resource.Info
+  alias Lovelace.Integrations.Google.ClientCredentials
   alias Lovelace.Mail
   alias Lovelace.Mail.{Account, ViewData}
-  alias Lovelace.TestSupport.GeminiVault
+  alias Lovelace.TestSupport.{GeminiVault, OnboardingKeychain}
   alias Lovelace.Workspaces
   alias LovelaceWeb.HomeLive
 
@@ -98,6 +99,17 @@ defmodule LovelaceWeb.ConnectionsLiveTest do
   setup %{conn: conn} do
     start_supervised!({FakeIO, self()})
     fake_gemini_vault()
+    start_supervised!(OnboardingKeychain)
+    previous_google = Application.fetch_env(:lovelace, :google_client_keychain)
+
+    Application.put_env(:lovelace, :google_client_keychain, OnboardingKeychain)
+
+    :ok =
+      ClientCredentials.save(
+        "synthetic-connection-client",
+        "synthetic-connection-secret"
+      )
+
     previous_provider = Application.fetch_env(:lovelace, :gmail_provider)
     previous_vault = Application.fetch_env(:lovelace, :gmail_vault)
     Application.put_env(:lovelace, :gmail_provider, FakeIO)
@@ -106,6 +118,7 @@ defmodule LovelaceWeb.ConnectionsLiveTest do
     on_exit(fn ->
       restore(:gmail_provider, previous_provider)
       restore(:gmail_vault, previous_vault)
+      restore(:google_client_keychain, previous_google)
     end)
 
     workspace = Workspaces.create_workspace!("Alpha workspace", actor: @owner)
@@ -137,6 +150,30 @@ defmodule LovelaceWeb.ConnectionsLiveTest do
       limited: limited,
       available: available
     }
+  end
+
+  test "adding Gmail requires available Google client settings even with existing accounts",
+       ctx do
+    for failure <- [:not_found, :locked, :unavailable] do
+      OnboardingKeychain.fail(failure)
+      {:ok, view, _} = live(ctx.conn, ~p"/connections/gmail")
+      render_async(view)
+      assert has_element?(view, "#new-gmail-connection[disabled]")
+      assert has_element?(view, "#gmail-google-prerequisite a[href='/connections/google']")
+      render_click(view, "mail:new_connection")
+      refute has_element?(view, "#gmail-connection-modal")
+
+      OnboardingKeychain.fail(nil)
+      view |> element("#gmail-google-prerequisite a") |> render_click()
+      render_async(view)
+      view |> element("#connections-gmail") |> render_click()
+      render_async(view)
+      assert has_element?(view, "#new-gmail-connection:not([disabled])")
+      view |> element("#new-gmail-connection") |> render_click()
+      assert has_element?(view, "#gmail-connection-modal #mail-workspace-new")
+      view |> element("#gmail-connection-modal button[type=button]") |> render_click()
+      assert FakeIO.calls() == []
+    end
   end
 
   test "quiet health distinguishes unknown from last-known success without hiding recovery",

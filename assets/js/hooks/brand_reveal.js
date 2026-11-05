@@ -1,9 +1,9 @@
 import {gsap} from "../../vendor/gsap/gsap.js"
 
-// Only this decorative, phx-update="ignore" subtree belongs to GSAP.
-// CSS owns the glass/background focal planes; LiveView owns application state.
-export default {
-  mounted() {
+// Both static first-run pages and LiveView use this one decorative choreography.
+// CSS owns the glass/background focal planes; server rendering owns application state.
+const BrandAnimation = {
+  initialize() {
     const stroke = this.el.querySelector("#lovelace-monogram-stroke")
     const letters = this.el.querySelectorAll(".workspace-letter")
     const length = stroke.getTotalLength()
@@ -55,10 +55,6 @@ export default {
     this.el.addEventListener("lovelace:brand-focus", this.onFocus)
     this.el.addEventListener("lovelace:brand-reset", this.onReset)
     this.motionPreference.addEventListener("change", this.onMotionChange)
-
-    // Also handle focus established before the LiveView hook finished mounting.
-    const pane = this.el.closest("#workspace").querySelector("#workspace-pane")
-    if (pane.getAttribute("aria-pressed") === "true") this.reveal()
   },
 
   reveal() {
@@ -84,10 +80,31 @@ export default {
     this.el.dispatchEvent(new CustomEvent("lovelace:brand-complete", {bubbles: true}))
   },
 
-  destroyed() {
+  destroy() {
     this.el.removeEventListener("lovelace:brand-focus", this.onFocus)
     this.el.removeEventListener("lovelace:brand-reset", this.onReset)
     this.motionPreference.removeEventListener("change", this.onMotionChange)
     this.context.revert()
+  },
+}
+
+export function createBrandReveal(el) {
+  const animation = Object.assign({el}, BrandAnimation)
+  animation.initialize()
+  return animation
+}
+
+export default {
+  ...BrandAnimation,
+
+  mounted() {
+    this.initialize()
+    // Also handle focus established before the LiveView hook finished mounting.
+    const pane = this.el.closest("#workspace").querySelector("#workspace-pane")
+    if (pane.getAttribute("aria-pressed") === "true") this.reveal()
+  },
+
+  destroyed() {
+    this.destroy()
   },
 }

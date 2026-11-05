@@ -12,8 +12,12 @@ defmodule LovelaceWeb.GoogleCalendarOAuthTest do
     def authorization_url(params) do
       Lovelace.TestMail.record({:authorization, params})
 
-      {:ok,
-       "https://accounts.google.com/o/oauth2/v2/auth?" <> URI.encode_query(%{state: params.state})}
+      default =
+        {:ok,
+         "https://accounts.google.com/o/oauth2/v2/auth?" <>
+           URI.encode_query(%{state: params.state})}
+
+      Agent.get(Lovelace.TestMail, &Map.get(&1, :authorization_result, default))
     end
 
     def exchange_code(_, _, _) do
@@ -104,7 +108,11 @@ defmodule LovelaceWeb.GoogleCalendarOAuthTest do
     end)
 
     conn = authenticate_owner(conn)
-    workspace = Lovelace.Workspaces.create_workspace!("Calendar OAuth", actor: @owner)
+
+    {:ok, %{workspace_id: workspace_id}} =
+      Lovelace.Onboarding.save_workspace("Calendar OAuth", actor: @owner)
+
+    workspace = Lovelace.Workspaces.get_workspace!(workspace_id, actor: @owner)
 
     {:ok, account} =
       Connections.accept(
@@ -181,6 +189,271 @@ defmodule LovelaceWeb.GoogleCalendarOAuthTest do
     assert {:ok, "new-refresh"} = Lovelace.TestMailVault.get(account.id)
     assert [only] = Lovelace.Mail.list_accounts!(actor: @owner)
     assert only.id == account.id
+  end
+
+  test "setup Calendar consent returns to the picker without advancing the guide", %{
+    conn: conn,
+    workspace: w,
+    account: account
+  } do
+    assert {:ok, %{step: :calendar}} = Lovelace.Onboarding.continue(:connect, actor: @owner)
+
+    response =
+      post(conn, "/oauth/google/start", %{
+        workspace_id: w.id,
+        expected_account_id: account.id,
+        capability: "calendar",
+        origin: "onboarding"
+      })
+
+    assert URI.parse(redirected_to(response, 303)).host == "accounts.google.com"
+    assert [{:authorization, params} | _] = Lovelace.TestMail.calls()
+    assert params.capability == :calendar
+
+    response = get(conn, callback_url(params.state))
+    assert redirected_to(response, 303) == "/onboarding/calendar"
+
+    assert {:ok, %{step: :calendar, finished: false}} =
+             Lovelace.Onboarding.progress(actor: @owner)
+
+    assert {:ok, saved} = Lovelace.Mail.get_account(account.id, actor: @owner)
+    assert saved.calendar_enabled
+    assert saved.subject == account.subject
+    assert saved.status == account.status
+    assert {:ok, "new-refresh"} = Lovelace.TestMailVault.get(account.id)
+    assert [only] = Lovelace.Mail.list_accounts!(actor: @owner)
+    assert only.id == account.id
+
+    assert {:error, :invalid_state} =
+             OAuth.take(params.state, get_session(conn, :owner_session_token))
+  end
+
+  test "setup Calendar callback cannot update a replacement guide workspace", %{
+    conn: conn,
+    workspace: workspace,
+    account: account
+  } do
+    assert {:ok, %{step: :calendar}} = Lovelace.Onboarding.continue(:connect, actor: @owner)
+
+    {:ok, state, _} =
+      OAuth.begin(
+        workspace.id,
+        get_session(conn, :owner_session_token),
+        account.id,
+        :calendar,
+        account.generation,
+        :onboarding
+      )
+
+    replacement = Lovelace.Workspaces.create_workspace!("Replacement guide", actor: @owner)
+    {:ok, progress} = Lovelace.Onboarding.progress(actor: @owner)
+
+    Ash.update!(progress, %{workspace_id: replacement.id},
+      action: :save_workspace,
+      actor: @owner
+    )
+
+    response = get(conn, callback_url(state))
+    assert redirected_to(response, 303) == "/onboarding/calendar?notice=calendar_failed"
+
+    assert {:ok, %{step: :project, workspace_id: saved_workspace}} =
+             Lovelace.Onboarding.progress(actor: @owner)
+
+    assert saved_workspace == replacement.id
+    refute :exchange in Lovelace.TestMail.calls()
+    assert {:ok, saved} = Lovelace.Mail.get_account(account.id, actor: @owner)
+    assert saved.generation == account.generation
+    refute saved.calendar_enabled
+    assert {:ok, "prior-refresh"} = Lovelace.TestMailVault.get(account.id)
+  end
+
+  test "setup Calendar denial and missing scopes keep Gmail intact and return to the guide", %{
+    conn: conn,
+    workspace: w,
+    account: account
+  } do
+    assert {:ok, %{step: :calendar}} = Lovelace.Onboarding.continue(:connect, actor: @owner)
+    session = get_session(conn, :owner_session_token)
+
+    for result <- [:denied, :missing_scopes] do
+      {:ok, state, _} =
+        OAuth.begin(w.id, session, account.id, :calendar, account.generation, :onboarding)
+
+      response =
+        case result do
+          :denied ->
+            get(
+              conn,
+              "/oauth/google/callback?" <>
+                URI.encode_query(%{
+                  state: state,
+                  error: "access_denied",
+                  error_description: "private-provider-detail"
+                })
+            )
+
+          :missing_scopes ->
+            Lovelace.TestMail.response({:ok, Map.delete(tokens(), :scopes)})
+            get(conn, callback_url(state))
+        end
+
+      assert redirected_to(response, 303) == "/onboarding/calendar?notice=calendar_failed"
+
+      assert {:ok, %{step: :calendar, finished: false}} =
+               Lovelace.Onboarding.progress(actor: @owner)
+
+      assert {:ok, saved} = Lovelace.Mail.get_account(account.id, actor: @owner)
+      assert saved.status == account.status
+      assert saved.generation == account.generation
+      refute saved.calendar_enabled
+      assert {:ok, "prior-refresh"} = Lovelace.TestMailVault.get(account.id)
+      assert {:error, :invalid_state} = OAuth.take(state, session)
+
+      if result == :denied, do: refute(:exchange in Lovelace.TestMail.calls())
+    end
+
+    refute :identity in Lovelace.TestMail.calls()
+    assert [only] = Lovelace.Mail.list_accounts!(actor: @owner)
+    assert only.id == account.id
+  end
+
+  test "setup Calendar start failures use a fixed guide destination", %{
+    conn: conn,
+    workspace: w,
+    account: account
+  } do
+    params = %{
+      workspace_id: w.id,
+      expected_account_id: account.id,
+      capability: "calendar",
+      origin: "onboarding",
+      return_to: "https://untrusted.invalid/"
+    }
+
+    response = post(conn, "/oauth/google/start", Map.delete(params, :expected_account_id))
+    assert redirected_to(response) == "/onboarding/calendar?notice=calendar_failed"
+    refute Enum.any?(Lovelace.TestMail.calls(), &match?({:authorization, _}, &1))
+
+    Agent.update(
+      Lovelace.TestMail,
+      &Map.put(&1, :authorization_result, {:error, "private-provider-detail"})
+    )
+
+    response = post(conn, "/oauth/google/start", params)
+    assert redirected_to(response) == "/onboarding/calendar?notice=calendar_failed"
+    assert {:ok, saved} = Lovelace.Mail.get_account(account.id, actor: @owner)
+    refute saved.calendar_enabled
+    assert {:ok, "prior-refresh"} = Lovelace.TestMailVault.get(account.id)
+  end
+
+  test "Calendar origin belongs to each attempt, never callback params or another attempt", %{
+    conn: conn,
+    workspace: w,
+    account: account
+  } do
+    session = get_session(conn, :owner_session_token)
+    assert {:ok, %{step: :calendar}} = Lovelace.Onboarding.continue(:connect, actor: @owner)
+
+    {:ok, setup_state, _} =
+      OAuth.begin(w.id, session, account.id, :calendar, account.generation, :onboarding)
+
+    {:ok, normal_state, _} =
+      OAuth.begin(w.id, session, account.id, :calendar, account.generation)
+
+    response =
+      get(conn, callback_url(normal_state) <> "&origin=onboarding&return_to=/onboarding/complete")
+
+    assert redirected_to(response, 303) == "/connections/calendar?calendar=connected"
+    assert {:ok, %{step: :calendar}} = Lovelace.Onboarding.progress(actor: @owner)
+
+    response =
+      get(
+        conn,
+        "/oauth/google/callback?" <>
+          URI.encode_query(%{state: setup_state, error: "access_denied", origin: "connections"})
+      )
+
+    assert redirected_to(response, 303) == "/onboarding/calendar?notice=calendar_failed"
+    assert {:ok, %{step: :calendar}} = Lovelace.Onboarding.progress(actor: @owner)
+  end
+
+  test "invalid or mismatched setup Calendar state cannot trust callback origin", %{
+    conn: conn,
+    workspace: w,
+    account: account
+  } do
+    {:ok, state, _} =
+      OAuth.begin(w.id, "another-session", account.id, :calendar, account.generation, :onboarding)
+
+    for attempt_state <- [state, "unknown-state"] do
+      response =
+        get(
+          conn,
+          callback_url(attempt_state) <>
+            "&origin=onboarding&capability=calendar&return_to=/onboarding/complete"
+        )
+
+      assert_failure(response, "state", "invalid_state")
+    end
+
+    assert {:error, :invalid_state} = OAuth.take(state, get_session(conn, :owner_session_token))
+    refute :exchange in Lovelace.TestMail.calls()
+    assert {:ok, saved} = Lovelace.Mail.get_account(account.id, actor: @owner)
+    refute saved.calendar_enabled
+  end
+
+  test "setup Calendar consent cannot survive a Gmail reconnect", %{
+    conn: conn,
+    workspace: w,
+    account: account
+  } do
+    assert {:ok, %{step: :calendar}} = Lovelace.Onboarding.continue(:connect, actor: @owner)
+
+    {:ok, state, _} =
+      OAuth.begin(
+        w.id,
+        get_session(conn, :owner_session_token),
+        account.id,
+        :calendar,
+        account.generation,
+        :onboarding
+      )
+
+    {:ok, current} =
+      Connections.accept(
+        w.id,
+        %{subject: account.subject, email: account.email},
+        "reconnected-refresh"
+      )
+
+    response = get(conn, callback_url(state))
+    assert redirected_to(response, 303) == "/onboarding/calendar?notice=calendar_failed"
+    assert {:ok, %{step: :calendar}} = Lovelace.Onboarding.progress(actor: @owner)
+    assert {:ok, saved} = Lovelace.Mail.get_account(account.id, actor: @owner)
+    assert saved.generation == current.generation
+    refute saved.calendar_enabled
+    assert {:ok, "reconnected-refresh"} = Lovelace.TestMailVault.get(account.id)
+  end
+
+  test "setup Calendar rechecks the owner session before consent is saved", %{
+    conn: conn,
+    workspace: w,
+    account: account
+  } do
+    assert {:ok, %{step: :calendar}} = Lovelace.Onboarding.continue(:connect, actor: @owner)
+    session = get_session(conn, :owner_session_token)
+    Lovelace.TestMail.response({:logout, session, tokens()})
+
+    {:ok, state, _} =
+      OAuth.begin(w.id, session, account.id, :calendar, account.generation, :onboarding)
+
+    response = get(conn, callback_url(state))
+    assert redirected_to(response, 303) == "/onboarding/calendar?notice=calendar_failed"
+    assert {:ok, %{step: :calendar}} = Lovelace.Onboarding.progress(actor: @owner)
+    assert {:ok, saved} = Lovelace.Mail.get_account(account.id, actor: @owner)
+    assert saved.generation == account.generation
+    refute saved.calendar_enabled
+    assert {:ok, "prior-refresh"} = Lovelace.TestMailVault.get(account.id)
   end
 
   test "missing or partial returned scopes fail before identity, vault writes or persistence", %{

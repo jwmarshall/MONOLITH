@@ -36,6 +36,7 @@ defmodule LovelaceWeb.HomeScenes do
       scene_notice: "",
       scene_direction: %{status: :loading}
     )
+    |> LovelaceWeb.HomeGemini.open()
     |> load_direction()
     |> refresh()
   end
@@ -61,12 +62,41 @@ defmodule LovelaceWeb.HomeScenes do
     end)
   end
 
+  def handle_event("scenes:refresh", _params, %{assigns: %{scene_loading: true}} = socket),
+    do: {:noreply, socket}
+
+  def handle_event(
+        "scenes:refresh",
+        _params,
+        %{assigns: %{gemini_status: :rechecking}} = socket
+      ),
+      do: {:noreply, socket}
+
   def handle_event("scenes:refresh", _params, socket) do
     socket =
       if socket.assigns.scene_direction.status == :error, do: load_direction(socket), else: socket
 
-    {:noreply, refresh(socket)}
+    # Keep the editor mounted, but do not treat the last successful check as authorization.
+    status = if socket.assigns.gemini_status == :stored, do: :rechecking, else: :loading
+
+    {:noreply,
+     socket
+     |> clear_confirmation()
+     |> LovelaceWeb.HomeGemini.open()
+     |> assign(:gemini_status, status)
+     |> refresh()}
   end
+
+  def handle_event(event, _params, %{assigns: %{gemini_status: status}} = socket)
+      when status != :stored and
+             event in [
+               "scenes:request",
+               "scenes:confirm",
+               "scenes:check",
+               "scenes:acknowledge",
+               "scenes:acknowledge-confirm"
+             ],
+      do: {:noreply, socket}
 
   def handle_event("scenes:direction-change", %{"direction" => params}, socket)
       when is_map(params) do

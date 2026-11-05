@@ -20,12 +20,16 @@ import MailReader from "./hooks/mail_reader"
 import {MailDate, MailFreshness} from "./hooks/mail_time"
 import StageBackground, {observeStageImage} from "./hooks/stage_background"
 import ThemePicker from "./hooks/theme_picker"
+import {initOnboardingCalendar} from "./onboarding_calendar"
+import {initFirstRunEntrance} from "./first_run_entrance"
 
 // Controller-rendered unlock/setup has no LiveView hooks. These observers belong
 // only to their image elements and are collected with the document on navigation.
 for (const image of document.querySelectorAll("[data-static-stage-image]")) {
   observeStageImage(image, value => image.setAttribute("data-loaded", value))
 }
+initOnboardingCalendar()
+initFirstRunEntrance()
 
 const csrfToken = document.querySelector("meta[name='csrf-token']").getAttribute("content")
 const liveSocket = new LiveSocket("/live", Socket, {

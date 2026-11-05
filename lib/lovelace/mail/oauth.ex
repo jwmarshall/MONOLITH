@@ -10,16 +10,18 @@ defmodule Lovelace.Mail.OAuth do
         session,
         expected_account_id \\ nil,
         capability \\ :gmail,
-        expected_generation \\ nil
+        expected_generation \\ nil,
+        origin \\ :connections
       ) do
     if capability in [:gmail, :calendar] and
+         valid_origin?(origin, capability) and
          (capability == :gmail or
             (is_binary(expected_account_id) and expected_account_id != "" and
                is_binary(expected_generation) and expected_generation != "")) do
       GenServer.call(
         __MODULE__,
         {:begin, workspace_id, digest(session), expected_account_id, capability,
-         expected_generation}
+         expected_generation, origin}
       )
     else
       {:error, :invalid_request}
@@ -33,7 +35,11 @@ defmodule Lovelace.Mail.OAuth do
   def init(_), do: {:ok, %{}}
 
   @impl true
-  def handle_call({:begin, workspace, session, expected, capability, generation}, _from, attempts) do
+  def handle_call(
+        {:begin, workspace, session, expected, capability, generation, origin},
+        _from,
+        attempts
+      ) do
     attempts = live(attempts)
 
     if map_size(attempts) >= 100 do
@@ -47,6 +53,7 @@ defmodule Lovelace.Mail.OAuth do
         expected_account_id: expected,
         capability: capability,
         expected_generation: generation,
+        origin: origin,
         verifier: random(),
         expires: System.monotonic_time(:millisecond) + @ttl
       }
@@ -68,6 +75,10 @@ defmodule Lovelace.Mail.OAuth do
 
   @impl true
   def format_status(_status), do: %{state: :redacted}
+
+  defp valid_origin?(:connections, _capability), do: true
+  defp valid_origin?(:onboarding, capability), do: capability in [:gmail, :calendar]
+  defp valid_origin?(_, _), do: false
 
   defp live(attempts),
     do: Map.filter(attempts, fn {_, a} -> a.expires > System.monotonic_time(:millisecond) end)

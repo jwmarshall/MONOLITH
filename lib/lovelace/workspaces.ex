@@ -8,7 +8,6 @@ defmodule Lovelace.Workspaces do
       define :get_workspace, action: :read, get_by: [:id], not_found_error?: false
       define :create_workspace, action: :create, args: [:name]
       define :rename_workspace, action: :rename, args: [:name]
-      define :initialize_personal, action: :initialize_personal
     end
   end
 end

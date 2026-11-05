@@ -221,9 +221,10 @@ defmodule LovelaceWeb.HomeMail do
   defp event("mail:new_connection", _, socket) do
     mail = socket.assigns.mail
 
-    if mail.scope == :connections && !mail.command && !mail.directory_error,
-      do: put(socket, %{connecting: true}),
-      else: socket
+    if mail.scope == :connections && !mail.command && !mail.directory_error &&
+         socket.assigns.google_status == :stored,
+       do: put(socket, %{connecting: true}),
+       else: socket
   end
 
   defp event("mail:close_connection", _, socket), do: close_connection(socket)

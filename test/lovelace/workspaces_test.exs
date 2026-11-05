@@ -84,8 +84,6 @@ defmodule Lovelace.WorkspacesTest do
 
       assert {:error, %Forbidden{}} =
                Workspaces.rename_workspace(workspace, "Denied", %{}, options)
-
-      assert {:error, %Forbidden{}} = Workspaces.initialize_personal(%{}, options)
     end
 
     assert [%{name: "Private"}] = Workspaces.list_workspaces!(actor: @owner)
@@ -110,38 +108,6 @@ defmodule Lovelace.WorkspacesTest do
     assert Workspaces.get_workspace!(@personal_id, actor: @owner) == nil
   end
 
-  test "Personal initialization accepts no input" do
-    for params <- [%{name: "Injected"}, %{id: Ash.UUID.generate()}, %{"name" => "Injected"}] do
-      assert {:error, %Invalid{}} = Workspaces.initialize_personal(params, actor: @owner)
-    end
-
-    assert Workspaces.list_workspaces!(actor: @owner) == []
-  end
-
-  test "Personal initialization is conflict safe and never overwrites a renamed starter" do
-    unrelated = Workspaces.create_workspace!("Personal", actor: @owner)
-    personal = Workspaces.initialize_personal!(actor: @owner)
-    assert personal.id == @personal_id
-    assert personal.name == "Personal"
-    assert unrelated.id != personal.id
-    assert Workspaces.initialize_personal!(actor: @owner).id == personal.id
-
-    renamed = Workspaces.rename_workspace!(personal, "My desk", actor: @owner)
-
-    for _ <- 1..3 do
-      initialized = Workspaces.initialize_personal!(actor: @owner)
-      assert initialized.id == renamed.id
-      assert initialized.name == "My desk"
-      assert initialized.created_at == renamed.created_at
-      assert initialized.updated_at == renamed.updated_at
-    end
-
-    assert Enum.map(Workspaces.list_workspaces!(actor: @owner), & &1.id) == [
-             unrelated.id,
-             personal.id
-           ]
-  end
-
   test "workspace writes roll back with the enclosing transaction" do
     workspace = Workspaces.create_workspace!("Original", actor: @owner)
 
@@ -154,7 +120,6 @@ defmodule Lovelace.WorkspacesTest do
                  return_notifications?: true
                )
 
-               Workspaces.initialize_personal!(actor: @owner)
                Repo.rollback(:intentional_rollback)
              end)
 

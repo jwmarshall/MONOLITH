@@ -9,6 +9,7 @@
 @import "./scenes.css";
 @import "./modals.css";
 @import "./status.css";
+@import "./onboarding.css";
 @source "../css";
 @source "../js";
 @source "../../lib/lovelace_web";
@@ -124,29 +125,6 @@
   filter: blur(var(--workspace-chrome-blur));
   pointer-events: none;
   transition: filter var(--workspace-focus-duration) var(--workspace-focus-easing);
-}
-
-/* The signature belongs to focused glass; scenery mode has no corner branding. */
-.stage-monogram {
-  position: absolute;
-  z-index: 1;
-  top: var(--workspace-top-padding);
-  left: var(--workspace-inline-padding);
-  width: 44px;
-  height: 44px;
-  color: var(--color-base-content);
-  opacity: 0;
-  filter: blur(var(--workspace-chrome-blur));
-  pointer-events: none;
-  transition:
-    opacity var(--workspace-focus-duration) var(--workspace-focus-easing),
-    filter var(--workspace-focus-duration) var(--workspace-focus-easing);
-}
-
-.stage-static .stage-monogram,
-.glass-workspace:has(#workspace-pane[aria-pressed="true"]):has(.workspace-glass[data-entered="true"]) .stage-monogram {
-  opacity: 0.9;
-  filter: blur(0);
 }
 
 .workspace-brand {
@@ -326,7 +304,7 @@
 
 .owner-unlock-form { display: grid; gap: 12px; }
 .owner-unlock-form label { margin-bottom: -4px; }
-.owner-unlock-form .owner-submit { justify-self: start; min-height: 44px; }
+.owner-unlock-form .workspace-action { justify-self: start; }
 
 .owner-password {
   width: 100%;
@@ -336,15 +314,6 @@
   color: var(--color-base-content);
 }
 
-.owner-submit {
-  padding: 12px 20px;
-  background: var(--color-primary);
-  color: var(--color-primary-content);
-  cursor: pointer;
-  text-shadow: none;
-}
-
-.owner-submit:hover { background: var(--color-primary-hover); }
 #owner-unlock-error { color: var(--color-error); }
 
 .workspace-topline, .workspace-footer {
@@ -367,8 +336,9 @@
 .workspace-directory-heading { display: flex; align-items: center; justify-content: space-between; gap: 24px; margin-bottom: 20px; }
 .workspace-directory h2 { font-size: clamp(28px, 3vw, 34px); line-height: 1.2; letter-spacing: -0.035em; font-weight: 300; overflow-wrap: anywhere; }
 .workspace-directory h2:focus { outline: none; }
-.workspace-action { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 44px; padding: 10px 16px; border: 1px solid var(--border-default); border-radius: 4px; background: var(--surface-action); font-size: 13px; line-height: 1.4; color: var(--color-base-content); cursor: pointer; transition: color 160ms, background 160ms, border-color 160ms; text-shadow: none; }
-.workspace-action:hover { color: var(--color-primary-hover); background: var(--surface-hover-action); border-color: var(--color-primary); }
+/* Intent hierarchy: primary task, secondary operation, navigation, destructive operation. */
+.workspace-action { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-width: 44px; min-height: 44px; max-width: 100%; padding: 10px 16px; border: 1px solid var(--border-default); border-radius: 4px; background: var(--surface-action); font-size: 13px; line-height: 1.4; color: var(--color-base-content); cursor: pointer; transition: color 160ms, background 160ms, border-color 160ms; text-shadow: none; text-align: center; overflow-wrap: anywhere; }
+.workspace-action:not(:disabled):hover { color: var(--color-base-content); background: var(--surface-hover-action); border-color: var(--border-strong); }
 .workspace-action:disabled { opacity: 0.4; cursor: default; }
 .workspace-directory-heading > .workspace-action { flex-shrink: 0; }
 .workspace-back { margin-bottom: 16px; color: var(--color-text-soft); }
@@ -380,7 +350,17 @@
 .workspace-form-feedback { font-size: 13px; color: var(--color-error-soft); line-height: 1.6; }
 .workspace-editor-actions { display: flex; gap: 24px; margin-top: 20px; }
 .workspace-action-primary { color: var(--color-primary-content); background: var(--color-primary); border-color: var(--color-primary); }
-.workspace-action-primary:hover { color: var(--color-primary-content); background: var(--color-primary-hover); }
+.workspace-action-primary:not(:disabled):hover { color: var(--color-primary-content); background: var(--color-primary-hover); border-color: var(--color-primary-hover); }
+details[open] > summary.workspace-action-primary { color: var(--color-base-content); background: var(--surface-action); border-color: var(--border-default); }
+details[open] > summary.workspace-action-primary:hover { color: var(--color-base-content); background: var(--surface-hover-action); border-color: var(--border-strong); }
+.workspace-action-link { color: var(--color-primary); text-decoration: underline; text-underline-offset: 0.2em; }
+.workspace-action-link:hover { color: var(--color-primary-hover); text-decoration-thickness: 2px; }
+.workspace-action.workspace-action-link { padding-inline: 0; border-color: transparent; background: transparent; color: var(--color-primary); }
+.workspace-action.workspace-action-link:not(:disabled):hover { border-color: transparent; background: transparent; color: var(--color-primary-hover); }
+.workspace-action-danger { color: var(--color-error-soft); border-color: var(--color-error-soft); }
+.workspace-action-danger:not(:disabled):hover { color: var(--color-error-soft); border-color: var(--color-error-soft); background: var(--surface-hover-action); }
+.workspace-action-quiet { border-color: transparent; background: transparent; }
+.workspace-action-quiet:not(:disabled):hover { border-color: transparent; background: var(--surface-hover-action); }
 .workspace-notice { padding: 28px 0; color: var(--color-text-muted); font-size: 14px; }
 .workspace-landing > h3 { font-size: 17px; font-weight: 400; }
 .workspace-landing > p { margin-top: 10px; color: var(--color-secondary); font-size: 13px; line-height: 1.8; }
@@ -401,6 +381,7 @@
   :root {
     --workspace-focus-duration: 0ms;
   }
+  .workspace-action { transition: none; }
 }
 
 @media (forced-colors: active) {
@@ -413,11 +394,6 @@
     filter: none;
   }
 
-  .glass-workspace .stage-monogram {
-    color: CanvasText;
-    filter: none;
-  }
-
   .workspace-content, .workspace-controls, .workspace-action, .workspace-footer,
   .workspace-name-input, .workspace-form-hint, .workspace-landing > p {
     color: CanvasText;
@@ -425,12 +401,41 @@
   }
   .workspace-action, .workspace-editor, .workspace-landing,
   .workspace-name-input { border-color: CanvasText; }
-  .workspace-action, .workspace-action:hover { background: ButtonFace; color: ButtonText; border-color: ButtonText; }
+  .workspace-action, .workspace-action:not(:disabled):hover,
+  details[open] > summary.workspace-action-primary,
+  details[open] > summary.workspace-action-primary:hover { background: ButtonFace; color: ButtonText; border-color: ButtonText; }
+  .workspace-action-link, .workspace-action-link:hover { color: LinkText; }
+  .workspace-action.workspace-action-link, .workspace-action.workspace-action-link:not(:disabled):hover { background: transparent; color: LinkText; border-color: transparent; }
+  .workspace-action.workspace-action-quiet, .workspace-action.workspace-action-quiet:not(:disabled):hover { background: transparent; color: ButtonText; border-color: transparent; }
   .workspace-glass[data-entered="true"] .workspace-content,
   .workspace-glass[data-entered="true"] .workspace-controls { opacity: 1; filter: none; }
   .glass-workspace .workspace-glass { background: Canvas; }
   .workspace-glass::after { background: none; filter: none; }
   .owner-content, #owner-unlock-error { color: CanvasText; text-shadow: none; }
   .owner-password { background: Canvas; color: CanvasText; border-color: CanvasText; }
-  .owner-submit, .owner-submit:hover { background: ButtonFace; color: ButtonText; border: 1px solid ButtonText; }
+}
+
+/* Static first-run pages opt in only after JavaScript claims the introduction.
+   Without JavaScript, the decorative brand stays hidden and forms stay usable. */
+[data-static-brand][hidden] {
+  display: none;
+}
+
+.stage-static > [data-static-brand] {
+  z-index: 1;
+  opacity: 0;
+  visibility: hidden;
+  filter: none;
+  transition: none;
+}
+
+.stage-static[data-first-run-state="playing"] {
+  > #main-content {
+    visibility: hidden;
+  }
+
+  > [data-static-brand] {
+    opacity: 1;
+    visibility: visible;
+  }
 }

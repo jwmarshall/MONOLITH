@@ -183,17 +183,18 @@
 .theme-picker { min-width: 0; border: 0; }
 .theme-picker > legend { font-size: 20px; font-weight: 400; }
 .settings-description { margin-block: 8px 24px; color: var(--color-secondary); }
-.theme-options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
-.theme-option { display: grid; grid-template-columns: 20px 56px minmax(0, 1fr); gap: 12px; align-items: center; min-width: 0; min-height: 112px; padding: 20px; border: 1px solid var(--border-default); border-radius: 6px; background: var(--surface-card); cursor: pointer; }
+.theme-options { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+.theme-option { display: grid; grid-template-columns: 32px minmax(0, 1fr) 18px; gap: 12px; align-items: center; min-width: 0; min-height: 72px; padding: 14px; border: 1px solid var(--border-default); border-radius: 6px; background: var(--surface-card); cursor: pointer; }
 .theme-option:hover { background: var(--surface-hover); }
 .theme-option:has(:checked) { border-color: var(--color-primary); background: var(--surface-hover-action); }
 .theme-option:focus-within { outline: 2px solid var(--color-primary); outline-offset: 4px; }
 .theme-option input { width: 18px; height: 18px; accent-color: var(--color-primary); }
-.theme-swatch { display: block; width: 56px; height: 56px; border: 1px solid var(--theme-base-300); border-radius: 4px; background: linear-gradient(135deg, var(--theme-base-100) 0% 50%, var(--theme-base-300) 50% 75%, var(--theme-primary) 75% 100%); }
-.theme-option-copy { display: grid; min-width: 0; gap: 4px; }
-.theme-option-name { color: var(--color-base-content); font-size: 16px; }
-.theme-option-description { color: var(--color-secondary); font-size: 12px; }
+.theme-swatch { display: block; width: 32px; height: 32px; border: 1px solid var(--theme-base-300); border-radius: 4px; background: linear-gradient(135deg, var(--theme-base-100) 0% 50%, var(--theme-base-300) 50% 75%, var(--theme-primary) 75% 100%); }
+.theme-option-name { min-width: 0; color: var(--color-base-content); font-size: 16px; }
 .theme-status { min-height: 28px; margin-top: 20px; color: var(--color-secondary); font-size: 13px; }
+@media (max-width: 1023px) {
+  .theme-options { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
 @media (max-width: 640px) {
   .theme-options { grid-template-columns: minmax(0, 1fr); }
 }

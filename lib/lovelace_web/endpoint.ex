@@ -31,6 +31,8 @@ defmodule LovelaceWeb.Endpoint do
 
   plug LovelaceWeb.Plugs.LocalHost
   plug Plug.Session, @session_options
+  plug LovelaceWeb.Plugs.OwnerSetup
+  plug LovelaceWeb.Plugs.GoogleSetupCredentials
   plug LovelaceWeb.OwnerUnlock
   plug LovelaceWeb.Plugs.GeminiCredentials
   plug LovelaceWeb.Plugs.GitHubCredentials

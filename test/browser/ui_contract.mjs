@@ -153,9 +153,9 @@ async function verifyEmptyInstallation() {
   await key('a', 'a')
   await focused()
   await click('#show-scenes')
-  await waitFor("!!document.querySelector('#scenes-empty') && document.querySelector('#scenes-panel')?.getAttribute('aria-busy') === 'false'", 'honest empty gallery')
-  assert.match(await evaluate("document.querySelector('#scenes-empty').textContent"), /Bundled scenery remains available/)
-  assert.equal(await evaluate("!!document.querySelector('#scene-gallery')"), false, 'bundled assets are not presented as generated scenes')
+  await waitFor("!!document.querySelector('#scene-gemini-setup') && document.querySelector('#scenes-panel')?.getAttribute('aria-busy') === 'false'", 'unconfigured Scenes shows Gemini setup')
+  assert.equal(await evaluate("!!document.querySelector('#scene-direction-form, .scene-toolbar, #scene-generation-settings, #scenes-empty, #scene-gallery, #scene-attempt-history, #scene-generation-modal')"), false, 'unconfigured Scenes mounts only its setup card')
+  assert.equal(await evaluate("document.querySelector('#scene-gemini-setup a').getAttribute('href')"), '/connections/gemini', 'setup opens the Gemini provider')
   assert.equal(await bundledBackground('#workspace-background'), initial)
   await screenshot('bundled-default-empty-scenes')
   await click('#home-link')
@@ -200,8 +200,20 @@ async function guidedSceneDirection() {
   await waitFor("!!document.querySelector('#scene-direction-discard') && document.querySelector('#scene-generate').disabled", "draft requires explicit save")
   assert.notEqual(await evaluate("document.querySelector('#scene-direction-prompt').textContent"), originalPrompt)
   assert.equal(await evaluate("document.querySelector('#scene-prompt-preview').open"), true, "live preview preserves expanded disclosure")
+  await evaluate(`(() => {
+    window.uiSceneRefreshNodes = {
+      form: document.querySelector('#scene-direction-form'),
+      prompt: document.querySelector('#scene-prompt-preview'),
+      refresh: document.querySelector('#scenes-refresh')
+    };
+  })()`)
   await refreshScenes()
   assert.equal(await evaluate("document.querySelector('#scene-direction-subject').value"), 'landscape', "status refresh preserves unsaved direction")
+  assert.equal(await evaluate("document.querySelector('#scene-prompt-preview').open"), true, "credential revalidation preserves the native expanded prompt disclosure")
+  assert.equal(await evaluate("document.activeElement.id"), 'scenes-refresh', "status refresh keeps focus on its trigger")
+  assert.equal(await evaluate(`Object.entries(window.uiSceneRefreshNodes).every(([key, node]) =>
+    node === document.querySelector({form: '#scene-direction-form', prompt: '#scene-prompt-preview', refresh: '#scenes-refresh'}[key]))`), true, "successful credential revalidation never remounts the direction editor or Refresh trigger")
+  await evaluate("delete window.uiSceneRefreshNodes")
   await key('Escape')
   await landscape()
   await key('a', 'a')
@@ -321,7 +333,6 @@ async function scenesLayout(width, forced) {
 
 async function focused() {
   await waitFor(`document.querySelector('#main-content')?.dataset.entered === 'true' &&
-    Number(getComputedStyle(document.querySelector('#workspace-monogram')).opacity) > 0.8 &&
     getComputedStyle(document.querySelector('#owner-lock-form')).visibility === 'visible'`, "entered focused workspace")
   assert.equal(await evaluate(`getComputedStyle(document.querySelector('#workspace-pane')).display`), "none")
   assert.equal(await evaluate(`document.querySelector('#workspace-content').inert`), false)
@@ -330,8 +341,7 @@ async function focused() {
 }
 
 async function landscape() {
-  await waitFor(`document.querySelector('#workspace-pane')?.getAttribute('aria-pressed') === 'false' &&
-    Number(getComputedStyle(document.querySelector('#workspace-monogram')).opacity) === 0`, "landscape hides corner")
+  await waitFor(`document.querySelector('#workspace-pane')?.getAttribute('aria-pressed') === 'false'`, "landscape mode")
   assert.equal(await evaluate(`getComputedStyle(document.querySelector('#owner-lock-form')).visibility`), "hidden")
   assert.equal(await evaluate(`(() => {
     const button = document.querySelector('#owner-lock-form button');
@@ -530,7 +540,7 @@ async function homeLayout(width, forced = false) {
 async function connectionsOverview() {
   await waitFor("location.pathname === '/connections' && location.search === '' && !!document.querySelector('#connections-overview')", 'global Connections overview URL')
   assert.equal(await evaluate("document.querySelector('#show-connections').getAttribute('href')"), '/connections')
-  assert.equal(await evaluate("!!document.querySelector('#connections-panel, #calendar-connections, #gemini-connection, #connections-subnav, #back-from-connections')"), false, 'overview mounts no provider or workspace return')
+  assert.equal(await evaluate("!!document.querySelector('#google-connection, #connections-panel, #calendar-connections, #gemini-connection, #connections-subnav, #back-from-connections')"), false, 'overview mounts no provider or workspace return')
   assert.equal(await evaluate("document.documentElement.scrollWidth <= innerWidth && Array.from(document.querySelectorAll('#connections-overview a')).every(link => link.getBoundingClientRect().height >= 44)"), true, 'overview stays within viewport with usable links')
 }
 
@@ -538,7 +548,7 @@ async function openGmailConnections() {
   await click('#show-connections')
   await connectionsOverview()
   await click('#open-connection-gmail')
-  await waitFor("!!document.querySelector('#connections-panel') && location.pathname === '/connections/gmail' && location.search === ''", 'Gmail provider chosen explicitly')
+  await waitFor("!!document.querySelector('#connections-panel') && document.querySelector('#new-gmail-connection')?.disabled === false && location.pathname === '/connections/gmail' && location.search === ''", 'Gmail provider chosen explicitly with available Google client settings')
 }
 
 async function verifyNavigationHistory() {
@@ -731,7 +741,6 @@ async function home() {
   assert.equal(await evaluate("document.title"), "Home · LOVELACE")
   assert.equal(await evaluate("document.querySelector('#home-link').closest('nav')?.id"), "center-nav", "Home belongs to the center navigation")
   assert.equal(await evaluate("document.querySelector('#home-link').textContent.trim()"), "Home")
-  assert.equal(await evaluate("document.querySelector('#workspace-monogram').closest('a, button') === null && document.querySelector('#workspace-monogram').getAttribute('aria-hidden') === 'true' && document.querySelector('#workspace-monogram').getAttribute('focusable') === 'false' && getComputedStyle(document.querySelector('#workspace-monogram')).pointerEvents === 'none'"), true, "corner monogram is decoration only")
   assert.equal(await evaluate("location.pathname + location.search + location.hash"), "/", "Home has its canonical URL")
   assert.equal(await evaluate("!!document.querySelector('#workspace-list, #home-inbox, #connections-panel, #scenes-panel')"), false)
   const orientation = await evaluate(`(() => {
@@ -808,7 +817,6 @@ try {
     await verifyEmptyInstallation()
   } else {
   assert.equal(await evaluate("document.querySelector('#owner-stage [phx-hook], #owner-stage [inert]') === null"), true)
-  await waitFor("Number(getComputedStyle(document.querySelector('#owner-stage-monogram')).opacity) > 0.8", "static owner corner")
   assert.notEqual(await evaluate("getComputedStyle(document.querySelector('#owner-stage-background')).filter"), "none")
   await waitFor("document.querySelector('[data-static-stage-image]')?.dataset.loaded === 'true'", "static app image-observer registration")
   failStageImages = true
@@ -818,7 +826,7 @@ try {
   failStageImages = false
   await send("Emulation.setScriptExecutionDisabled", {value: true})
   await send("Page.reload")
-  await waitFor("!!document.querySelector('#owner-unlock-form') && getComputedStyle(document.querySelector('#owner-stage-monogram')).opacity === '0.9'", "static owner usable without JavaScript")
+  await waitFor("!!document.querySelector('#owner-unlock-form')", "static owner usable without JavaScript")
   assert.equal(await evaluate("document.querySelector('#owner-unlock-form input[type=password]').disabled"), false)
   await send("Emulation.setScriptExecutionDisabled", {value: false})
   await send("Page.reload")
@@ -829,19 +837,17 @@ try {
   await landscape()
   await click("#workspace-pane")
   assert.equal(await evaluate("document.querySelector('#main-content').dataset.entered ?? 'false'"), "false")
-  assert.equal(await evaluate("Number(getComputedStyle(document.querySelector('#workspace-monogram')).opacity)"), 0)
   assert.equal(await evaluate("document.querySelector('#workspace-content').inert"), true)
   assert.equal(await evaluate("document.querySelector('#workspace-controls').inert"), true)
   await waitFor("document.querySelector('#lovelace-letter-7').style.opacity === '1' && document.querySelector('#main-content').dataset.entered !== 'true'", "completed wordmark before exit")
   await waitFor("Number(document.querySelector('#lovelace-letter-0').style.opacity) < Number(document.querySelector('#lovelace-letter-7').style.opacity)", "left-to-right letter exit")
   await waitFor("parseFloat(document.querySelector('#lovelace-monogram-stroke').style.strokeDashoffset) < 0 && Number(document.querySelector('#lovelace-letter-0').style.opacity) < 1", "opposite-end erase before handoff")
-  assert.equal(await evaluate("Number(getComputedStyle(document.querySelector('#workspace-monogram')).opacity)"), 0)
   assert.equal(await evaluate("getComputedStyle(document.querySelector('#owner-lock-form')).visibility"), "hidden")
   assert.equal(await evaluate("getComputedStyle(document.querySelector('#home-link')).visibility"), "hidden")
   await focused()
   await waitFor("document.querySelector('#workspace-background img')?.dataset.loaded === 'true'", "live image hook load")
   assert.equal(await evaluate("document.activeElement.id"), "directory-heading")
-  console.log("PASS ordinary entrance, static stage, corner/Home/Lock visibility and gate/focus handoff")
+  console.log("PASS ordinary entrance, static stage, Home/Lock visibility and gate/focus handoff")
 
   await home()
   await verifyNavigationHistory()
@@ -1045,8 +1051,8 @@ try {
   } finally {
     await send("Target.closeTarget", {targetId: sharedTargetId}, null)
   }
-  // The fake vault has no key here. Confirm really submits, then fails locally;
-  // it must not disable manual generation for another 24 hours.
+  // The test build refuses the production connector even with a synthetic key.
+  // A confirmed local failure must not disable generation for another 24 hours.
   const beforeConfirmedAttempt = (await sceneManifest()).attempts[0]
   await click('#scene-generate')
   await sceneModal()
@@ -1055,12 +1061,12 @@ try {
     document.querySelector('#scenes-panel')?.getAttribute('aria-busy') === 'false' &&
     document.querySelector('#scene-generate')?.disabled === false &&
     document.querySelector('#scenes-panel .scene-status time')?.dateTime !== ${JSON.stringify(beforeConfirmedAttempt)} &&
-    document.querySelector('#scenes-panel .scene-status')?.textContent.includes('Scene generation failed')`, 'confirmed fake-vault failure leaves manual Generate enabled')
+    document.querySelector('#scenes-panel .scene-status')?.textContent.includes('Scene generation failed')`, 'confirmed test-transport failure leaves manual Generate enabled')
   await screenshot('scenes-after-confirmed-failure')
   await click("#home-link")
   await home()
   await media([])
-  console.log("PASS Scenes keyboard navigation, confirmation with local fake-vault failure and immediate manual availability, cross-tab selection, Escape/wake and reload persistence")
+  console.log("PASS Scenes keyboard navigation, confirmation with local test-transport failure and immediate manual availability, cross-tab selection, Escape/wake and reload persistence")
 
   await click(`#open-home-account-${accountId}`)
   await waitFor("document.querySelector('#home-inbox #mail-threads')?.getAttribute('aria-busy') === 'false'", "Home row opens separate account inbox")
@@ -1232,7 +1238,7 @@ try {
   await key("a", "a")
   await focused()
   assert.equal(await evaluate("!!document.querySelector('#gemini-connection') && !document.querySelector('#connections-panel')"), true, "scenery wake preserves the provider view")
-  await waitFor("document.querySelector('#gemini-status')?.textContent.includes('No API key stored')", "separate Gemini key presence")
+  await waitFor("document.querySelector('#gemini-status')?.textContent.includes('API key stored') && !document.querySelector('#gemini-status')?.textContent.includes('No API key stored')", "separate synthetic Gemini key presence")
   assert.equal(await evaluate("document.querySelector('#gemini-key-form').hasAttribute('phx-submit') || document.querySelector('#gemini-key-form').hasAttribute('phx-change')"), false, "credentials never enter LiveView events")
   await click("#gemini-key-editor summary")
   await click("#gemini-api-key")
@@ -1256,8 +1262,6 @@ try {
   await click("#home-link")
   await home()
   await openGmailConnections()
-  await click("#workspace-monogram")
-  assert.equal(await evaluate("!!document.querySelector('#connections-panel') && document.querySelector('#home-overview') === null"), true, "clicking the decorative monogram does not navigate")
   await click("#home-link")
   await home()
   await click("#show-workspaces")
@@ -1499,7 +1503,15 @@ try {
       })()`)
       assert.equal(providerNav.label, "Connection providers")
       if (width >= 640) assert.equal(providerNav.sameRow, true, "provider subnav shares the desktop Connections title row")
-      else assert.equal(providerNav.sameRow, false, "three-provider navigation wraps below the heading on narrow screens")
+      else assert.equal(providerNav.sameRow, false, "provider navigation wraps below the heading on narrow screens")
+      await click("#connections-google")
+      await waitFor("!!document.querySelector('#google-connection') && !document.querySelector('#connections-panel, #calendar-connections, #gemini-connection')", "Google provider excludes other connection forms")
+      await evaluate("document.querySelector('#google-client-editor summary').focus()")
+      await key('Enter')
+      assert.equal(await evaluate("document.querySelector('#google-client-editor').open"), true, "client editor opens from keyboard")
+      assert.equal(await evaluate("document.documentElement.scrollWidth <= innerWidth"), true, "Google client editor fits each viewport")
+      assert.equal(await evaluate("document.querySelector('#google-client-form').hasAttribute('phx-submit')"), false, "credentials use an ordinary POST")
+      if (!forced) await screenshot(`google-connection-${width}`)
       await click("#connections-calendar")
       await waitFor("!!document.querySelector('#calendar-connections') && !document.querySelector('#connections-panel, #gemini-connection')", "Calendar only at each width/preference")
       assert.equal(await evaluate("document.documentElement.scrollWidth <= innerWidth && document.querySelector('#calendar-connections').scrollWidth <= document.querySelector('#calendar-connections').clientWidth"), true, "Calendar Connections has no horizontal overflow")
@@ -1523,7 +1535,7 @@ try {
       await click('#gemini-connection button[phx-click="gemini:check"]')
       await waitFor("!document.querySelector('#gemini-status').textContent.includes('Checking')", 'explicit fake-vault check completes')
       assert.equal(await evaluate("document.querySelector('#gemini-generation-help').open"), true, 'billing disclosure survives status patches')
-      assert.equal(await evaluate("document.querySelector('#gemini-connection').scrollWidth <= document.querySelector('#gemini-connection').clientWidth"), true, 'expanded billing guidance wraps')
+      assert.equal(await evaluate("document.querySelector('#gemini-generation-help').scrollWidth <= document.querySelector('#gemini-generation-help').clientWidth"), true, 'expanded billing guidance wraps')
       await click("#connections-gmail")
       await waitFor("!!document.querySelector('#connections-panel') && !document.querySelector('#gemini-connection')", "Gmail only at each width/preference")
       await click("#show-scenes")

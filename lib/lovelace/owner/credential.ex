@@ -1,5 +1,5 @@
 defmodule Lovelace.Owner.Credential do
-  @moduledoc "The one local owner credential. Creation is available only to the local setup task."
+  @moduledoc "The one local owner credential. Creation requires trusted terminal or paired browser setup."
   use Ash.Resource,
     domain: Lovelace.Owner,
     data_layer: AshSqlite.DataLayer,

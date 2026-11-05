@@ -44,6 +44,11 @@ config :lovelace,
        Lovelace.StageDesigner.Settings.idle_minutes(System.get_env())
 
 if config_env() == :dev do
+  # Explicit disposable installations can be selected without replacing the normal dev vault.
+  if database_path = System.get_env("DATABASE_PATH") do
+    config :lovelace, Lovelace.Repo, database: database_path
+  end
+
   # Reload browser tabs when matching files change.
   config :lovelace, LovelaceWeb.Endpoint,
     live_reload: [

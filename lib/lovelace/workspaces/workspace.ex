@@ -29,14 +29,6 @@ defmodule Lovelace.Workspaces.Workspace do
     update :rename do
       accept [:name]
     end
-
-    create :initialize_personal do
-      accept []
-      upsert? true
-      upsert_fields []
-      change set_attribute(:id, "00000000-0000-4000-8000-000000000001")
-      change set_attribute(:name, "Personal")
-    end
   end
 
   policies do

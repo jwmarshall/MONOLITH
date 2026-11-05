@@ -33,20 +33,15 @@ defmodule LovelaceWeb.OwnerHTML do
               aria-describedby={@error? && "owner-unlock-error"}
               class="owner-password"
             />
-            <button type="submit" class="owner-submit">Unlock</button>
+            <button type="submit" class="workspace-action workspace-action-primary">Unlock</button>
           </form>
-          <p :if={@setup_state == :new} id="owner-setup-instructions">
-            Local unlock is not configured. In the local LOVELACE terminal, run <code>bin/lovelace-sqlcipher mix lovelace.owner.setup</code>. There is no web signup or password setup.
-          </p>
-          <p :if={@setup_state == :setup_incomplete} id="owner-setup-incomplete" role="status">
-            Local vault setup was interrupted. Stop the server and rerun
-            <code>bin/lovelace-sqlcipher mix lovelace.owner.setup</code>
-            with the same password.
-            Existing storage will not be reset.
+          <p :if={@setup_state in [:new, :setup_incomplete]} id="owner-setup-instructions">
+            <a href="/setup" class="workspace-action workspace-action-primary">Continue secure setup</a>
+            Pair with the terminal that started LOVELACE. Interrupted setup requires the original password.
           </p>
           <p :if={@setup_state == :migration_required} id="owner-migration-instructions" role="status">
             Existing local data needs encrypted-vault migration. Stop the server and run
-            <code>bin/lovelace-sqlcipher mix lovelace.vault.migrate</code>
+            <code>bin/lovelace mix lovelace.vault.migrate</code>
             in your local LOVELACE terminal.
             Existing data and credentials will not be changed by this screen.
           </p>

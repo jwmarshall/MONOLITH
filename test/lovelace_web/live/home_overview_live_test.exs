@@ -3,6 +3,7 @@ defmodule LovelaceWeb.HomeOverviewLiveTest do
 
   import Phoenix.LiveViewTest
 
+  alias Lovelace.Integrations.Google.ClientCredentials
   alias Lovelace.Mail
   alias Lovelace.Mail.Operations
   alias Lovelace.Workspaces
@@ -25,7 +26,14 @@ defmodule LovelaceWeb.HomeOverviewLiveTest do
   end
 
   setup %{conn: conn} do
-    for {key, value} <- [gmail_provider: Provider, gmail_vault: Vault, home_test_owner: self()] do
+    start_supervised!(Lovelace.TestSupport.OnboardingKeychain)
+
+    for {key, value} <- [
+          gmail_provider: Provider,
+          gmail_vault: Vault,
+          home_test_owner: self(),
+          google_client_keychain: Lovelace.TestSupport.OnboardingKeychain
+        ] do
       previous = Application.fetch_env(:lovelace, key)
       Application.put_env(:lovelace, key, value)
 
@@ -40,6 +48,48 @@ defmodule LovelaceWeb.HomeOverviewLiveTest do
     {:ok, conn: authenticate_owner(conn)}
   end
 
+  test "Gmail setup resolves workspace and Google prerequisites before offering account consent",
+       %{
+         conn: conn
+       } do
+    {:ok, view, _html} = live(conn, ~p"/connections/gmail")
+    refute has_element?(view, "#new-gmail-connection, #mail-connect-new")
+
+    view |> element("#connections-panel a[href='/workspaces']") |> render_click()
+    assert_patch(view, "/workspaces")
+    view |> element("#new-workspace") |> render_click()
+    view |> form("#workspace-form", workspace: %{name: "Studio"}) |> render_submit()
+    [workspace] = Workspaces.list_workspaces!(actor: @owner)
+    refute has_element?(view, "#workspaces-empty")
+
+    view |> element("#show-connections") |> render_click()
+    view |> element("#open-connection-gmail") |> render_click()
+    render_async(view)
+    assert has_element?(view, "#new-gmail-connection[disabled]")
+    render_click(view, "mail:new_connection")
+    refute has_element?(view, "#gmail-connection-modal")
+
+    :ok =
+      ClientCredentials.save(
+        "synthetic-empty-google-client",
+        "synthetic-empty-google-secret"
+      )
+
+    view |> element("#gmail-google-prerequisite a") |> render_click()
+    render_async(view)
+    view |> element("#connections-gmail") |> render_click()
+    render_async(view)
+    assert has_element?(view, "#new-gmail-connection:not([disabled])")
+    view |> element("#new-gmail-connection") |> render_click()
+
+    assert has_element?(
+             view,
+             "#gmail-connection-modal #mail-workspace-new option[value='#{workspace.id}']"
+           )
+
+    assert Mail.list_accounts!(actor: @owner) == []
+  end
+
   test "Home defaults to one metadata-only row per connection, with workspace labels", %{
     conn: conn
   } do
@@ -47,7 +97,7 @@ defmodule LovelaceWeb.HomeOverviewLiveTest do
     second = account("second", 0)
     orphan = account("orphan", nil)
     shared = Workspaces.create_workspace!("Shared", actor: @owner)
-    personal = Workspaces.initialize_personal!(actor: @owner)
+    personal = Workspaces.create_workspace!("Personal", actor: @owner)
 
     for workspace <- [shared, personal] do
       Mail.attach_account!(%{workspace_id: workspace.id, account_id: first.id}, actor: @owner)
@@ -206,7 +256,6 @@ defmodule LovelaceWeb.HomeOverviewLiveTest do
 
   test "empty Home is concise and Connections has no redundant Home button", %{conn: conn} do
     {:ok, view, _html} = live(conn, ~p"/")
-    assert has_element?(view, "#home-empty p", "No Gmail accounts connected.")
 
     assert has_element?(
              view,
@@ -215,7 +264,6 @@ defmodule LovelaceWeb.HomeOverviewLiveTest do
            )
 
     refute has_element?(view, "#daily-heading p, .home-section-heading p, .home-footnote")
-    assert has_element?(view, "#calendar-agenda .calendar-empty", "Calendar not enabled.")
 
     assert has_element?(
              view,

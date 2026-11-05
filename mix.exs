@@ -136,7 +136,14 @@ defmodule Lovelace.MixProject do
 
   defp aliases do
     [
-      setup: ["deps.get", "assets.setup", "assets.build"],
+      setup: [
+        "deps.get",
+        "deps.clean --build exqlite",
+        "deps.compile exqlite --include-children",
+        "lovelace.developer.setup",
+        "assets.setup",
+        "assets.build"
+      ],
       test: ["ecto.create --quiet", "ecto.migrate --quiet", "test"],
       "assets.setup": ["tailwind.install --if-missing", "esbuild.install --if-missing"],
       "assets.build": ["compile", "tailwind lovelace", "esbuild lovelace"],

@@ -62,7 +62,7 @@ defmodule LovelaceWeb.WorkspaceComponents do
         <button
           id={if @current, do: "rename-current-workspace", else: "rename-#{@workspace.id}"}
           type="button"
-          class="workspace-action"
+          class="workspace-action workspace-action-quiet"
           phx-click={
             JS.remove_attribute("open", to: "#workspace-menu-#{@workspace.id}")
             |> JS.push("rename_workspace")

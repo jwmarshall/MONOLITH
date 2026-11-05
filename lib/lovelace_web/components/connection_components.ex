@@ -5,6 +5,14 @@ defmodule LovelaceWeb.ConnectionComponents do
   def overview(assigns) do
     ~H"""
     <nav id="connections-overview" class="connections-overview" aria-label="Connections">
+      <.link id="open-connection-google" patch="/connections/google" class="connection-provider">
+        <.icon name="hero-key" class="size-6" />
+        <span class="connection-provider-copy">
+          <span class="connection-provider-name">Google</span>
+          <span class="mail-muted">Shared Gmail &amp; Calendar client settings</span>
+        </span>
+        <.icon name="hero-arrow-up-right" class="size-5" />
+      </.link>
       <.link id="open-connection-gmail" patch="/connections/gmail" class="connection-provider">
         <.icon name="hero-envelope" class="size-6" />
         <span class="connection-provider-copy">

@@ -11,18 +11,6 @@ defmodule LovelaceWeb.OwnerControllerTest do
     %{conn: %{conn | host: "localhost", remote_ip: {127, 0, 0, client}}}
   end
 
-  test "unconfigured unlock offers terminal instructions, never web setup", %{conn: conn} do
-    conn = get(conn, "/unlock")
-    document = conn |> html_response(200) |> LazyHTML.from_document()
-
-    assert LazyHTML.query(document, "#owner-setup-instructions") |> LazyHTML.to_html() =~
-             "mix lovelace.owner.setup"
-
-    assert LazyHTML.query(document, "#owner-unlock-form") |> Enum.empty?()
-    assert_owner_stage(document)
-    assert get_resp_header(conn, "cache-control") == ["no-store"]
-  end
-
   test "password form uses POST, CSRF, and no signup or identity field", %{conn: conn} do
     configure()
     document = conn |> get("/unlock") |> html_response(200) |> LazyHTML.from_document()
@@ -66,6 +54,7 @@ defmodule LovelaceWeb.OwnerControllerTest do
 
   test "empty static and live stages share the persisted bundled default without creating scenes",
        %{conn: conn} do
+    conn = authenticate_owner(conn)
     actor = %{role: :stage_designer}
     before = Lovelace.StageDesigner.get_state!(1, actor: actor)
     chosen = Lovelace.StageDesigner.initialize_default_scene!(%{}, actor: actor)
@@ -75,7 +64,7 @@ defmodule LovelaceWeb.OwnerControllerTest do
     assert LazyHTML.query(static, "#owner-stage-background") |> LazyHTML.attribute("style") ==
              ["--workspace-default-background: url('#{url}')"]
 
-    {:ok, live, _} = conn |> authenticate_owner() |> Phoenix.LiveViewTest.live("/")
+    {:ok, live, _} = Phoenix.LiveViewTest.live(conn, "/")
     assert Phoenix.LiveViewTest.has_element?(live, "#workspace-background[style*=\"#{url}\"]")
     refute Phoenix.LiveViewTest.has_element?(live, "#workspace-background img")
     assert Lovelace.StageDesigner.get_state!(1, actor: actor) == before
@@ -393,14 +382,10 @@ defmodule LovelaceWeb.OwnerControllerTest do
           "#owner-stage.glass-workspace.stage-static",
           "#owner-stage-background.workspace-background[aria-hidden=true]",
           "#owner-stage > #main-content.workspace-glass.owner-glass[aria-labelledby=owner-unlock-heading]",
-          "#owner-unlock-heading.sr-only",
-          "#owner-stage > #owner-stage-monogram.stage-monogram[aria-hidden=true][focusable=false] path"
+          "#owner-unlock-heading.sr-only"
         ] do
       assert document |> LazyHTML.query(selector) |> Enum.any?()
     end
-
-    refute LazyHTML.to_html(document) =~ "Unlock your workspace"
-    assert document |> LazyHTML.query(".owner-content > .text-primary") |> Enum.empty?()
 
     # Unlock/setup work without a socket or an entrance gate. The original SVG
     # remains underneath any generated image that hasn't loaded successfully.

@@ -16,9 +16,9 @@ defmodule LovelaceWeb.OwnerReturnPath do
          [path | _] <- String.split(destination, "?", parts: 2),
          true <- Regex.match?(~r{\A/(?:[A-Za-z0-9_-]+(?:/[A-Za-z0-9_-]+)*)?\z}, path),
          %URI{scheme: nil, host: nil, fragment: nil} <- URI.parse(destination),
-         %{phoenix_live_view: {LovelaceWeb.HomeLive, _, _, %{name: :owner}}, pipe_through: pipes} <-
+         %{pipe_through: pipes} = route <-
            Phoenix.Router.route_info(LovelaceWeb.Router, "GET", path, "localhost"),
-         true <- :owner in pipes do
+         true <- :owner in pipes and owner_destination?(route) do
       destination
     else
       _ -> nil
@@ -26,6 +26,15 @@ defmodule LovelaceWeb.OwnerReturnPath do
   end
 
   def safe(_destination), do: nil
+
+  defp owner_destination?(%{phoenix_live_view: {LovelaceWeb.HomeLive, _, _, %{name: :owner}}}),
+    do: true
+
+  defp owner_destination?(%{plug: LovelaceWeb.OnboardingController, plug_opts: action})
+       when action in [:index, :show],
+       do: true
+
+  defp owner_destination?(_), do: false
 
   # Check encoded characters too; route matching alone is not redirect validation.
   defp unsafe_characters?(destination) do
