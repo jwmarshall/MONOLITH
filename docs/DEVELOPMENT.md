@@ -81,6 +81,15 @@ globally stops that work, closes the Repo and locks the keychain; Escape/visual 
 only changes scenery and continues work. Normal shutdown locks the keychain. After
 an abrupt crash the macOS daemon may retain an unlocked keychain until startup relocks
 it; do not assume an instantaneous crash lock.
+Detected native keychain authorization/access failures automatically trigger the same
+global Lock: admission closes, active protected work is drained, owner sessions are
+revoked, and Repo/queues stop before the dedicated keychain is locked. This includes
+denied/locked access, missing storage, helper unavailability, timeouts and malformed
+helper responses during credential reads/writes or status checks. A missing individual
+credential (`not_found`) or rejected local input does not trigger Lock. Detection occurs
+on access, not through a continuous OS authorization monitor. Resolve native access
+problems and unlock with the owner password; do not reset keys or reconnect accounts
+merely because storage was temporarily unreadable.
 Stop the server with Ctrl-C (twice if prompted), or use
 `bin/lovelace console` for an interactive Elixir shell running the server.
 
@@ -407,9 +416,9 @@ includes the stored client secret and is one-shot after a durable reservation. U
 exchange/refresh outcomes, interrupted rotations and failed rotated-token saves require
 fresh sign-in, never replay of a previous code or refresh token.
 A keychain read failure before any refresh reservation preserves the connection,
-workspace links and still-fresh snapshots. The owner reports a credential-storage
-error and retries on its normal polling schedule; a read failure alone does not
-mean GitHub revoked access or require another sign-in.
+workspace links and still-fresh snapshots, but native storage-access failures trigger
+global Lock. After native access is restored and the owner unlocks, normal polling
+can resume without another GitHub sign-in; a read failure alone is not revoked access.
 Confirmed missing or malformed token bundles still require sign-in.
 Global Lock stops ephemeral authorization, protected queues and provider work.
 

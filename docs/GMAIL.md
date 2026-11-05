@@ -282,6 +282,15 @@ per view, and discarded across connection-generation changes or leaving Connecti
   prove that the item is absent or that Google is offline.
 - `invalid_account` / `invalid_value`: the adapter rejected the identifier/value.
 
+While LOVELACE is open, native authorization/access failures automatically trigger
+global Lock, including denied/locked reads, helper unavailability or timeout, and
+missing keychain storage. Active protected requests and jobs stop, browser sessions
+are revoked, and the encrypted Repo closes. A missing individual credential
+(`not_found`) or invalid local input does not lock the application. Detection happens
+when a native operation runs; LOVELACE does not continuously monitor macOS ACL changes.
+Restore native access, then unlock with the owner password. This does not by itself
+mean Google authorization was revoked or require replacing stored credentials.
+
 Review **About Keychain access** in Connections before changing anything. Rebuilding
 the `lovelace-vault` helper can change its signing identity. Do not delete credentials,
 grant all applications access, broaden partition ACLs, or repeatedly rebuild as an

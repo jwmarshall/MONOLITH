@@ -69,6 +69,8 @@ Stack: Phoenix LiveView, Ash/AshSqlite over Ecto/SQLite, and Tailwind.
   file keychain, not the login keychain. Use `bin/lovelace setup` / `server` for development
   and `bin/lovelace mix TASK` for other Mix tasks; the launcher configures SQLCipher internally.
   Startup is locked; explicit global Lock stops protected Repo/queues/provider work.
+  Detected native keychain authorization/access failures also trigger global Lock;
+  a missing individual credential is not a keychain-access failure.
   Escape/visual idle keeps work running. No password recovery or production plaintext
   fallback. Setup/migration may require attended OS authorization; runtime access is
   noninteractive. Interrupted setup/migration resumes only with the original password;

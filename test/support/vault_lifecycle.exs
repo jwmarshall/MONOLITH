@@ -98,6 +98,24 @@ defmodule Lovelace.SyntheticVaultHeartbeat do
   end
 end
 
+defmodule Lovelace.SyntheticKeychainFailureJob do
+  use Oban.Worker, queue: :gmail, max_attempts: 1
+  alias Lovelace.Security.{Keychain, Vault}
+
+  @impl true
+  def perform(%Oban.Job{}) do
+    Vault.with_access(fn ->
+      send(Process.whereis(:lovelace_vault_observer), {:keychain_failure_job, self()})
+
+      Keychain.with_test_runner(
+        "get",
+        %{account: "01234567-89ab-cdef-0123-456789abcdef", service: "LOVELACE GitHub"},
+        fn _ -> {:ok, ~s({"version":1,"error":"locked"}\n)} end
+      )
+    end)
+  end
+end
+
 defmodule Lovelace.SyntheticVaultShutdownJob do
   use Oban.Worker, queue: :gmail, max_attempts: 1
   @impl true
@@ -450,6 +468,8 @@ assert {:ok, first} =
          )
 
 # A real queue reads/writes the encrypted database while no browser is active.
+assert Scenario.await(fn -> is_pid(Oban.Registry.whereis(Oban)) end)
+
 {:ok, _} =
   %{tag: "unlocked-background"} |> Lovelace.SyntheticVaultHeartbeat.new() |> Oban.insert()
 
@@ -532,6 +552,197 @@ refute_receive {:google_published, :explicit_lock}, 100
 assert {:error, :locked} = Scenario.exchange()
 refute_receive {:google_transport, _, _}, 100
 assert {:ok, _} = Owner.unlock(password, "after-google-lock")
+
+# Missing optional credentials and invalid local input do not imply lost
+# keychain authorization, and must not log the owner out.
+keychain_attributes = %{
+  account: "01234567-89ab-cdef-0123-456789abcdef",
+  service: "LOVELACE Gmail"
+}
+
+assert {:error, :not_found} =
+         Keychain.with_test_runner("get", keychain_attributes, fn _ ->
+           {:ok, ~s({"version":1,"error":"not_found"}\n)}
+         end)
+
+assert {:error, :invalid_account} =
+         Keychain.with_test_runner(
+           "get",
+           %{keychain_attributes | account: "invalid"},
+           fn _ -> flunk("invalid account reached native keychain") end
+         )
+
+assert {:ok, :unlocked} =
+         Keychain.with_test_runner("status", %{}, fn _ ->
+           {:ok, ~s({"version":1,"ok":true,"status":"unlocked"}\n)}
+         end)
+
+assert Vault.open?()
+
+# A credential-storage failure must globally lock even when reported by a
+# protected queue worker. Do not synchronously stop a worker awaiting Vault.
+assert {:ok, before_keychain_failure} = Owner.unlock(password, "before-keychain-failure")
+
+keychain_session_topic =
+  before_keychain_failure |> Owner.Actions.digest() |> Owner.Actions.topic()
+
+Phoenix.PubSub.subscribe(Lovelace.PubSub, keychain_session_topic)
+observer = self()
+
+{owner_view, owner_view_ref} =
+  spawn_monitor(fn ->
+    socket = %Phoenix.LiveView.Socket{
+      endpoint: LovelaceWeb.Endpoint,
+      router: LovelaceWeb.Router,
+      transport_pid: self(),
+      assigns: %{__changed__: %{}},
+      private: %{lifecycle: %Phoenix.LiveView.Lifecycle{}}
+    }
+
+    assert {:cont, _} =
+             LovelaceWeb.OwnerAuth.on_mount(
+               :require_owner,
+               %{},
+               %{"owner_session_token" => before_keychain_failure},
+               socket
+             )
+
+    send(observer, :connected_owner_admitted)
+
+    receive do
+      :continue -> flunk("connected owner survived global Lock")
+    end
+  end)
+
+assert_receive :connected_owner_admitted
+Scenario.google_request(:keychain_failure)
+assert_receive {:google_transport, :keychain_failure, keychain_google}, 10_000
+keychain_google_ref = Process.monitor(keychain_google)
+assert {:ok, _} = %{} |> Lovelace.SyntheticKeychainFailureJob.new() |> Oban.insert()
+assert_receive {:keychain_failure_job, _}, 10_000
+assert Scenario.await(fn -> not Vault.open?() end)
+assert %{mode: :locked, runtime: nil} = :sys.get_state(Vault, 25_000)
+assert_receive {:DOWN, ^keychain_google_ref, :process, ^keychain_google, :killed}
+assert_receive {:DOWN, ^owner_view_ref, :process, ^owner_view, :killed}
+assert_receive %Phoenix.Socket.Broadcast{event: "disconnect", topic: ^keychain_session_topic}
+Phoenix.PubSub.unsubscribe(Lovelace.PubSub, keychain_session_topic)
+assert is_nil(Process.whereis(Lovelace.Repo))
+assert is_nil(Oban.Registry.whereis(Oban))
+assert {:ok, :locked} = Lovelace.SyntheticNativeStore.status()
+assert {:error, :locked} = Scenario.exchange()
+send(keychain_google, :publish)
+refute_receive {:google_published, :keychain_failure}, 100
+assert {:ok, _} = Owner.unlock(password, "after-keychain-failure")
+assert {:error, _} = Owner.verify_session(before_keychain_failure)
+
+# All credential operations share the same native failure boundary. Lost
+# authorization, storage loss, timeout and malformed helper output fail closed.
+authenticate_owner = fn -> Owner.Actions.configure_or_authenticate(password) end
+
+for {operation, attributes, output, expected} <- [
+      {"get", keychain_attributes, ~s({"version":1,"error":"unavailable"}\n),
+       {:error, :unavailable}},
+      {"get", keychain_attributes, ~s({"version":1,"error":"timeout"}\n), {:error, :timeout}},
+      {"get", keychain_attributes, ~s({"version":1,"error":"missing"}\n), {:error, :missing}},
+      {"get", keychain_attributes, "invalid native response\n", {:error, :unavailable}},
+      {"put", Map.put(keychain_attributes, :value, "synthetic-value"),
+       ~s({"version":1,"error":"locked"}\n), {:error, :locked}},
+      {"delete", keychain_attributes, ~s({"version":1,"error":"unavailable"}\n),
+       {:error, :unavailable}},
+      {"status", %{}, ~s({"version":1,"ok":true,"status":"locked"}\n), {:ok, :locked}}
+    ] do
+  assert {:ok, previous_session} = Vault.unlock(password, authenticate_owner)
+  session_topic = previous_session |> Owner.Actions.digest() |> Owner.Actions.topic()
+  Phoenix.PubSub.subscribe(Lovelace.PubSub, session_topic)
+  assert ^expected = Keychain.with_test_runner(operation, attributes, fn _ -> {:ok, output} end)
+  refute Vault.open?()
+  assert %{mode: :locked, runtime: nil} = :sys.get_state(Vault, 25_000)
+  assert is_nil(Process.whereis(Lovelace.Repo))
+  assert is_nil(Oban.Registry.whereis(Oban))
+  assert {:ok, :locked} = Lovelace.SyntheticNativeStore.status()
+  assert_receive %Phoenix.Socket.Broadcast{event: "disconnect", topic: ^session_topic}
+  Phoenix.PubSub.unsubscribe(Lovelace.PubSub, session_topic)
+  assert {:ok, _} = Vault.unlock(password, authenticate_owner)
+  assert {:error, _} = Owner.verify_session(previous_session)
+end
+
+# An ungated native reporter may itself belong to protected supervision. Its
+# reply must not wait on teardown of its own supervisor or unrelated queue work.
+assert Scenario.await(fn -> is_pid(Oban.Registry.whereis(Oban)) end)
+assert {:ok, _} = %{} |> Lovelace.SyntheticVaultShutdownJob.new() |> Oban.insert()
+assert_receive {:shutdown_job_started, draining_job}, 10_000
+observer = self()
+
+assert {:ok, _} =
+         Supervisor.start_child(
+           Lovelace.Security.ProtectedSupervisor,
+           %{
+             id: :keychain_failure_reporter,
+             restart: :temporary,
+             start:
+               {Task, :start_link,
+                [
+                  fn ->
+                    Process.flag(:trap_exit, true)
+
+                    result =
+                      Keychain.with_test_runner("get", keychain_attributes, fn _ ->
+                        {:ok, ~s({"version":1,"error":"locked"}\n)}
+                      end)
+
+                    send(observer, {:protected_native_result, result})
+                  end
+                ]}
+           }
+         )
+
+assert_receive {:protected_native_result, {:error, :locked}}, 5_000
+refute Vault.open?()
+assert Process.alive?(draining_job)
+send(draining_job, :finish)
+assert_receive :shutdown_job_finished, 10_000
+assert %{mode: :locked, runtime: nil} = :sys.get_state(Vault, 25_000)
+assert {:ok, _} = Vault.unlock(password, authenticate_owner)
+
+# Reauthentication can read the keychain inside the Vault process itself;
+# a failure must not attempt a synchronous call to that same GenServer.
+assert {:error, _} =
+         Vault.unlock(password, fn ->
+           Keychain.with_test_runner("get", keychain_attributes, fn _ ->
+             {:ok, ~s({"version":1,"error":"locked"}\n)}
+           end)
+         end)
+
+refute Vault.open?()
+assert %{mode: :locked, runtime: nil} = :sys.get_state(Vault, 25_000)
+assert {:ok, _} = Owner.unlock(password, "after-vault-owned-keychain-failure")
+
+# An ungated infrastructure read from a retired epoch may finish after another
+# unlock. Its delayed failure must not lock the replacement runtime.
+observer = self()
+
+{stale_reader, stale_reader_ref} =
+  spawn_monitor(fn ->
+    result =
+      Keychain.with_test_runner("get", keychain_attributes, fn _ ->
+        send(observer, {:stale_keychain_read, self()})
+
+        receive do
+          :finish -> {:ok, ~s({"version":1,"error":"unavailable"}\n)}
+        end
+      end)
+
+    send(observer, {:stale_keychain_result, result})
+  end)
+
+assert_receive {:stale_keychain_read, stale_native}
+assert {:ok, true} = Vault.lock()
+assert {:ok, replacement_session} = Owner.unlock(password, "before-delayed-keychain-failure")
+send(stale_native, :finish)
+assert_receive {:stale_keychain_result, {:error, :unavailable}}
+assert_receive {:DOWN, ^stale_reader_ref, :process, ^stale_reader, :normal}
+assert Vault.open?()
+assert {:ok, _} = Owner.verify_session(replacement_session)
 
 # A ready, previously authorized Gemini job survives locked admission without
 # claiming its paid submission. On unlock the real queue reaches credential
@@ -652,5 +863,5 @@ refute File.read!(Path.join(root, "owner.db")) =~ "SQLite format 3"
 refute File.read!(Keychain.path()) =~ password
 
 IO.puts(
-  "Vault lifecycle: setup recovery, failed schema, HTTP/provider fencing, queue admission, shutdown drain, restart and ciphertext verified"
+  "Vault lifecycle: setup recovery, failed schema, keychain autolock and epoch fencing, HTTP/provider fencing, queue admission, shutdown drain, restart and ciphertext verified"
 )

@@ -111,6 +111,10 @@ Use the same hierarchy on static setup/unlock pages and authenticated views.
   the encrypted Repo and locks the dedicated credential keychain. Visual focus changes
   do not. Startup requires password unlock before protected persistence/jobs start;
   there is no password recovery or public/unpaired signup.
+  Detected native keychain authorization/access failures trigger the same global Lock,
+  including session disconnection and protected-work shutdown; missing individual
+  credentials and locally invalid input do not. This is access-time detection, not
+  continuous monitoring of macOS authorization.
 
 ## Entrance, gate and persistent identity
 

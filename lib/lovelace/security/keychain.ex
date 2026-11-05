@@ -14,7 +14,7 @@ defmodule Lovelace.Security.Keychain do
   in test builds. Legacy access is restricted to explicit migration operations.
   """
 
-  alias Lovelace.Security.Database
+  alias Lovelace.Security.{Database, Vault}
 
   @version 1
   @database_account "5bbed47a-8e42-4b3e-a2e8-f81beb0738d5"
@@ -145,7 +145,7 @@ defmodule Lovelace.Security.Keychain do
       if byte_size(input) + 1 > @max_output do
         {:error, :invalid_value}
       else
-        run(input <> "\n", operation, runner, timeout(operation, attributes))
+        guarded_run(input <> "\n", operation, runner, timeout(operation, attributes))
       end
     end
   rescue
@@ -153,6 +153,13 @@ defmodule Lovelace.Security.Keychain do
   catch
     _, _ -> {:error, :unavailable}
   end
+
+  defp guarded_run(input, operation, runner, timeout)
+       when operation in ["get", "put", "delete", "status"] do
+    Vault.with_keychain_access(fn -> run(input, operation, runner, timeout) end)
+  end
+
+  defp guarded_run(input, operation, runner, timeout), do: run(input, operation, runner, timeout)
 
   defp run(input, operation, runner, timeout) do
     # Catch inside the worker: a crash report must not contain captured secrets.

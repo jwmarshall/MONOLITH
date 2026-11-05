@@ -68,6 +68,23 @@ defmodule Lovelace.Security.Vault do
     def track, do: acquire_access()
   end
 
+  @doc false
+  def with_keychain_access(fun) when is_function(fun, 0) do
+    epoch = admission()
+    result = fun.()
+
+    if epoch != false and keychain_access_failed?(result) do
+      if Process.whereis(__MODULE__) == self() do
+        close_admission()
+        send(self(), {:keychain_failure, epoch})
+      else
+        call({:keychain_failure, epoch})
+      end
+    end
+
+    result
+  end
+
   def setup(password, configure) when is_function(configure, 0),
     do: call({:setup, %Secret{value: password}, configure})
 
@@ -146,6 +163,18 @@ defmodule Lovelace.Security.Vault do
     {:reply, result, state}
   end
 
+  def handle_call({:keychain_failure, epoch}, from, %{epoch: epoch} = state)
+      when not is_nil(epoch) do
+    close_admission()
+    # The reporter may be a protected worker: release its call before draining
+    # leases and stopping its supervisor, without admitting any new work.
+    GenServer.reply(from, :ok)
+    {_result, state} = close(state, nil)
+    {:noreply, state}
+  end
+
+  def handle_call({:keychain_failure, _}, _from, state), do: {:reply, :ok, state}
+
   def handle_call({:acquire, epoch}, {pid, _}, %{epoch: epoch, mode: mode} = state)
       when not is_nil(epoch) and mode in [:open, :maintenance] do
     ref = Process.monitor(pid)
@@ -193,6 +222,14 @@ defmodule Lovelace.Security.Vault do
   end
 
   def handle_info({:ready, _, _}, state), do: {:noreply, state}
+
+  def handle_info({:keychain_failure, epoch}, %{epoch: epoch} = state)
+      when not is_nil(epoch) do
+    {_result, state} = close(state, nil)
+    {:noreply, state}
+  end
+
+  def handle_info({:keychain_failure, _}, state), do: {:noreply, state}
 
   def handle_info({:expire, generation}, %{timer: {_, generation}} = state) do
     {_result, state} = close(state, nil)
@@ -440,6 +477,12 @@ defmodule Lovelace.Security.Vault do
   else
     defp keychain, do: Keychain
   end
+
+  defp keychain_access_failed?({:error, reason}),
+    do: reason in [:locked, :missing, :unavailable, :timeout, :invalid_directory]
+
+  defp keychain_access_failed?({:ok, status}), do: status in [:locked, :missing]
+  defp keychain_access_failed?(_), do: false
 
   defp admission, do: :persistent_term.get(@admission, false)
   defp close_admission, do: :persistent_term.put(@admission, false)
