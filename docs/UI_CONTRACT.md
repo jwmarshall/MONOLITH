@@ -22,6 +22,13 @@ Verify implementation in code; the coverage map below is not evidence that check
   Sea Glass is the default; Earth uses warm accents, Charcoal neutral accents and Mist cool slate/silver.
   Scenery colors are independent. `assets/css/themes.css` owns palette literals and shared semantic
   tokens; components consume those tokens rather than defining their own UI colors.
+- `--color-attention` is a palette-tuned soft violet for items needing the owner's
+  attention, such as review/check/run counts. Keep it separate from primary navigation
+  accents, amber degraded-service warnings, and coral errors/destructive actions.
+  All four palettes define it through `--theme-attention`; components never substitute
+  warning ink. Target at least 4.5:1 text contrast on the three base surfaces and a
+  distinct hue from chromatic primary, warning and error inks. Labels/tooltips still
+  communicate meaning without color; forced colors uses system text.
 - Self-host Space Grotesk with system fallbacks. Keep the name **LOVELACE** uppercase and
   the original double-cursive-`l` monogram. Wordmark tracking/light weight must not leak
   into long-form mail typography. Readability and contrast outrank cinematic dimness.
@@ -116,6 +123,11 @@ Use the same hierarchy on static setup/unlock pages and authenticated views.
 - Duplicate activation does not restart an active sequence. Escape interrupts an unfinished
   entrance/exit; fresh activation replays it from the start at normal speed. Once completed,
   Escape/idle wake resumes immediately without replay. Full reload starts a fresh entrance.
+- Local redirects back to an already authenticated, unlocked session (including OAuth
+  and credential-form returns) open their destination immediately, without entrance
+  animation or another activation click. A short-lived, session-bound return marker
+  applies only to the matching destination once. It grants no authorization. Ordinary
+  visits/reloads and initial unlock retain the entrance; Escape/idle still restores scenery.
 - Server-owned working content is gated with `inert` until entrance completion. Remove the
   initial activation button permanently after handoff. Transfer initial focus to a meaningful
   heading without stealing focus from a control. Sticky client state survives LiveView patches.
@@ -220,10 +232,11 @@ Use the same hierarchy on static setup/unlock pages and authenticated views.
   account totals are labeled simply **unread**. No clock, message previews, total across
   accounts or speculative widgets. The separately approved read-only Calendar agenda
   below complements Gmail's daily orientation.
-- Home pairs compact Gmail rows with today's Calendar agenda in two open columns on desktop,
-  aligned at their section headings. Stack Gmail above Calendar when either column would become
-  cramped; retain the shared directory width, not separate cards or a narrower dashboard shell.
-  Gmail, Calendar and Pull requests share `.home-section-heading` and `.home-eyebrow`.
+- Home pairs Gmail and today's Calendar agenda in two columns on desktop, aligned at
+  their section headings. Both use quiet per-account cards matching GitHub's inset surface,
+  fine border, 6px corners and 12px gaps. Stack Gmail above Calendar when either column
+  would become cramped; retain the shared directory width, not a narrower dashboard shell.
+  Gmail, Calendar and GitHub share `.home-section-heading` and `.home-eyebrow`.
   `--home-section-heading-height` (44px) and `--home-section-heading-gap` (12px) on
   `.home-readouts` own the common row size and inline gap; do not add provider-specific
   heading padding or margins. Right-align timezone/context in `.home-section-meta`
@@ -233,19 +246,24 @@ Use the same hierarchy on static setup/unlock pages and authenticated views.
   locally aging stale warnings visible; workspace/Connections timestamps and refresh remain unchanged.
   Unknown unread totals use a dash with an accessible unavailable label, never a fabricated zero.
   Calendar setup is a compact empty state linking directly to Connections → Calendar.
-- Gmail readouts use quiet horizontal rows: one per non-disconnected connection, including
-  connections with no workspace membership. Each shows identity, workspace names, actual
-  unread inbox conversation total and independent count health. Home shows stale warnings rather
-  than routine successful-check timestamps; the underlying observation still ages locally.
-  Clicking a row opens only that account's read-only inbox without attaching it anywhere.
+- Gmail cards appear once per non-disconnected connection, including connections with no
+  workspace membership. Each shows identity, workspace names and paired unread inbox
+  conversation counts as **total / last 24h**, with explicit labels for both values.
+  The recent value uses Gmail received-time search over a fixed rolling 24-hour window,
+  not a local calendar day or partial cached page. Both observations are committed together;
+  incomplete paging/failures retain the previous pair as stale. See [GMAIL.md](GMAIL.md) for bounds.
+  Home shows stale warnings rather than routine successful-check timestamps; the underlying
+  observation still ages locally. Clicking a card opens only that account's read-only inbox
+  without attaching it anywhere.
 - Unknown counts are not zero. Failed updates retain known counts as stale; elapsed time
   marks observations stale after three minutes, independent of unrelated mail-page success.
   Home rendering reads persisted metadata, never provider calls or cached message content.
   Empty/loading/error/reconnect states remain explicit, with recovery through Connections.
 - Missing-content states share a small decorative service icon, a regular-weight heading,
-  one short explanation and a relevant next action. Home and workspace readouts remain open
-  on the glass with fine separators; provider/Scenes setup uses quiet inset cards, not large
-  illustrations or a centered welcome dashboard. Keep actions at least 44px high, text wrapping
+  one short explanation and a relevant next action. Home readouts and their service empty
+  states use quiet inset cards on the glass; workspace readouts keep fine separators.
+  Provider/Scenes setup uses inset cards too, not large illustrations or a centered welcome
+  dashboard. Keep actions at least 44px high, text wrapping
   and system-color fallbacks. Do not repeat the same connection action in both section heading
   and empty content, or show empty content while its setup panel is open.
 - A genuinely empty Workspaces directory offers **New workspace** in its empty state.
@@ -281,8 +299,19 @@ Use the same hierarchy on static setup/unlock pages and authenticated views.
 
 - GitHub adds a full-width **GitHub activity** section beneath Gmail/Calendar, grouped by
   personal/organization installation owner, never merged with mail or another owner.
-  Show bounded open pull requests, open issues and recent Actions runs with repository,
-  escaped title, author, explicit review/check/run state, safe new-tab links and UTC update times.
+  Home uses compact per-owner cards, three per row on desktop, two on medium screens
+  and one on narrow screens. Show open PR/issue totals and recent-run snapshot counts.
+  PRs and runs pair the main count with snapshot attention count as `total / attention`,
+  theme accent versus `--color-attention`, with accessible labels and an attention tooltip.
+  Count each PR needing review or failing checks once. Unknown/unavailable or expired
+  counts use a dash, never a fabricated zero. Home omits per-owner status, partial-result
+  messages and last-checked timestamps; workspace details retain health, freshness and
+  partial-result context. Home has no Refresh buttons or activity disclosures. **View activity** links directly
+  to the owner's expanded activity in its workspace; shared owners expose each attached
+  workspace by name, and unattached owners offer **Add to workspace** through Connections.
+  Workspace activity and its Refresh controls remain expanded and available.
+  Detailed bounded pull requests, issues and runs retain repository, escaped title,
+  author, explicit review/check/run state, safe new-tab links and UTC update times.
   No remote images, repository contents, workflow logs or artifacts. Preserve partial,
   stale/error/expired observations; incomplete results never imply an empty success.
   Connections → GitHub owns the inline registration/permissions/callback guide, native
@@ -526,7 +555,8 @@ historical results do not certify a new change.
 - `test/js/first_run_entrance_test.mjs`: once-per-tab-session presentation state, unavailable
   storage, first-eligible-visit/reload behavior, static input gating/focus, reduced motion,
   Escape and pagehide cleanup.
-- `test/js/workspace_entrance_test.mjs`: gate completion, focus handoff, patch continuity and teardown.
+- `test/js/workspace_entrance_test.mjs`: gate completion, immediate return handoff,
+  focus safety, patch continuity and teardown. Brand tests cover both return-hook mount orders.
 - `test/js/theme_picker_test.mjs`: persisted selections, corrupt/prototype-named values, unavailable
   storage, failed writes/recovery, patch/remount continuity and listener teardown.
 - `test/js/ui_browser_runner_test.mjs`: early normal/signal Chrome exit must fail promptly,
@@ -569,8 +599,12 @@ historical results do not certify a new change.
   overview, obsolete-query/bookmark normalization, workspace history, direct account/thread/search/page entry, reload-equivalent mounts, URL
   transitions, invalid/unavailable recovery and account fencing. Owner controller/auth tests
   cover safe requested destinations through unlock and reject unsafe/form-injected returns.
+- `test/lovelace_web/workspace_return_test.exs`: exact one-use redirect destinations,
+  expiry/session binding, early callback/credential returns, connected mounts, ordinary
+  reloads and locked/revoked denial. Return markers never bypass owner guards.
 - `test/lovelace_web/live/home_overview_live_test.exs`: distinct connection summaries,
-  shared/unattached membership, unknown/zero/stale counts, Home navigation and account isolation.
+  shared/unattached membership, paired total/recent unread metrics, unknown/zero/stale counts,
+  Home navigation and account isolation.
 - `test/lovelace/stage_designer/bundled_scenes_test.exs`: fresh-database default reads,
   immutable initialization across connections/restarts and concurrent boots, authorization,
   pinned JPEG hashes/validation and independence from generated scenes/reservations.
@@ -600,7 +634,8 @@ historical results do not certify a new change.
   revocation and real CSRF enforcement on Lock (missing/invalid denial, valid token acceptance).
   Asset tests pin local vendor/font files and retained licenses.
 - `test/browser/ui_contract.mjs`, launched by `test/support/ui_browser.exs`: actual browser
-  entrance/directional exit/gate and focus; Home/Lock computed visibility/focusability; static
+  entrance/directional exit/gate and focus; already-unlocked OAuth/credential returns
+  without activation, one-use reload behavior and Escape/wake; Home/Lock computed visibility/focusability; static
   stage with/without JS; static/live image success/failure; wheel-scrolled stationary Lock/Escape
   rail with independently scrolling navigation at desktop/laptop/narrow widths and forced colors,
   including reserved-band non-overlap and entrance gating; native menus; workspace/account/
@@ -635,7 +670,9 @@ historical results do not certify a new change.
   and focus restoration, read-only refresh, cross-tab selection, reload persistence, narrow
   and forced-color gallery/dialog layouts; all four keyboard-selected Settings themes on Home,
   Workspaces and mail, reload/history persistence, unchanged imagery, narrow/forced-color picker
-  layouts and the protected Settings deep link; off-origin requests, page errors and CSP events.
+  layouts and the protected Settings deep link; real GitHub attention counts across all
+  four palettes, AA contrast on base surfaces, semantic hue separation, narrow/forced-color
+  labels and screenshots; off-origin requests, page errors and CSP events.
 
 The browser gate is separate from `mix check`/hosted CI and requires an installed browser;
 it fails rather than silently skipping when unavailable. See development guidance for its

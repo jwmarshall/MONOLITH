@@ -218,12 +218,32 @@ Gmail never starts a browser or requests consent automatically.
    without reauthorizing. Each attached Gmail tile opens only that account's inbox.
 
 Workspace card warnings reflect known connection problems, not a new live provider check.
-Home shows each non-disconnected account once, with workspace labels and the unread inbox
-conversation total from Gmail's INBOX label `threadsUnread` (not unread messages or a partial
-page count). Unknown remains unavailable, not zero. The count has its own observation time
-and failure state; stale counts remain visible and labeled. Unrelated page reads cannot
-make an old count appear fresh. Rows open that account directly, even if unattached to a
-workspace, without adding membership. Home never merges inboxes or shows message previews.
+Home shows each non-disconnected account once, with workspace labels and paired unread
+inbox **conversation** counts: the total from Gmail's INBOX label `threadsUnread`,
+and the recent count from Gmail thread search with INBOX and UNREAD labels and
+`after:<cutoff> before:<end>` received-time bounds. Both bounds are fixed UTC Unix
+seconds at the start of one observation, exactly 86,400 seconds apart; this is a
+rolling 24-hour window at Gmail search's second resolution, not a local calendar day,
+message `Date` header, cached-page count, or unread-message count. Gmail decides which
+conversations match its received-time search; each returned thread ID counts once,
+even when several messages match. This is not a claim that every message in that
+conversation is recent or unread. Gmail can change while the label and pages are
+read; the API does not provide a transactional mailbox snapshot.
+
+Recent search pages request IDs only, at most 500 IDs per page and ten pages
+(5,000 returned IDs), under the same whole-operation deadline as the label read
+(15 seconds by default, at most 30 seconds). A completed empty search means zero;
+`resultSizeEstimate` is never used. A remaining page after the tenth, malformed page,
+repeated page token, HTTP failure or timeout makes the **paired observation**
+unavailable instead of publishing a partial count or refreshing only one number.
+Both counts and their shared observation time are committed together, per account
+and connection generation. Unknown recent counts, including on upgraded installations,
+remain unavailable rather than becoming zero. Failures retain both last-known counts
+and their original timestamp, with an explicit stale/error state. Unrelated page reads
+cannot make them fresh. Reconnect and disconnect clear both numbers. Home cards show
+**total / last 24h** and open that account directly, even if unattached to a workspace,
+without adding membership.
+Home never merges inboxes or shows message previews and never performs provider work on render.
 Global **Connections** (`/connections`) is a provider overview, with no workspace query or
 workspace-return control. **Connections → Gmail** (`/connections/gmail`) lists reusable
 accounts in compact rows with last known health,

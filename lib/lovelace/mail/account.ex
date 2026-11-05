@@ -35,6 +35,7 @@ defmodule Lovelace.Mail.Account do
         :last_error,
         :next_poll_at,
         :inbox_unread_count,
+        :inbox_unread_recent_count,
         :inbox_unread_at,
         :inbox_unread_error
       ]
@@ -42,6 +43,7 @@ defmodule Lovelace.Mail.Account do
       change set_attribute(:status, :ready)
       change set_attribute(:last_error, nil)
       change set_attribute(:inbox_unread_count, nil)
+      change set_attribute(:inbox_unread_recent_count, nil)
       change set_attribute(:inbox_unread_at, nil)
       change set_attribute(:inbox_unread_error, nil)
       change set_attribute(:next_poll_at, &DateTime.utc_now/0)
@@ -58,6 +60,7 @@ defmodule Lovelace.Mail.Account do
         :generation,
         :calendar_enabled,
         :inbox_unread_count,
+        :inbox_unread_recent_count,
         :inbox_unread_at,
         :inbox_unread_error
       ]
@@ -99,6 +102,7 @@ defmodule Lovelace.Mail.Account do
     end
 
     attribute :inbox_unread_count, :integer, constraints: [min: 0]
+    attribute :inbox_unread_recent_count, :integer, constraints: [min: 0]
     attribute :inbox_unread_at, :utc_datetime_usec
 
     attribute :inbox_unread_error, :atom do

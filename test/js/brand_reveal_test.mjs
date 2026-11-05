@@ -1,10 +1,12 @@
 import assert from "node:assert/strict"
 import test from "node:test"
 import BrandReveal from "../../assets/js/hooks/brand_reveal.js"
+import WorkspaceEntrance from "../../assets/js/hooks/workspace_entrance.js"
 import {gsap} from "../../assets/vendor/gsap/gsap.js"
 
 class FakeTarget extends EventTarget {
   listeners = new Map()
+  attributes = new Map()
 
   addEventListener(type, callback) {
     super.addEventListener(type, callback)
@@ -17,11 +19,12 @@ class FakeTarget extends EventTarget {
     this.listeners.get(type)?.delete(callback)
   }
 
+  getAttribute(name) { return this.attributes.get(name) ?? null }
   emit(type) { this.dispatchEvent(new Event(type)) }
   get listenerCount() { return [...this.listeners.values()].reduce((n, callbacks) => n + callbacks.size, 0) }
 }
 
-function brand(t, {reduced = false, focused = false} = {}) {
+function brand(t, {reduced = false, focused = false, enterOnReturn = null, beforeMount} = {}) {
   const preference = new FakeTarget()
   preference.matches = reduced
   const previousWindow = Object.getOwnPropertyDescriptor(globalThis, "window")
@@ -49,15 +52,19 @@ function brand(t, {reduced = false, focused = false} = {}) {
     assert.equal(selector, ".workspace-letter")
     return letters
   }
+  const main = new FakeTarget()
+  if (enterOnReturn !== null) main.attributes.set("data-enter-on-return", enterOnReturn)
+  const pane = new FakeTarget()
+  pane.attributes.set("aria-pressed", String(focused))
+  const root = new FakeTarget()
+  root.querySelector = selector => {
+    if (selector === "#main-content") return main
+    assert.equal(selector, "#workspace-pane")
+    return pane
+  }
   el.closest = selector => {
     assert.equal(selector, "#workspace")
-    return {querySelector: selector => {
-      assert.equal(selector, "#workspace-pane")
-      return {getAttribute: name => {
-        assert.equal(name, "aria-pressed")
-        return String(focused)
-      }}
-    }}
+    return root
   }
   const completions = []
   el.addEventListener("lovelace:brand-complete", event => completions.push(event))
@@ -66,6 +73,7 @@ function brand(t, {reduced = false, focused = false} = {}) {
     hook.destroyed()
     gsap.ticker.sleep()
   })
+  beforeMount?.({el, main, pane, root})
   hook.mounted()
   // Advance explicitly: no wall-clock waits or background animation races.
   gsap.ticker.sleep()
@@ -85,7 +93,7 @@ function brand(t, {reduced = false, focused = false} = {}) {
     gsap.ticker.sleep()
   }
   const finish = () => { seek(1); exit(1) }
-  return {hook, el, preference, completions, stroke, letters, restart, seek, exit, motion, finish}
+  return {hook, el, main, pane, root, preference, completions, stroke, letters, restart, seek, exit, motion, finish}
 }
 
 test("normal reveal holds, exits in the opposite direction, then completes exactly once", t => {
@@ -247,6 +255,108 @@ for (const reduced of [false, true]) {
       finish()
     }
     assert.equal(hook.completed, true)
+    assert.equal(completions.length, 1)
+  })
+}
+
+for (const enterOnReturn of [null, "false"]) {
+  test(`ordinary brand mount stays dormant for return flag ${JSON.stringify(enterOnReturn)}`, t => {
+    const {hook, completions} = brand(t, {enterOnReturn})
+    assert.equal(hook.completed, false)
+    assert.equal(hook.active, false)
+    assert.equal(hook.timeline.paused(), true)
+    assert.equal(hook.timeline.progress(), 0)
+    assert.deepEqual(completions, [])
+  })
+}
+
+for (const order of ["entrance-first", "brand-first"]) {
+  test(`return skips motion and opens the workspace with ${order} hook mounting`, t => {
+    let entranceHook, content, controls, document, sticky
+    const current = brand(t, {
+      enterOnReturn: "true",
+      beforeMount: ({el, main, pane, root}) => {
+        content = new FakeTarget()
+        controls = new FakeTarget()
+        content.attributes.set("inert", "")
+        controls.attributes.set("inert", "")
+        main.attributes.set("data-entered", "false")
+        document = {body: {id: "body"}, activeElement: {id: "reply", tagName: "INPUT"}}
+        main.ownerDocument = document
+        main.closest = () => root
+        main.querySelector = selector => {
+          if (selector === "#workspace-content") return content
+          if (selector === "#workspace-controls") return controls
+          throw new Error(`Unexpected focus query: ${selector}`)
+        }
+        root.attributes.set("data-workspace-focus", "shared-focus-command")
+        root.attributes.set("data-workspace-reset", "shared-reset-command")
+        sticky = []
+        const setAttribute = (target, name, value) => {
+          sticky.push(() => target.attributes.set(name, value))
+          sticky.at(-1)()
+        }
+        entranceHook = Object.assign({}, WorkspaceEntrance, {
+          el: main,
+          handleEvent() {},
+          js: () => ({
+            setAttribute,
+            removeAttribute: (target, name) => {
+              sticky.push(() => target.attributes.delete(name))
+              sticky.at(-1)()
+            },
+            exec: command => {
+              const focus = command === "shared-focus-command"
+              assert.ok(focus || command === "shared-reset-command")
+              setAttribute(pane, "aria-pressed", String(focus))
+              el.emit(focus ? "lovelace:brand-focus" : "lovelace:brand-reset")
+            },
+          }),
+        })
+        // Node EventTarget does not bubble; forward the brand's real completion.
+        const onComplete = () => main.emit("lovelace:brand-complete")
+        el.addEventListener("lovelace:brand-complete", onComplete)
+        t.after(() => {
+          entranceHook.destroyed()
+          el.removeEventListener("lovelace:brand-complete", onComplete)
+        })
+        if (order === "entrance-first") entranceHook.mounted()
+      },
+    })
+    if (order === "brand-first") entranceHook.mounted()
+
+    const {hook, el, main, pane, root, completions, stroke, letters, restart} = current
+    assert.equal(main.getAttribute("data-entered"), "true")
+    assert.equal(content.getAttribute("inert"), null)
+    assert.equal(controls.getAttribute("inert"), null)
+    assert.equal(pane.getAttribute("aria-pressed"), "true")
+    assert.equal(document.activeElement.id, "reply")
+    assert.equal(hook.completed, true)
+    assert.equal(hook.active, false, "no reveal was started")
+    assert.equal(hook.timeline.paused(), true)
+    assert.equal(hook.timeline.progress(), 1)
+    assert.equal(stroke.strokeDashoffset, -100)
+    assert.ok(letters.every(letter => letter.opacity === 0))
+    assert.equal(completions.length, 1)
+
+    // Escape and idle execute this same shared reset. Patches must not undo it.
+    entranceHook.js().exec(root.getAttribute("data-workspace-reset"))
+    main.attributes.set("data-entered", "false")
+    content.attributes.set("inert", "")
+    controls.attributes.set("inert", "")
+    pane.attributes.set("aria-pressed", "false")
+    for (const apply of sticky) apply()
+    entranceHook.updated?.()
+    assert.equal(pane.getAttribute("aria-pressed"), "false")
+    assert.equal(main.getAttribute("data-entered"), "true")
+    assert.equal(content.getAttribute("inert"), null)
+    assert.equal(controls.getAttribute("inert"), null)
+    assert.equal(hook.active, false)
+
+    entranceHook.js().exec(root.getAttribute("data-workspace-focus"))
+    el.emit("lovelace:brand-focus")
+    assert.equal(pane.getAttribute("aria-pressed"), "true")
+    assert.equal(restart.mock.callCount(), 0)
     assert.equal(completions.length, 1)
   })
 }

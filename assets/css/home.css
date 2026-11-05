@@ -1,4 +1,4 @@
-/* Daily orientation is an open readout on the shared stage, not another card. */
+/* Daily orientation shares the glass stage with quiet per-account service cards. */
 .workspace-topline:has(.center-nav) { display: grid; grid-template-columns: 1fr auto 1fr; gap: 16px; }
 .center-nav { grid-column: 2; display: flex; gap: clamp(12px, 3vw, 28px); align-items: center; }
 .workspace-nav-link { min-width: 44px; min-height: 44px; padding: 10px 0; border-bottom: 1px solid transparent; font-size: 13px; letter-spacing: 0.08em; color: var(--color-secondary); cursor: pointer; }
@@ -13,21 +13,27 @@
 .home-section-heading { display: flex; align-items: center; justify-content: space-between; gap: var(--home-section-heading-gap); min-height: var(--home-section-heading-height); margin: 0; padding: 0; }
 .home-section-heading > * { min-width: 0; }
 .home-section-meta { margin-inline-start: auto; max-width: 50%; text-align: right; }
-.home-accounts { list-style: none; margin: 0; padding: 0; }
-.home-account { border-top: 1px solid var(--border-default); padding-bottom: 8px; }
-.home-account:last-child { border-bottom: 1px solid var(--border-default); }
-.home-account-open { display: grid; grid-template-columns: minmax(0, 1fr) auto 16px; gap: 16px; align-items: center; width: 100%; min-height: 68px; padding: 10px 4px 6px; text-align: left; border-radius: 2px; cursor: pointer; }
-.home-account-open:hover { background: var(--surface-hover-quiet); }
+.home-accounts { display: grid; gap: 12px; list-style: none; margin: 0; padding: 0; }
+.home-account { min-width: 0; padding: 14px 16px; border: 1px solid var(--border-default); border-radius: 6px; background: var(--surface-card); }
+.home-account-open { display: grid; grid-template-columns: minmax(0, 1fr) 16px; gap: 12px; align-items: start; width: 100%; min-height: 44px; text-align: left; border-radius: 2px; cursor: pointer; }
+.home-account-open:hover .home-account-email { color: var(--color-primary); }
+.home-account-open:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 6px; }
 .home-account-identity { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .home-account-email { font-size: 16px; line-height: 1.5; overflow-wrap: anywhere; }
 .home-account-workspaces { font-size: 12px; line-height: 1.7; color: var(--color-secondary); overflow-wrap: anywhere; }
-.home-unread { display: flex; flex-direction: column; align-items: flex-end; text-align: right; }
-.home-unread-number { font-size: 26px; line-height: 1.2; font-variant-numeric: tabular-nums; font-weight: 300; color: var(--color-primary); }
-.home-unread-label { font-size: 11px; line-height: 1.5; color: var(--color-secondary); }
-.home-account-arrow { color: var(--color-primary); }
-.home-account-health { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; padding-inline: 4px; font-size: 12px; line-height: 1.7; color: var(--color-secondary); }
-.home-empty { display: flex; flex-direction: column; align-items: flex-start; gap: 12px; padding-block: 20px; font-size: 14px; line-height: 1.8; color: var(--color-secondary); border-top: 1px solid var(--border-default); }
+.home-unread { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; }
+.home-unread-values { font-size: 26px; line-height: 1.2; font-variant-numeric: tabular-nums; font-weight: 300; }
+.home-unread-number { color: var(--color-primary); }
+.home-unread-separator { color: var(--color-secondary); font-size: 18px; }
+.home-unread-recent { color: var(--color-attention); }
+.home-unread-label { flex-basis: 100%; font-size: 12px; line-height: 1.5; color: var(--color-secondary); }
+.home-unread-context { font-size: 11px; line-height: 1.5; color: var(--color-secondary); }
+.home-account-arrow { margin-top: 4px; color: var(--color-primary); }
+.home-account-health { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; font-size: 12px; line-height: 1.7; color: var(--color-secondary); }
+.home-account-health:has(> :not(:empty)) { margin-top: 8px; }
+.home-empty { display: flex; flex-direction: column; align-items: flex-start; gap: 12px; padding: 14px 16px; font-size: 14px; line-height: 1.8; color: var(--color-secondary); border: 1px solid var(--border-default); border-radius: 6px; background: var(--surface-card); }
 .home-empty > p:first-child { color: var(--color-base-content); }
+.home-overview > .empty-state, .home-readouts .calendar-empty { padding: 14px 16px; border: 1px solid var(--border-default); border-radius: 6px; background: var(--surface-card); }
 .home-freshness:empty { display: none; }
 /* Stack before either account identity or the agenda's reading measure gets cramped. */
 @media (max-width: 1000px) {
@@ -38,11 +44,10 @@
   .center-nav { grid-column: 1; flex-wrap: wrap; justify-content: center; gap: 0 12px; }
   .daily-heading { gap: 8px; margin-bottom: 24px; }
   .daily-date { flex-basis: 100%; }
-  .home-account-open { grid-template-columns: minmax(0, 1fr) auto; gap: 12px; }
-  .home-account-arrow { display: none; }
 }
 @media (forced-colors: active) {
-  .home-account, .home-empty, .workspace-nav-link[aria-current="page"] { border-color: CanvasText; }
+  .home-account, .home-empty, .home-overview > .empty-state, .workspace-nav-link[aria-current="page"] { border-color: CanvasText; }
   .home-overview *, .daily-heading *, .workspace-nav-link { color: CanvasText; text-shadow: none; }
-  .home-account-open:hover { background: Canvas; }
+  .home-account, .home-empty, .home-overview > .empty-state { background: Canvas; }
+  .home-account-open:focus-visible { outline-color: Highlight; }
 }

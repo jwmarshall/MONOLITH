@@ -13,6 +13,7 @@
   --theme-secondary: #b0bfba;
   --theme-info: #9bbfe2;
   --theme-success: #a5bb91;
+  --theme-attention: #c4b5ed;
   --theme-warning: #d6aa69;
   --theme-warning-content: #19150e;
   --theme-error: #dc9487;
@@ -39,6 +40,7 @@
   --theme-secondary: #bdbbb7;
   --theme-info: #aabac7;
   --theme-success: #b1bda4;
+  --theme-attention: #c3b2de;
   --theme-warning: #cfb486;
   --theme-warning-content: #211b12;
   --theme-error: #d49b92;
@@ -65,6 +67,7 @@
   --theme-secondary: #c2b5a1;
   --theme-info: #a9bec8;
   --theme-success: #b0ba91;
+  --theme-attention: #c4b3e5;
   --theme-warning: #d5b078;
   --theme-warning-content: #241b0e;
   --theme-error: #d69986;
@@ -91,6 +94,7 @@
   --theme-secondary: #b3bfcc;
   --theme-info: #9dbfe0;
   --theme-success: #adbea5;
+  --theme-attention: #d1b2e5;
   --theme-warning: #d1b184;
   --theme-warning-content: #211a10;
   --theme-error: #d49c98;
@@ -145,6 +149,8 @@
 :root {
   color-scheme: dark;
   --color-primary-hover: var(--theme-primary-hover);
+  /* Actionable items, not degraded service (warning) or failure/destruction (error). */
+  --color-attention: var(--theme-attention);
   --color-text-bright: var(--theme-text-bright);
   --color-text-soft: var(--theme-text-soft);
   --color-text-muted: var(--theme-text-muted);

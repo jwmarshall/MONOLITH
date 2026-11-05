@@ -42,93 +42,228 @@ defmodule LovelaceWeb.GitHubComponents do
       <div :if={!@error && @organizations == []} class="empty-state">
         <.icon name="hero-code-bracket" class="empty-state-mark size-6" />
         <div class="empty-state-body">
-          <h4 class="empty-state-title">No GitHub readouts yet</h4>
-          <p class="empty-state-copy">
-            Connect a GitHub account or organization for read-only pull requests, issues and Actions status.
-          </p>
+          <h4 class="empty-state-title">Connect GitHub</h4>
+          <p class="empty-state-copy">Pull requests, issues and recent runs, by owner.</p>
           <div class="empty-state-actions">
             <.link patch="/connections/github" class="workspace-action workspace-action-link">
-              Connect GitHub
+              Set up GitHub
             </.link>
           </div>
         </div>
       </div>
-      <article
-        :for={org <- @organizations}
-        id={"#{if @workspace_id, do: "workspace-", else: ""}github-org-#{org.id}"}
-        class="github-organization"
-      >
-        <div class="github-org-heading">
-          <div>
-            <h4>{org.login}</h4>
-            <p class="mail-muted">{workspace_names(org.id, @memberships, @workspace_options)}</p>
-          </div>
-          <button
-            type="button"
-            class="workspace-action"
-            phx-click="github:refresh"
-            phx-value-id={org.id}
-          >
-            Refresh<span class="sr-only">{org.login} pull requests</span>
-          </button>
-        </div>
-        <.health organization={org} now={@now} />
-        <p :if={Map.get(org, :repository_selection, false)} class="mail-muted">
-          Selected workspace repositories only. Shown rows are a subset of the bounded owner snapshot, not repository totals.
-        </p>
-        <h5 class="github-readout-title">Open pull requests</h5>
-        <p :if={observed?(org, @now)} class="github-summary">
-          {length(org.pull_requests)} shown<span :if={org.total_count != nil}> · {org.total_count} open in accessible repositories</span>
-          <span :if={count(org.pull_requests, :review) > 0}> · {count(org.pull_requests, :review)} awaiting review</span>
-          <span :if={count(org.pull_requests, :failed) > 0}> · {count(org.pull_requests, :failed)} with failing checks</span>
-          <span :if={count(org.pull_requests, :draft) > 0}> · {count(org.pull_requests, :draft)} draft</span>
-        </p>
-        <p :if={org.truncated && observed?(org, @now)} class="connection-warning">
-          Partial results · some pull requests or status fields may be unavailable. Most recently updated first.
-        </p>
-        <p
-          :if={
-            observed?(org, @now) && org.pull_requests == [] && org.total_count == 0 && !org.truncated
-          }
-          class="mail-muted"
+      <div class={if !@workspace_id, do: "github-home-grid"}>
+        <article
+          :for={org <- @organizations}
+          id={"#{if @workspace_id, do: "workspace-", else: ""}github-org-#{org.id}"}
+          class={["github-organization", !@workspace_id && "github-home-organization"]}
         >
-          No open pull requests found in accessible repositories.
-        </p>
-        <p
-          :if={
-            observed?(org, @now) && org.pull_requests == [] && (org.total_count != 0 || org.truncated)
-          }
-          class="mail-muted"
-        >
-          Pull request details are unavailable in these partial results.
-        </p>
-        <ul :if={observed?(org, @now) && org.pull_requests != []} class="github-pr-list">
-          <li :for={pr <- org.pull_requests} class="github-pr">
-            <div class="github-pr-main">
-              <a
-                href={pr["url"]}
-                target="_blank"
-                rel="noopener noreferrer"
-                class="github-pr-title workspace-action-link"
-              >
-                {pr["title"]}<span class="sr-only"> (opens GitHub in a new tab)</span>
-              </a>
-              <p class="github-pr-meta">
-                {pr["repository"]} #{pr["number"]} · {pr["author"] || "Author unavailable"}
+          <div class="github-org-heading">
+            <div>
+              <h4>{org.login}</h4>
+              <p :if={@workspace_id} class="mail-muted">
+                {workspace_names(org.id, @memberships, @workspace_options)}
               </p>
             </div>
-            <div class="github-pr-state">
-              <span>{review_label(pr)}</span>
-              <span class={if pr["checks"] in ["FAILURE", "ERROR"], do: "github-check-failed"}>
-                {checks_label(pr["checks"])}
-              </span>
-              <time datetime={pr["updated_at"]}>Updated {date_label(pr["updated_at"])}</time>
-            </div>
-          </li>
-        </ul>
-        <.related_activity organization={org} now={@now} />
-      </article>
+            <button
+              :if={@workspace_id}
+              type="button"
+              class="workspace-action"
+              phx-click="github:refresh"
+              phx-value-id={org.id}
+            >
+              Refresh<span class="sr-only">{org.login} activity</span>
+            </button>
+          </div>
+          <.health :if={@workspace_id} organization={org} now={@now} />
+          <.home_snapshot :if={!@workspace_id} organization={org} now={@now} />
+          <.home_activity_links
+            :if={!@workspace_id}
+            organization={org}
+            memberships={@memberships}
+            workspace_options={@workspace_options}
+          />
+          <div :if={@workspace_id}>
+            <p :if={Map.get(org, :repository_selection, false)} class="mail-muted">
+              Selected workspace repositories only. Shown rows are a subset of the bounded owner snapshot, not repository totals.
+            </p>
+            <h5 class="github-readout-title">Open pull requests</h5>
+            <p :if={observed?(org, @now)} class="github-summary">
+              {length(org.pull_requests)} shown<span :if={org.total_count != nil}> · {org.total_count} open in accessible repositories</span>
+              <span :if={count(org.pull_requests, :review) > 0}> · {count(org.pull_requests, :review)} awaiting review</span>
+              <span :if={count(org.pull_requests, :failed) > 0}> · {count(org.pull_requests, :failed)} with failing checks</span>
+              <span :if={count(org.pull_requests, :draft) > 0}> · {count(org.pull_requests, :draft)} draft</span>
+            </p>
+            <p :if={org.truncated && observed?(org, @now)} class="connection-warning">
+              Partial results · some pull requests or status fields may be unavailable. Most recently updated first.
+            </p>
+            <p
+              :if={
+                observed?(org, @now) && org.pull_requests == [] && org.total_count == 0 &&
+                  !org.truncated
+              }
+              class="mail-muted"
+            >
+              No open pull requests found in accessible repositories.
+            </p>
+            <p
+              :if={
+                observed?(org, @now) && org.pull_requests == [] &&
+                  (org.total_count != 0 || org.truncated)
+              }
+              class="mail-muted"
+            >
+              Pull request details are unavailable in these partial results.
+            </p>
+            <ul :if={observed?(org, @now) && org.pull_requests != []} class="github-pr-list">
+              <li :for={pr <- org.pull_requests} class="github-pr">
+                <div class="github-pr-main">
+                  <a
+                    href={pr["url"]}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    class="github-pr-title workspace-action-link"
+                  >
+                    {pr["title"]}<span class="sr-only"> (opens GitHub in a new tab)</span>
+                  </a>
+                  <p class="github-pr-meta">
+                    {pr["repository"]} #{pr["number"]} · {pr["author"] || "Author unavailable"}
+                  </p>
+                </div>
+                <div class="github-pr-state">
+                  <span>{review_label(pr)}</span>
+                  <span class={if pr["checks"] in ["FAILURE", "ERROR"], do: "github-check-failed"}>
+                    {checks_label(pr["checks"])}
+                  </span>
+                  <time datetime={pr["updated_at"]}>Updated {date_label(pr["updated_at"])}</time>
+                </div>
+              </li>
+            </ul>
+            <.related_activity organization={org} now={@now} />
+          </div>
+        </article>
+      </div>
     </section>
+    """
+  end
+
+  attr :organization, :any, required: true
+  attr :now, :any, required: true
+
+  defp home_snapshot(assigns) do
+    assigns =
+      assign(
+        assigns,
+        home_metrics(assigns.organization, observed?(assigns.organization, assigns.now))
+      )
+
+    ~H"""
+    <dl class="github-home-metrics" aria-label="Accessible repository snapshot">
+      <.snapshot_count label="Open PRs" total={@prs} paired attention={@prs_attention} />
+      <.snapshot_count label="Open issues" total={@issues} />
+      <.snapshot_count label="Recent runs" total={@runs} paired attention={@runs_attention} />
+    </dl>
+    """
+  end
+
+  defp home_metrics(_org, false),
+    do: %{prs: nil, issues: nil, prs_attention: nil, runs: nil, runs_attention: nil}
+
+  defp home_metrics(org, true) do
+    prs_available = org.pull_requests != [] || !org.truncated
+    runs_available = org.workflow_runs != [] || !org.actions_truncated
+
+    %{
+      prs: org.total_count,
+      issues: org.issue_count,
+      prs_attention:
+        if prs_available do
+          Enum.count(org.pull_requests, fn pr ->
+            (!pr["is_draft"] && pr["review_decision"] == "REVIEW_REQUIRED") ||
+              pr["checks"] in ["FAILURE", "ERROR"]
+          end)
+        end,
+      runs: if(runs_available, do: length(org.workflow_runs)),
+      runs_attention:
+        if runs_available do
+          Enum.count(
+            org.workflow_runs,
+            &(&1["conclusion"] in ["failure", "timed_out", "action_required", "startup_failure"])
+          )
+        end
+    }
+  end
+
+  attr :label, :string, required: true
+  attr :total, :any, required: true
+  attr :paired, :boolean, default: false
+  attr :attention, :any, default: nil
+
+  defp snapshot_count(assigns) do
+    assigns =
+      assign(assigns,
+        value: if(is_integer(assigns.total), do: assigns.total, else: "—"),
+        attention_value: if(is_integer(assigns.attention), do: assigns.attention, else: "—")
+      )
+
+    ~H"""
+    <div class="github-home-metric">
+      <dt>{@label}</dt>
+      <dd class="github-home-number">
+        <span aria-hidden="true">
+          <span class="github-home-total">{@value}</span><span
+            :if={@paired}
+            class="github-home-separator"
+          > / </span><span
+            :if={@paired}
+            class="github-home-attention"
+            title="Needs attention in the snapshot"
+          >{@attention_value}</span>
+        </span>
+        <span class="sr-only">
+          {@label}: {if is_integer(@total), do: @total, else: "unavailable"}<span :if={@paired}>; needs attention in the snapshot: {if is_integer(
+                                                                                                                                         @attention
+                                                                                                                                       ),
+                                                                                                                                       do:
+                                                                                                                                         @attention,
+                                                                                                                                       else:
+                                                                                                                                         "unavailable"}</span>
+        </span>
+      </dd>
+    </div>
+    """
+  end
+
+  attr :organization, :any, required: true
+  attr :memberships, :list, required: true
+  attr :workspace_options, :list, required: true
+
+  defp home_activity_links(assigns) do
+    ids =
+      for member <- assigns.memberships,
+          member.organization_id == assigns.organization.id,
+          do: member.workspace_id
+
+    workspaces = for {name, id} <- assigns.workspace_options, id in ids, do: {name, id}
+    assigns = assign(assigns, workspaces: workspaces, single: length(workspaces) == 1)
+
+    ~H"""
+    <div class="github-home-links">
+      <.link
+        :for={{name, id} <- @workspaces}
+        patch={
+          LovelaceWeb.HomeNavigation.workspace_path(id) <>
+            "#workspace-github-org-#{@organization.id}"
+        }
+        class="workspace-action workspace-action-link"
+        aria-label={"View #{@organization.login} activity in #{name}"}
+      >{if @single, do: "View activity", else: name}</.link>
+      <.link
+        :if={@workspaces == []}
+        patch="/connections/github"
+        class="workspace-action workspace-action-link"
+        aria-label={"Add #{@organization.login} to a workspace"}
+      >Add to workspace</.link>
+    </div>
     """
   end
 
@@ -864,7 +999,7 @@ defmodule LovelaceWeb.GitHubComponents do
         GitHub activity not yet available.
       </p>
       <p :if={@expired} class="connection-warning">
-        Cached GitHub activity expired. Refresh to read it again.
+        Cached GitHub activity expired.
       </p>
       <p
         :if={@organization.fetched_at && !@expired}
@@ -1006,5 +1141,5 @@ defmodule LovelaceWeb.GitHubComponents do
     do: "Dedicated keychain unavailable. Check GitHub setup and vault access."
 
   defp error_label(_),
-    do: "GitHub refresh failed. Previously observed results may be stale; try Refresh."
+    do: "GitHub refresh failed. Previously observed results may be stale."
 end

@@ -232,9 +232,15 @@ defmodule Lovelace.Mail.Operations do
 
   defp request_unread(token) do
     case provider().inbox_unread(token) do
-      {:ok, count} when is_integer(count) and count >= 0 -> {:ok, count}
-      {:error, reason} -> {:error, safe_reason(reason)}
-      _ -> {:error, :provider}
+      {:ok, %{total: total, recent: recent} = counts}
+      when is_integer(total) and total >= 0 and is_integer(recent) and recent >= 0 ->
+        {:ok, counts}
+
+      {:error, reason} ->
+        {:error, safe_reason(reason)}
+
+      _ ->
+        {:error, :provider}
     end
   rescue
     _ -> {:error, :provider}
@@ -264,7 +270,8 @@ defmodule Lovelace.Mail.Operations do
              current,
              %{
                expected_generation: account.generation,
-               inbox_unread_count: count,
+               inbox_unread_count: count.total,
+               inbox_unread_recent_count: count.recent,
                inbox_unread_at: DateTime.utc_now(),
                inbox_unread_error: error
              },
@@ -497,6 +504,7 @@ defmodule Lovelace.Mail.Operations do
             calendar_enabled: false,
             generation: Ash.UUID.generate(),
             inbox_unread_count: nil,
+            inbox_unread_recent_count: nil,
             inbox_unread_at: nil,
             inbox_unread_error: nil,
             # Persist cleanup intent before crossing the nontransactional vault boundary.

@@ -43,6 +43,7 @@ defmodule LovelaceWeb.HomeLive do
       |> assign(
         page_title: "Home",
         home: true,
+        enter_on_return: session["workspace_return"] == true,
         settings: false,
         navigation_ready: false,
         navigation_path: nil,
@@ -667,6 +668,7 @@ defmodule LovelaceWeb.HomeLive do
             :status,
             :last_error,
             :inbox_unread_count,
+            :inbox_unread_recent_count,
             :inbox_unread_at,
             :inbox_unread_error
           ])
@@ -785,7 +787,7 @@ defmodule LovelaceWeb.HomeLive do
   @impl true
   def render(assigns) do
     ~H"""
-    <Layouts.app flash={@flash} background={@background}>
+    <Layouts.app flash={@flash} background={@background} enter_on_return={@enter_on_return}>
       <h1 id="workspace-title" class="sr-only">LOVELACE</h1>
       <Layouts.brand />
 

@@ -163,6 +163,19 @@ async function verifyEmptyInstallation() {
   await send('Page.reload')
   await waitFor("!!document.querySelector('#home-overview') && window.liveSocket?.getSocket().isConnected()", 'empty Home reload')
   assert.equal(await bundledBackground('#workspace-background'), initial, 'reload retains the installation default')
+  assert.equal(await evaluate("document.querySelector('#workspace-content').inert"), true, 'ordinary reload keeps the entrance gate')
+  await media([])
+  await send('Page.navigate', {url: origin + '/auth/github/callback'})
+  await waitFor("location.pathname === '/connections/github' && !!document.querySelector('#github-connections') && window.liveSocket?.getSocket().isConnected()", 'local OAuth error returns to its provider without a provider request')
+  await focused()
+  await screenshot('unlocked-oauth-return')
+  await key('Escape')
+  await landscape()
+  await key('a', 'a')
+  await focused()
+  await send('Page.reload')
+  await waitFor("!!document.querySelector('#github-connections') && window.liveSocket?.getSocket().isConnected()", 'provider reload after return')
+  assert.equal(await evaluate("document.querySelector('#workspace-content').inert"), true, 'return activation is consumed, not persisted across reloads')
   assert.deepEqual(cspViolations, [])
   assert.deepEqual(errors, [])
   assert.deepEqual(external, [])
@@ -519,19 +532,16 @@ async function homeLayout(width, forced = false) {
     const agenda = document.querySelector('#calendar-agenda').getBoundingClientRect();
     const readouts = document.querySelector('#home-readouts');
     const pane = document.querySelector('#workspace-content');
-    const rows = Array.from(document.querySelectorAll('#home-accounts > li'), row => row.getBoundingClientRect());
     return {sideBySide: agenda.left >= mail.right && Math.abs(agenda.top - mail.top) < 1,
       stacked: agenda.top >= mail.bottom && Math.abs(agenda.left - mail.left) < 1,
       overflow: document.documentElement.scrollWidth > innerWidth || pane.scrollWidth > pane.clientWidth + 1 || readouts.scrollWidth > readouts.clientWidth + 1,
-      rowsVisible: rows.every(row => row.bottom <= innerHeight),
-      compactRows: rows.every(row => row.height <= 120),
       calendarHeadingVisible: agenda.top >= 0 && agenda.top < innerHeight,
       forced: matchMedia('(forced-colors: active)').matches};
   })()`)
   assert.equal(layout.overflow, false, `Home stays within ${width}px (forced colors: ${forced})`)
   assert.equal(width > 1000 ? layout.sideBySide : layout.stacked, true, `Home composition at ${width}px: ${JSON.stringify(layout)}`)
   if (width >= 1280) {
-    assert.equal(layout.rowsVisible && layout.calendarHeadingVisible && layout.compactRows, true, `five Gmail accounts and Calendar visible together: ${JSON.stringify(layout)}`)
+    assert.equal(layout.calendarHeadingVisible, true, `Calendar starts alongside Gmail: ${JSON.stringify(layout)}`)
   }
   assert.equal(layout.forced, forced)
   await calendarItemLayout()
@@ -680,7 +690,41 @@ async function verifyThemes() {
     await click('#home-link')
     await home()
     await applied(theme, '#home-overview')
+    const attention = await evaluate(`(() => {
+      const color = selector => getComputedStyle(document.querySelector(selector)).color;
+      const probe = document.createElement('span');
+      document.body.append(probe);
+      const token = name => { probe.style.color = 'var(' + name + ')'; return getComputedStyle(probe).color; };
+      const rgb = value => value.match(/[\\d.]+/g).slice(0, 3).map(Number);
+      const luminance = value => rgb(value).map(v => {
+        v /= 255; return v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
+      }).reduce((sum, v, i) => sum + v * [0.2126, 0.7152, 0.0722][i], 0);
+      const hue = value => {
+        const [r, g, b] = rgb(value), hi = Math.max(r, g, b), lo = Math.min(r, g, b), delta = hi - lo;
+        if (delta < 20) return null;
+        return ((hi === r ? (g - b) / delta : hi === g ? (b - r) / delta + 2 : (r - g) / delta + 4) * 60 + 360) % 360;
+      };
+      const ink = color('.github-home-attention');
+      const y = luminance(ink);
+      const contrast = ['--color-base-100', '--color-base-200', '--color-base-300'].map(name => {
+        const background = luminance(token(name));
+        return (Math.max(y, background) + 0.05) / (Math.min(y, background) + 0.05);
+      });
+      const attentionHue = hue(ink);
+      const separation = [color('.github-home-total'), token('--color-warning'), token('--color-error')].map(value => {
+        const other = hue(value);
+        const difference = Math.abs(attentionHue - other);
+        return other === null ? 180 : Math.min(difference, 360 - difference);
+      });
+      probe.remove();
+      return {contrast, separation, attentionHue};
+    })()`)
+    assert.notEqual(attention.attentionHue, null, `${theme} attention stays chromatic beside neutral accents`)
+    assert.ok(attention.contrast.every(ratio => ratio >= 4.5), `${theme} attention text meets AA contrast on all base surfaces`)
+    assert.ok(attention.separation.every(degrees => degrees >= 45), `${theme} attention remains distinct from accent, warning and error hues`)
     await screenshot(`theme-${theme}-home`)
+    await evaluate("document.querySelector('#github-readouts').scrollIntoView({block: 'center'})")
+    await screenshot(`theme-${theme}-github-attention`)
     await click('#show-workspaces')
     await waitFor("!!document.querySelector('#workspace-list')", 'theme on Workspaces')
     await applied(theme, '#workspace-list')
@@ -717,6 +761,17 @@ async function verifyThemes() {
       }
     }
     await screenshot(forced ? 'theme-settings-forced-colors' : 'theme-settings-narrow')
+    await click('#home-link')
+    await home()
+    assert.equal(await evaluate("document.documentElement.scrollWidth <= innerWidth"), true, 'GitHub attention pairs fit narrow and forced-color Home')
+    if (forced) {
+      assert.equal(await evaluate("getComputedStyle(document.querySelector('.github-home-attention')).color === getComputedStyle(document.querySelector('.github-home-total')).color"), true, 'forced colors replaces semantic inks with readable system text')
+      assert.equal(await evaluate("document.querySelector('.github-home-number .sr-only').textContent.includes('needs attention')"), true, 'non-color attention meaning survives forced colors')
+    }
+    await evaluate("document.querySelector('#github-readouts').scrollIntoView({block: 'center'})")
+    await screenshot(forced ? 'github-attention-forced-colors' : 'github-attention-narrow')
+    await click('#show-settings')
+    await waitFor("!!document.querySelector('#theme-picker')", 'Settings after GitHub palette inspection')
   }
   await media([{name: 'prefers-reduced-motion', value: 'reduce'}])
   await send('Emulation.setDeviceMetricsOverride', {width: 1440, height: 1000, deviceScaleFactor: 1, mobile: false})
@@ -852,11 +907,11 @@ try {
   await home()
   await verifyNavigationHistory()
   await home()
-  assert.equal(await evaluate("document.querySelectorAll('#home-accounts > li').length"), 5, "one Home row per connection, not per membership")
-  for (const [id, count] of [[accountId, "7"], [unattachedId, "0"]]) {
+  assert.equal(await evaluate("document.querySelectorAll('#home-accounts > li').length"), 5, "one Home card per connection, not per membership")
+  for (const [id, count, recent] of [[accountId, "7", "3"], [unattachedId, "0", "0"]]) {
     assert.equal(await evaluate(`document.querySelectorAll('#home-account-${id}').length`), 1)
     assert.equal(await evaluate(`document.querySelector('#home-count-${id} .home-unread-number').textContent.trim()`), count)
-    assert.equal(await evaluate(`document.querySelector('#home-count-${id} .home-unread-label').textContent.trim()`), "unread")
+    assert.equal(await evaluate(`document.querySelector('#home-count-${id} .home-unread-recent').textContent.trim()`), recent)
     await waitFor(`document.querySelector('#home-freshness-${id}')?.dataset.warningsOnly === 'true' && document.querySelector('#home-freshness-${id}').textContent.trim() === ''`, "Home omits routine checked statuses")
   }
   const memberships = await evaluate(`document.querySelector('#home-account-${accountId} .home-account-workspaces').textContent`)
@@ -1247,7 +1302,6 @@ try {
   await media([{name: "prefers-reduced-motion", value: "reduce"}])
   await click("#gemini-key-form button[type=submit]")
   await waitFor("location.pathname === '/connections/gemini' && document.querySelector('#gemini-api-key')?.value === '' && document.querySelector('#gemini-status')?.textContent.includes('API key stored') && !document.querySelector('#gemini-status')?.textContent.includes('No API key stored')", "Gemini save POST completes at canonical Connections URL with an empty form")
-  await click("#workspace-pane")
   await focused()
   assert.equal(await evaluate("document.querySelector('#gemini-api-key').value"), "", "stored key is not returned to the form")
   assert.equal(await evaluate("!!document.querySelector('#connections-panel')"), false, "credential POST returns to the Gemini provider view")

@@ -22,6 +22,11 @@ export default {
     })
     this.el.addEventListener("lovelace:brand-complete", this.onComplete)
     this.el.addEventListener("focusin", this.onFocus)
+    // A server-authorized return skips only the visual entrance, once per mount.
+    if (this.el.getAttribute("data-enter-on-return") === "true") {
+      this.onComplete()
+      this.onFocus()
+    }
   },
 
   destroyed() {

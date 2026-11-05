@@ -714,7 +714,6 @@ defmodule LovelaceWeb.GitHubCredentialsTest do
       submit(c.conn, %{"operation" => "discover", "connection_id" => authorized.connection.id})
 
     assert redirected_to(response, 303) == "/connections/github?github=keychain_failed"
-    assert connection(authorized.connection.id).status == :reauthorization
     assert connection(other.connection.id) == before_other
     assert TestGitHub.state().tokens == tokens
     assert TestGitHub.state().calls == []

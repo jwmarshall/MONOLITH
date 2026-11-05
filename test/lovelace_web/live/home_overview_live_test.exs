@@ -90,11 +90,11 @@ defmodule LovelaceWeb.HomeOverviewLiveTest do
     assert Mail.list_accounts!(actor: @owner) == []
   end
 
-  test "Home defaults to one metadata-only row per connection, with workspace labels", %{
+  test "Home shows account-specific unread metrics from metadata, with workspace labels", %{
     conn: conn
   } do
-    first = account("first", 12)
-    second = account("second", 0)
+    first = account("first", 12, 3)
+    second = account("second", 0, 0)
     orphan = account("orphan", nil)
     shared = Workspaces.create_workspace!("Shared", actor: @owner)
     personal = Workspaces.create_workspace!("Personal", actor: @owner)
@@ -122,13 +122,15 @@ defmodule LovelaceWeb.HomeOverviewLiveTest do
            )
 
     assert has_element?(view, "#home-count-#{first.id}", "12")
-    assert has_element?(view, "#home-count-#{first.id} .home-unread-label", "unread")
-    refute has_element?(view, "#home-count-#{first.id}", "inbox conversations")
+    assert has_element?(view, "#home-count-#{first.id} .home-unread-recent", "3")
     refute has_element?(view, "#daily-heading p")
     refute has_element?(view, ".home-section-heading p, .home-footnote")
     assert has_element?(view, "#home-count-#{second.id}", "0")
+    assert has_element?(view, "#home-count-#{second.id} .home-unread-recent", "0")
     assert has_element?(view, "#home-count-#{orphan.id} .home-unread-number", "—")
     assert has_element?(view, "#home-count-#{orphan.id} .sr-only", "total unavailable")
+    assert has_element?(view, "#home-count-#{orphan.id} .home-unread-recent", "—")
+    assert has_element?(view, "#home-count-#{orphan.id} .sr-only", "last 24 hours unavailable")
     refute has_element?(view, "#home-health-#{orphan.id}", "Not checked yet")
     refute has_element?(view, "#home-overview", "Last checked")
     assert has_element?(view, "#home-freshness-#{first.id}[data-warnings-only=true]")
@@ -171,8 +173,8 @@ defmodule LovelaceWeb.HomeOverviewLiveTest do
   end
 
   test "count updates stay account-scoped and retain visible stale/error context", %{conn: conn} do
-    first = account("first", 8)
-    second = account("second", 19)
+    first = account("first", 8, 2)
+    second = account("second", 19, 5)
     {:ok, view, _html} = live(conn, ~p"/")
 
     Mail.update_account!(
@@ -183,9 +185,11 @@ defmodule LovelaceWeb.HomeOverviewLiveTest do
 
     Operations.broadcast(first.id)
     assert has_element?(view, "#home-count-#{first.id}", "8")
+    assert has_element?(view, "#home-count-#{first.id} .home-unread-recent", "2")
     assert has_element?(view, "#home-health-#{first.id}", "Gmail rate limit")
     assert has_element?(view, "#home-freshness-#{first.id}[data-failed=true]")
     assert has_element?(view, "#home-count-#{second.id}", "19")
+    assert has_element?(view, "#home-count-#{second.id} .home-unread-recent", "5")
     refute_receive {:home_fetch, _}
   end
 
@@ -314,7 +318,7 @@ defmodule LovelaceWeb.HomeOverviewLiveTest do
     refute_receive {:home_fetch, _}
   end
 
-  defp account(name, count) do
+  defp account(name, count, recent_count \\ nil) do
     account =
       Mail.save_connection!(
         %{
@@ -331,6 +335,7 @@ defmodule LovelaceWeb.HomeOverviewLiveTest do
       %{
         expected_generation: account.generation,
         inbox_unread_count: count,
+        inbox_unread_recent_count: recent_count,
         inbox_unread_at: if(is_integer(count), do: DateTime.utc_now(), else: nil)
       },
       actor: @owner

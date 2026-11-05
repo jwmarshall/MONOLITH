@@ -22,7 +22,7 @@ class FakeTarget extends EventTarget {
   get listenerCount() { return [...this.listeners.values()].reduce((n, callbacks) => n + callbacks.size, 0) }
 }
 
-function workspace(t, active = "pane") {
+function workspace(t, active = "pane", enterOnReturn = null) {
   const document = {body: {id: "body"}}
   const focusCalls = []
   const heading = {focus: options => {
@@ -42,6 +42,7 @@ function workspace(t, active = "pane") {
   const entrance = new FakeTarget()
   entrance.ownerDocument = document
   entrance.attributes.set("data-entered", "false")
+  if (enterOnReturn !== null) entrance.attributes.set("data-enter-on-return", enterOnReturn)
   entrance.closest = selector => {
     assert.equal(selector, "#workspace")
     return root
@@ -102,6 +103,44 @@ test("completion opens the entrance gate through sticky LiveView JS, surviving a
   assert.equal(entrance.getAttribute("data-entered"), "true")
   assert.equal(content.getAttribute("inert"), null)
   assert.equal(controls.getAttribute("inert"), null)
+})
+
+test("return opens content and controls immediately without waiting for brand completion", t => {
+  const {entrance, content, controls, commands, sticky, patch, document, heading} =
+    workspace(t, "body", "true")
+  assert.equal(entrance.getAttribute("data-entered"), "true")
+  assert.equal(content.getAttribute("inert"), null)
+  assert.equal(controls.getAttribute("inert"), null)
+  assert.equal(document.activeElement, heading)
+  assert.deepEqual(commands, ["shared-focus-command"])
+  assert.equal(sticky.length, 3)
+
+  patch()
+  patch()
+  assert.equal(entrance.getAttribute("data-entered"), "true")
+  assert.equal(content.getAttribute("inert"), null)
+  assert.equal(controls.getAttribute("inert"), null)
+  assert.deepEqual(commands, ["shared-focus-command"], "patches must not refocus a reset workspace")
+})
+
+for (const enterOnReturn of [null, "false", "1", ""]) {
+  test(`ordinary mount keeps the gate closed for return flag ${JSON.stringify(enterOnReturn)}`, t => {
+    const {entrance, content, controls, commands, sticky} = workspace(t, "body", enterOnReturn)
+    assert.equal(entrance.getAttribute("data-entered"), "false")
+    assert.equal(content.getAttribute("inert"), "")
+    assert.equal(controls.getAttribute("inert"), "")
+    assert.deepEqual(commands, [])
+    assert.deepEqual(sticky, [])
+  })
+}
+
+test("return preserves an active input while opening and focusing the workspace pane state", t => {
+  const input = {id: "workspace-name", tagName: "INPUT"}
+  const {document, focusCalls, commands, content} = workspace(t, input, "true")
+  assert.equal(document.activeElement, input)
+  assert.deepEqual(focusCalls, [])
+  assert.deepEqual(commands, ["shared-focus-command"])
+  assert.equal(content.getAttribute("inert"), null)
 })
 
 for (const active of ["pane", "body"]) {

@@ -127,9 +127,15 @@ defmodule LovelaceWeb.OwnerAuthTest do
     assert redirected_to(conn) == "/unlock"
   end
 
-  test "LiveView mount rejects missing credentials" do
-    assert {:halt, socket} = OwnerAuth.on_mount(:require_owner, %{}, %{}, socket())
-    assert socket.redirected == {:redirect, %{to: "/unlock", status: 302}}
+  test "LiveView mount rejects missing credentials even with a return signal" do
+    for session <- [
+          %{},
+          %{"workspace_return" => true},
+          %{"workspace_return" => true, "owner_session_token" => "invalid"}
+        ] do
+      assert {:halt, socket} = OwnerAuth.on_mount(:require_owner, %{}, session, socket())
+      assert socket.redirected == {:redirect, %{to: "/unlock", status: 302}}
+    end
   end
 
   test "LiveView event and navigation hooks recheck revocation without credential assigns" do

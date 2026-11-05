@@ -331,6 +331,7 @@ try do
     %{
       expected_generation: account.generation,
       inbox_unread_count: 7,
+      inbox_unread_recent_count: 3,
       inbox_unread_at: now,
       inbox_unread_error: nil
     },
@@ -359,6 +360,7 @@ try do
     %{
       expected_generation: unattached.generation,
       inbox_unread_count: 0,
+      inbox_unread_recent_count: 0,
       inbox_unread_at: now,
       inbox_unread_error: nil
     },
@@ -388,6 +390,34 @@ try do
       },
       actor: owner
     )
+  end
+
+  {:ok, _} = Lovelace.TestGitHub.start_link()
+  Application.put_env(:lovelace, :github_provider, Lovelace.TestGitHub)
+  Application.put_env(:lovelace, :github_keychain, Lovelace.TestGitHubKeychain)
+
+  Lovelace.TestGitHub.configure(
+    rows: [Lovelace.TestGitHub.row(%{"checks" => "FAILURE"})],
+    workflow_runs: [
+      Lovelace.TestGitHub.workflow_run(%{"conclusion" => "failure"}),
+      Lovelace.TestGitHub.workflow_run(%{"id" => 10})
+    ]
+  )
+
+  Lovelace.GitHub.save_client_credentials!(
+    "Iv1.synthetic",
+    "synthetic-browser-github-secret",
+    "lovelace-synthetic",
+    actor: owner
+  )
+
+  {:ok, session} = Lovelace.Owner.unlock("synthetic browser owner password", "github-ui-fixture")
+  {:ok, _} = Lovelace.GitHub.Operations.authorize(session, Lovelace.TestGitHub.bundle())
+
+  for organization <- Lovelace.GitHub.directory!(actor: owner).organizations do
+    Lovelace.GitHub.attach!(workspace.id, organization.id, actor: owner)
+    Lovelace.GitHub.refresh!(organization.id, actor: owner)
+    Lovelace.GitHub.poll!(organization.id, organization.generation, actor: owner)
   end
 
   {_output, status} =

@@ -40,9 +40,9 @@
   .calendar-account-heading { flex-wrap: wrap; }
   .calendar-authorize { align-items: stretch; flex-direction: column; }
 }
-/* Home keeps Gmail and today's agenda on the same quiet reading plane. */
+/* Home uses the same inset account-card treatment as Gmail and GitHub. */
 .home-readouts .calendar-agenda { margin: 0; }
-.home-readouts .calendar-account { padding-block: 12px; }
+.home-readouts .calendar-account { min-width: 0; margin-bottom: 12px; padding: 14px 16px; border: 1px solid var(--border-default); border-radius: 6px; background: var(--surface-card); }
 .home-readouts .calendar-account-heading { align-items: center; gap: 8px; margin-bottom: 8px; }
 .home-readouts .calendar-status { margin: 0; }
 .home-readouts .calendar-status:has(> :not(:empty)) { margin-block: 4px 12px; }
@@ -63,6 +63,7 @@
   .calendar-agenda, .calendar-connections { color: CanvasText; background: Canvas; text-shadow: none; }
   .calendar-agenda *, .calendar-connections * { color: CanvasText; text-shadow: none; }
   .calendar-account, .calendar-event, .calendar-empty { border-color: CanvasText; }
+  .home-readouts .calendar-account, .home-readouts .calendar-empty { border-color: CanvasText; background: Canvas; }
   .calendar-event-link { color: LinkText; text-decoration: underline; }
   .calendar-selection fieldset:disabled { opacity: 1; color: GrayText; }
   .calendar-agenda :focus-visible, .calendar-connections :focus-visible { outline-color: Highlight; }

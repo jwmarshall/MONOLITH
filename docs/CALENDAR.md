@@ -7,6 +7,8 @@ remain **per account**, never a merged calendar. This slice shows browser-local 
 time, title, calendar name, all-day/ongoing labels and an explicit link back to Google
 Calendar. It does not create/edit events, RSVP, join meetings, fetch attachments, render
 descriptions/HTML or load remote imagery. Repeating events are expanded by Google.
+Home presents each account's agenda in a quiet inset card matching Gmail and GitHub,
+while workspace and Connections layouts retain their existing controls and health details.
 
 1. Enable the **Google Calendar API** in the same Google Cloud project used for Gmail.
 2. Add these read-only scopes to its consent configuration, retaining the existing

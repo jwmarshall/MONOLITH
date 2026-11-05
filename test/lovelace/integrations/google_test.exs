@@ -329,25 +329,32 @@ defmodule Lovelace.Integrations.GoogleTest do
            }
   end
 
-  test "unread inbox conversations come only from a validated INBOX label total" do
+  test "unread observations pair the label conversation total with an exact empty recent search" do
     owner = self()
 
     for count <- [0, 42] do
       configure(fn req ->
-        send(owner, :label_request)
-
-        assert {req.method, req.host, req.path} ==
-                 {"GET", "gmail.googleapis.com", "/gmail/v1/users/me/labels/INBOX"}
-
+        assert req.method == "GET"
+        assert req.host == "gmail.googleapis.com"
         assert {"authorization", "Bearer " <> @access} in req.headers
-        json(%{id: "INBOX", threadsUnread: count, messagesUnread: 999, resultSizeEstimate: 1000})
+
+        case URI.parse(req.path).path do
+          "/gmail/v1/users/me/labels/INBOX" ->
+            send(owner, :label_request)
+            json(%{id: "INBOX", threadsUnread: count, messagesUnread: 999})
+
+          "/gmail/v1/users/me/threads" ->
+            json(%{resultSizeEstimate: 1000})
+        end
       end)
 
-      assert {:ok, ^count} = Google.inbox_unread(@access)
+      assert {:ok, %{total: ^count, recent: 0}} = Google.inbox_unread(@access)
       assert_receive :label_request
       refute_receive :label_request
     end
+  end
 
+  test "unread observations reject invalid label totals and protocol errors" do
     for data <-
           [
             %{},
@@ -366,6 +373,150 @@ defmodule Lovelace.Integrations.GoogleTest do
     end
 
     assert {:error, :invalid_request} = Google.inbox_unread("invalid token")
+  end
+
+  test "recent unread counts unique fully paged thread IDs with one fixed received-time cutoff" do
+    owner = self()
+    started = DateTime.utc_now() |> DateTime.to_unix()
+
+    configure(fn req ->
+      uri = URI.parse(req.path)
+
+      case uri.path do
+        "/gmail/v1/users/me/labels/INBOX" ->
+          send(owner, {:label_deadline, req.timeout_ms})
+          json(%{id: "INBOX", threadsUnread: 42})
+
+        "/gmail/v1/users/me/threads" ->
+          params = URI.decode_query(uri.query)
+          assert params["maxResults"] == "500"
+          assert params["fields"] == "threads/id,nextPageToken"
+          refute Map.has_key?(params, "format")
+
+          assert URI.query_decoder(uri.query)
+                 |> Enum.filter(fn {key, _} -> key == "labelIds" end) ==
+                   [{"labelIds", "INBOX"}, {"labelIds", "UNREAD"}]
+
+          send(owner, {:recent_query, params["q"], req.timeout_ms})
+
+          case params["pageToken"] do
+            nil ->
+              json(%{
+                threads: [%{id: "a"}, %{id: "b"}],
+                nextPageToken: "next",
+                resultSizeEstimate: 999
+              })
+
+            "next" ->
+              json(%{threads: [%{id: "b"}, %{id: "c"}], resultSizeEstimate: 1})
+          end
+      end
+    end)
+
+    assert {:ok, %{total: 42, recent: 3}} = Google.inbox_unread(@access)
+    finished = DateTime.utc_now() |> DateTime.to_unix()
+    assert_receive {:label_deadline, label_deadline}
+    assert_receive {:recent_query, query, first_deadline}
+    assert_receive {:recent_query, ^query, second_deadline}
+    assert second_deadline <= first_deadline
+    assert first_deadline <= label_deadline
+    assert [_, cutoff, until] = Regex.run(~r/\Aafter:(\d+) before:(\d+)\z/, query)
+    assert String.to_integer(until) - String.to_integer(cutoff) == 86_400
+    assert String.to_integer(until) in started..finished
+  end
+
+  test "recent unread accepts the exact page bound only if every page is complete" do
+    owner = self()
+
+    for more? <- [false, true] do
+      configure(fn req ->
+        uri = URI.parse(req.path)
+
+        if uri.path == "/gmail/v1/users/me/labels/INBOX" do
+          json(%{id: "INBOX", threadsUnread: 10_000})
+        else
+          params = URI.decode_query(uri.query)
+          page = if params["pageToken"], do: String.to_integer(params["pageToken"]), else: 1
+          send(owner, {:recent_page, page})
+          threads = for id <- 1..500, do: %{id: "#{page}-#{id}"}
+          data = %{threads: threads, resultSizeEstimate: 1}
+
+          data =
+            if page < 10 or more?, do: Map.put(data, :nextPageToken, "#{page + 1}"), else: data
+
+          json(data)
+        end
+      end)
+
+      if more? do
+        assert {:error, :response_too_large} = Google.inbox_unread(@access)
+      else
+        assert {:ok, %{total: 10_000, recent: 5000}} = Google.inbox_unread(@access)
+      end
+
+      for page <- 1..10, do: assert_receive({:recent_page, ^page})
+      refute_receive {:recent_page, _}
+    end
+  end
+
+  test "recent unread never publishes label or partial counts on later page errors" do
+    for {response, reason} <- [
+          {json(%{threads: [%{id: "../unsafe"}]}), :invalid_response},
+          {json(%{threads: nil}), :invalid_response},
+          {json(%{threads: List.duplicate(%{id: "a"}, 501)}), :invalid_response},
+          {json(%{nextPageToken: ""}), :invalid_response},
+          {json(%{threads: [%{id: "b"}], nextPageToken: "next"}), :invalid_response},
+          {{:ok, %{status: 429, headers: [], body: ""}}, :rate_limited},
+          {{:ok, %{status: 401, headers: [], body: ""}}, :unauthorized},
+          {{:ok, %{status: 503, headers: [], body: ""}}, :provider_error},
+          {{:error, :timeout}, :timeout}
+        ] do
+      configure(fn req ->
+        uri = URI.parse(req.path)
+
+        cond do
+          uri.path == "/gmail/v1/users/me/labels/INBOX" ->
+            json(%{id: "INBOX", threadsUnread: 42})
+
+          URI.decode_query(uri.query)["pageToken"] == "next" ->
+            response
+
+          true ->
+            json(%{threads: [%{id: "a"}], nextPageToken: "next", resultSizeEstimate: 1})
+        end
+      end)
+
+      assert {:error, ^reason} = Google.inbox_unread(@access)
+    end
+  end
+
+  test "one whole-operation deadline covers the label and every recent unread page" do
+    owner = self()
+
+    configure(
+      fn req ->
+        uri = URI.parse(req.path)
+
+        cond do
+          uri.path == "/gmail/v1/users/me/labels/INBOX" ->
+            json(%{id: "INBOX", threadsUnread: 42})
+
+          is_nil(URI.decode_query(uri.query)["pageToken"]) ->
+            json(%{threads: [%{id: "a"}], nextPageToken: "next"})
+
+          true ->
+            send(owner, :recent_page_waiting)
+
+            receive do
+              :never_sent -> json(%{})
+            end
+        end
+      end,
+      timeout_ms: 100
+    )
+
+    assert {:error, :timeout} = Google.inbox_unread(@access)
+    assert_receive :recent_page_waiting
   end
 
   test "missing threads means empty page, overlarge list and unsafe IDs fail" do

@@ -38,6 +38,8 @@ defmodule Lovelace.Integrations.Google do
   @callback_path "/oauth/google/callback"
   @max_body 10 * 1024 * 1024
   @max_attachment 5 * 1024 * 1024
+  @unread_page_size 500
+  @unread_max_pages 10
   @safe_errors [
     :timeout,
     :response_too_large,
@@ -188,20 +190,78 @@ defmodule Lovelace.Integrations.Google do
   @spec inbox(binary(), binary() | nil) :: {:ok, page()} | failure()
   def inbox(access_token, page_token \\ nil), do: list(access_token, nil, page_token)
 
-  @doc "The INBOX label's unread conversation total, independent of cached pages."
-  @spec inbox_unread(binary()) :: {:ok, non_neg_integer()} | failure()
+  @doc """
+  Paired unread inbox conversation counts, independent of cached pages.
+
+  The total is the INBOX label's `threadsUnread`. Recent conversations match
+  Gmail's received-time search within a fixed UTC, second-resolution 24-hour
+  window established before either read. Only fully paged thread IDs are counted;
+  estimates, metadata and message counts are never used. The whole observation
+  shares one deadline and at most ten pages of 500 IDs.
+  """
+  @spec inbox_unread(binary()) ::
+          {:ok, %{total: non_neg_integer(), recent: non_neg_integer()}} | failure()
   def inbox_unread(access_token) do
     bounded(fn config ->
+      until = DateTime.utc_now() |> DateTime.to_unix()
+      query = "after:#{until - 86_400} before:#{until}"
+
       with {:ok, data} <-
              get(config, "gmail.googleapis.com", "/gmail/v1/users/me/labels/INBOX", access_token),
            %{"id" => "INBOX", "threadsUnread" => count} when is_integer(count) and count >= 0 <-
-             data do
-        {:ok, count}
+             data,
+           {:ok, recent} <-
+             unread_ids(config, access_token, query, nil, MapSet.new(), MapSet.new(), 0) do
+        {:ok, %{total: count, recent: recent}}
       else
         {:error, reason} -> {:error, reason}
         _ -> {:error, :invalid_response}
       end
     end)
+  end
+
+  defp unread_ids(config, token, query, page, ids, pages, page_count) do
+    params = [
+      {"maxResults", Integer.to_string(@unread_page_size)},
+      {"labelIds", "INBOX"},
+      {"labelIds", "UNREAD"},
+      {"q", query},
+      {"fields", "threads/id,nextPageToken"}
+    ]
+
+    params = if page, do: params ++ [{"pageToken", page}], else: params
+
+    with {:ok, data} <- gmail_get(config, token, "", params),
+         {:ok, found, next} <- unread_page(data) do
+      ids = Enum.reduce(found, ids, &MapSet.put(&2, &1["id"]))
+
+      cond do
+        is_nil(next) ->
+          {:ok, MapSet.size(ids)}
+
+        MapSet.member?(pages, next) ->
+          {:error, :invalid_response}
+
+        page_count + 1 >= @unread_max_pages ->
+          {:error, :response_too_large}
+
+        true ->
+          unread_ids(config, token, query, next, ids, MapSet.put(pages, next), page_count + 1)
+      end
+    end
+  end
+
+  defp unread_page(data) when is_map(data) do
+    threads = Map.get(data, "threads", [])
+    next = Map.get(data, "nextPageToken")
+
+    if is_list(threads) and length(threads) <= @unread_page_size and
+         Enum.all?(threads, &(is_map(&1) and valid_id?(&1["id"]))) and
+         (is_nil(next) or bounded_string?(next, 4096)) do
+      {:ok, threads, next}
+    else
+      {:error, :invalid_response}
+    end
   end
 
   @spec search(binary(), binary(), binary() | nil) :: {:ok, page()} | failure()

@@ -45,22 +45,28 @@ defmodule Lovelace.MailUnreadTest do
     a: a,
     b: b
   } do
-    assert {a.inbox_unread_count, a.inbox_unread_at, a.inbox_unread_error} == {nil, nil, nil}
+    assert {a.inbox_unread_count, a.inbox_unread_recent_count, a.inbox_unread_at,
+            a.inbox_unread_error} == {nil, nil, nil, nil}
+
     Mail.unlink!(workspace.id, a.id, actor: @owner)
-    Lovelace.TestMail.unread_response({:ok, 0})
+    Lovelace.TestMail.unread_response({:ok, %{total: 0, recent: 0}})
     assert %{error: nil} = poll(a)
     observed = current(a)
     assert observed.inbox_unread_count == 0
+    assert observed.inbox_unread_recent_count == 0
     assert %DateTime{} = observed.inbox_unread_at
     assert observed.inbox_unread_error == nil
     assert current(b).inbox_unread_count == nil
+    assert current(b).inbox_unread_recent_count == nil
     assert {:inbox_unread, "access:token-a"} in Lovelace.TestMail.calls()
     refute {:inbox_unread, "access:token-b"} in Lovelace.TestMail.calls()
 
-    Lovelace.TestMail.unread_response({:ok, 123})
+    Lovelace.TestMail.unread_response({:ok, %{total: 123, recent: 17}})
     assert %{error: nil} = poll(b)
     assert current(b).inbox_unread_count == 123
+    assert current(b).inbox_unread_recent_count == 17
     assert current(a).inbox_unread_count == 0
+    assert current(a).inbox_unread_recent_count == 0
   end
 
   test "failed and invalid count observations retain count/time despite successful pages", %{
@@ -70,13 +76,24 @@ defmodule Lovelace.MailUnreadTest do
     poll(a)
     observed = current(a)
 
-    for response <- [{:error, :timeout}, {:error, :invalid_response}, {:ok, -1}, {:ok, "9"}] do
+    for response <- [
+          {:error, :timeout},
+          {:error, :invalid_response},
+          {:error, :response_too_large},
+          {:ok, %{total: -1, recent: 2}},
+          {:ok, %{total: 9, recent: -1}},
+          {:ok, %{total: 9}},
+          {:ok, %{total: 9, recent: nil}},
+          {:ok, %{total: 9, recent: "2"}},
+          {:ok, 9}
+        ] do
       Lovelace.TestMail.unread_response(response)
       assert %{error: error, stale: true, data: data} = poll(a)
       assert error in [:unavailable, :provider]
       assert data
       failed = current(a)
       assert failed.inbox_unread_count == observed.inbox_unread_count
+      assert failed.inbox_unread_recent_count == observed.inbox_unread_recent_count
       assert failed.inbox_unread_at == observed.inbox_unread_at
       assert failed.inbox_unread_error == error
       # A page success is not a successful unread observation.
@@ -85,9 +102,12 @@ defmodule Lovelace.MailUnreadTest do
       assert current(a).inbox_unread_error == error
     end
 
-    Lovelace.TestMail.unread_response({:ok, 0})
+    Lovelace.TestMail.unread_response({:ok, %{total: 0, recent: 0}})
     assert %{error: nil} = poll(a)
-    assert %{inbox_unread_count: 0, inbox_unread_error: nil} = current(a)
+
+    assert %{inbox_unread_count: 0, inbox_unread_recent_count: 0, inbox_unread_error: nil} =
+             current(a)
+
     assert DateTime.compare(current(a).inbox_unread_at, observed.inbox_unread_at) == :gt
   end
 
@@ -105,7 +125,7 @@ defmodule Lovelace.MailUnreadTest do
           {:error, %{private: "synthetic-private-count"}},
           {:raise, "synthetic-private-count"},
           {:throw, "synthetic-private-count"},
-          {:ok, 99_999_999_999_999_999_999_999}
+          {:ok, %{total: 7, recent: 99_999_999_999_999_999_999_999}}
         ] do
       Lovelace.TestMail.unread_response(response)
 
@@ -116,6 +136,7 @@ defmodule Lovelace.MailUnreadTest do
           assert data
           assert current(a).inbox_unread_error == error
           assert current(a).inbox_unread_count == observed.inbox_unread_count
+          assert current(a).inbox_unread_recent_count == observed.inbox_unread_recent_count
           assert current(a).inbox_unread_at == observed.inbox_unread_at
         end)
 
@@ -147,6 +168,7 @@ defmodule Lovelace.MailUnreadTest do
     assert current(a).last_error == nil
     assert current(a).inbox_unread_error == :unavailable
     assert current(a).inbox_unread_count == observed.inbox_unread_count
+    assert current(a).inbox_unread_recent_count == observed.inbox_unread_recent_count
     assert current(a).inbox_unread_at == observed.inbox_unread_at
   end
 
@@ -156,8 +178,12 @@ defmodule Lovelace.MailUnreadTest do
     Lovelace.TestMail.unread_response({:error, :timeout})
     assert {:error, :mail_unavailable} = PollWorker.perform(job(a))
 
-    assert %{inbox_unread_count: nil, inbox_unread_at: nil, inbox_unread_error: :unavailable} =
-             current(a)
+    assert %{
+             inbox_unread_count: nil,
+             inbox_unread_recent_count: nil,
+             inbox_unread_at: nil,
+             inbox_unread_error: :unavailable
+           } = current(a)
   end
 
   test "count rate limits retain the previous observation and deny further account work", %{
@@ -171,11 +197,12 @@ defmodule Lovelace.MailUnreadTest do
     assert :ok = PollWorker.perform(job(a))
     limited = current(a)
     assert limited.inbox_unread_count == observed.inbox_unread_count
+    assert limited.inbox_unread_recent_count == observed.inbox_unread_recent_count
     assert limited.inbox_unread_at == observed.inbox_unread_at
     assert limited.inbox_unread_error == :rate_limited
     assert limited.last_error == :rate_limited
     calls = Lovelace.TestMail.calls()
-    Lovelace.TestMail.unread_response({:ok, 0})
+    Lovelace.TestMail.unread_response({:ok, %{total: 0, recent: 0}})
     assert %{error: :rate_limited} = poll(a)
     assert %{error: :rate_limited} = Mail.account_page!(a.id, %{force: true}, actor: @owner)
 
@@ -186,6 +213,7 @@ defmodule Lovelace.MailUnreadTest do
     assert current(a).next_poll_at == limited.next_poll_at
     assert %{error: nil} = poll(b)
     assert current(b).inbox_unread_count == 0
+    assert current(b).inbox_unread_recent_count == 0
     assert current(b).last_error == nil
   end
 
@@ -231,6 +259,7 @@ defmodule Lovelace.MailUnreadTest do
     assert current(a).status == :reconnect
     assert current(a).inbox_unread_error == :reconnect
     assert current(a).inbox_unread_count == observed.inbox_unread_count
+    assert current(a).inbox_unread_recent_count == observed.inbox_unread_recent_count
     assert current(a).inbox_unread_at == observed.inbox_unread_at
     calls = Lovelace.TestMail.calls()
     assert %{skipped: true} = poll(a)
@@ -241,25 +270,26 @@ defmodule Lovelace.MailUnreadTest do
 
     refute connected.generation == a.generation
 
-    assert {connected.inbox_unread_count, connected.inbox_unread_at, connected.inbox_unread_error} ==
-             {nil, nil, nil}
+    assert {connected.inbox_unread_count, connected.inbox_unread_recent_count,
+            connected.inbox_unread_at, connected.inbox_unread_error} == {nil, nil, nil, nil}
 
     assert %{skipped: true} = poll(a)
-    Lovelace.TestMail.unread_response({:ok, 19})
+    Lovelace.TestMail.unread_response({:ok, %{total: 19, recent: 4}})
     poll(connected)
     assert current(a).inbox_unread_count == 19
+    assert current(a).inbox_unread_recent_count == 4
     assert %{local_removed: true} = Mail.disconnect!(a.id, actor: @owner)
     disconnected = current(a)
 
-    assert {disconnected.inbox_unread_count, disconnected.inbox_unread_at,
-            disconnected.inbox_unread_error} == {nil, nil, nil}
+    assert {disconnected.inbox_unread_count, disconnected.inbox_unread_recent_count,
+            disconnected.inbox_unread_at, disconnected.inbox_unread_error} == {nil, nil, nil, nil}
   end
 
   test "delayed count success and failure cannot overwrite a reconnected generation", %{
     workspace: workspace,
     a: a
   } do
-    for response <- [{:ok, 999}, {:error, :rate_limited}] do
+    for response <- [{:ok, %{total: 999, recent: 99}}, {:error, :rate_limited}] do
       account = current(a)
       {task, provider} = waiting_poll(account, response)
 
@@ -271,23 +301,25 @@ defmodule Lovelace.MailUnreadTest do
       assert current(a).generation == reconnected.generation
       assert current(a).last_error == nil
       assert current(a).inbox_unread_count == nil
+      assert current(a).inbox_unread_recent_count == nil
       assert current(a).inbox_unread_at == nil
       assert current(a).inbox_unread_error == nil
     end
   end
 
   test "disconnect fences a count response already in flight", %{a: a} do
-    {task, provider} = waiting_poll(a, {:ok, 999})
+    {task, provider} = waiting_poll(a, {:ok, %{total: 999, recent: 99}})
     assert %{local_removed: true} = Mail.disconnect!(a.id, actor: @owner)
     send(provider, :continue)
     assert %{error: :unavailable} = Task.await(task)
     assert current(a).status == :disconnected
     assert current(a).inbox_unread_count == nil
+    assert current(a).inbox_unread_recent_count == nil
     assert current(a).inbox_unread_at == nil
   end
 
   test "count success and failure in flight cannot clear or extend a newer cooldown", %{a: a} do
-    for response <- [{:ok, 8}, {:error, :timeout}, {:error, :rate_limited}] do
+    for response <- [{:ok, %{total: 8, recent: 3}}, {:error, :timeout}, {:error, :rate_limited}] do
       set_status(a, %{last_error: nil, next_poll_at: DateTime.utc_now()})
       {task, provider} = waiting_poll(a, response)
       deadline = DateTime.add(DateTime.utc_now(), 300)
@@ -316,11 +348,16 @@ defmodule Lovelace.MailUnreadTest do
     assert {:error, _} =
              Mail.update_account(
                b,
-               %{expected_generation: b.generation, inbox_unread_count: 100},
+               %{
+                 expected_generation: b.generation,
+                 inbox_unread_count: 100,
+                 inbox_unread_recent_count: 10
+               },
                actor: %{role: :mail_service, account_id: a.id}
              )
 
     assert current(b).inbox_unread_count == nil
+    assert current(b).inbox_unread_recent_count == nil
   end
 
   defp waiting_poll(account, response) do

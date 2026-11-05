@@ -87,6 +87,7 @@ defmodule LovelaceWeb.OwnerControllerTest do
     assert redirected_to(conn) == "/"
     token = get_session(conn, :owner_session_token)
     assert is_binary(token)
+    refute get_session(conn, :workspace_return)
     refute get_session(conn, :unrelated)
     assert {:error, _} = Owner.verify_session(old_token)
     assert {:ok, _} = Owner.verify_session(token)
@@ -121,6 +122,7 @@ defmodule LovelaceWeb.OwnerControllerTest do
     conn = conn |> recycle() |> post_password(@password)
     assert redirected_to(conn) == destination
     assert {:ok, _} = Owner.verify_session(get_session(conn, :owner_session_token))
+    refute get_session(conn, :workspace_return)
     refute get_session(conn, :owner_return_to)
     assert conn.private.plug_session_info == :renew
 

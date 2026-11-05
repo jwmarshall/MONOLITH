@@ -105,6 +105,7 @@ defmodule LovelaceWeb.Layouts do
 
   attr :flash, :map, required: true
   attr :background, :map, default: %{url: nil, status: :unavailable}
+  attr :enter_on_return, :boolean, default: false
   slot :inner_block, required: true
 
   def app(assigns) do
@@ -130,6 +131,7 @@ defmodule LovelaceWeb.Layouts do
         tabindex="-1"
         aria-labelledby="workspace-title"
         phx-hook="WorkspaceEntrance"
+        data-enter-on-return={to_string(@enter_on_return)}
         phx-window-keydown={reset_workspace()}
         phx-key="Escape"
       >

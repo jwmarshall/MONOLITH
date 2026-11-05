@@ -74,15 +74,29 @@ defmodule LovelaceWeb.HomeComponents do
               else: Enum.join(@account.workspaces, " · ")}
           </span>
         </span>
+        <.icon name="hero-arrow-up-right" class="home-account-arrow size-4" />
         <span id={"home-count-#{@account.id}"} class="home-unread">
-          <span class="home-unread-number">{if is_integer(@account.inbox_unread_count),
-            do: @account.inbox_unread_count,
-            else: "—"}</span>
-          <span class="home-unread-label">
-            unread<span :if={!is_integer(@account.inbox_unread_count)} class="sr-only"> total unavailable</span>
+          <span class="home-unread-label">unread</span>
+          <span class="home-unread-values" aria-hidden="true">
+            <span class="home-unread-number">{if is_integer(@account.inbox_unread_count),
+              do: @account.inbox_unread_count,
+              else: "—"}</span><span class="home-unread-separator"> / </span><span class="home-unread-recent">{if is_integer(
+                                                                                                                    @account.inbox_unread_recent_count
+                                                                                                                  ),
+                                                                                                                  do:
+                                                                                                                    @account.inbox_unread_recent_count,
+                                                                                                                  else:
+                                                                                                                    "—"}</span>
+          </span>
+          <span class="home-unread-context" aria-hidden="true">Total / last 24h</span>
+          <span class="sr-only">
+            {if is_integer(@account.inbox_unread_count),
+              do: "#{@account.inbox_unread_count} total",
+              else: "total unavailable"}; {if is_integer(@account.inbox_unread_recent_count),
+              do: "#{@account.inbox_unread_recent_count} received in the last 24 hours",
+              else: "last 24 hours unavailable"}
           </span>
         </span>
-        <.icon name="hero-arrow-up-right" class="home-account-arrow size-4" />
       </.link>
       <div id={"home-health-#{@account.id}"} class="home-account-health">
         <.freshness account={@account} />

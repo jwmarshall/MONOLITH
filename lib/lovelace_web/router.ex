@@ -16,6 +16,7 @@ defmodule LovelaceWeb.Router do
 
   pipeline :owner do
     plug LovelaceWeb.Plugs.RequireOwner
+    plug LovelaceWeb.WorkspaceReturn, :consume
   end
 
   pipeline :api do
@@ -57,7 +58,9 @@ defmodule LovelaceWeb.Router do
         MailAttachmentController,
         :show
 
-    live_session :owner, on_mount: [{LovelaceWeb.OwnerAuth, :require_owner}] do
+    live_session :owner,
+      on_mount: [{LovelaceWeb.OwnerAuth, :require_owner}],
+      session: {LovelaceWeb.WorkspaceReturn, :live_session, []} do
       live "/", HomeLive, :index
       live "/workspaces", HomeLive, :workspaces
       live "/workspaces/:workspace_id", HomeLive, :workspace

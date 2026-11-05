@@ -406,6 +406,11 @@ again while preserving immutable owner identities and workspace memberships.
 includes the stored client secret and is one-shot after a durable reservation. Unknown
 exchange/refresh outcomes, interrupted rotations and failed rotated-token saves require
 fresh sign-in, never replay of a previous code or refresh token.
+A keychain read failure before any refresh reservation preserves the connection,
+workspace links and still-fresh snapshots. The owner reports a credential-storage
+error and retries on its normal polling schedule; a read failure alone does not
+mean GitHub revoked access or require another sign-in.
+Confirmed missing or malformed token bundles still require sign-in.
 Global Lock stops ephemeral authorization, protected queues and provider work.
 
 **Remove from workspace** detaches only that membership. **Remove owner everywhere**

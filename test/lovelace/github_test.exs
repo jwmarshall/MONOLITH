@@ -402,6 +402,43 @@ defmodule Lovelace.GitHubTest do
     assert directory().memberships == []
   end
 
+  test "temporary keychain read failure preserves connections and snapshots until retry", c do
+    {org, connection} = connect(c)
+    stored = tokens()
+    memberships = directory().memberships
+    calls = TestGitHub.state().calls
+    due(org)
+    TestGitHub.configure(keychain_error: :unavailable)
+
+    assert {:ok, _} = GitHub.poll(org.id, org.generation, actor: @owner)
+    assert account(connection.id).status == :ready
+    assert account(connection.id).generation == connection.generation
+    failed = current(org.id)
+    assert failed.status == :ready
+    assert failed.generation == org.generation
+    assert failed.last_error == :keychain
+    assert failed.pull_requests == org.pull_requests
+    assert failed.repositories == org.repositories
+    assert failed.issues == org.issues
+    assert failed.workflow_runs == org.workflow_runs
+    assert failed.total_count == org.total_count
+    assert failed.fetched_at == org.fetched_at
+    assert failed.claim_id == nil
+    assert TestGitHub.state().calls == calls
+    assert tokens() == stored
+    assert directory().memberships == memberships
+
+    TestGitHub.configure(keychain_error: nil)
+    due(failed)
+    assert {:ok, _} = GitHub.poll(org.id, org.generation, actor: @owner)
+    assert current(org.id).last_error == nil
+    assert current(org.id).total_count == org.total_count
+    assert account(connection.id).status == :ready
+    assert tokens() == stored
+    refute Enum.any?(TestGitHub.state().calls, &(elem(&1, 0) == :refresh_token))
+    assert directory().memberships == memberships
+  end
+
   test "shared refresh serializes rotation and stores new credentials only once", c do
     {_, connection} = connect(c)
     expire_token(connection.id)

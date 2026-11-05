@@ -1,7 +1,10 @@
 defmodule Lovelace.TestMail do
   @moduledoc false
   def start do
-    Agent.start_link(fn -> %{vault: %{}, calls: [], response: :ok, unread_response: {:ok, 7}} end,
+    Agent.start_link(
+      fn ->
+        %{vault: %{}, calls: [], response: :ok, unread_response: {:ok, %{total: 7, recent: 2}}}
+      end,
       name: __MODULE__
     )
   end

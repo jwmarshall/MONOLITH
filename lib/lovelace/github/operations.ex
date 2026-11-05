@@ -364,8 +364,11 @@ defmodule Lovelace.GitHub.Operations do
       {:ok, bundle} ->
         token_bundle_intent(account, bundle)
 
-      _ ->
+      {:error, :missing_credentials} ->
         fence_connection(account.id, :reauthorization, :keychain)
+        {:error, :keychain}
+
+      _ ->
         {:error, :keychain}
     end
   end
@@ -808,7 +811,9 @@ defmodule Lovelace.GitHub.Operations do
          true <- is_integer(bundle["expires_at"]) and is_integer(bundle["refresh_expires_at"]) do
       {:ok, bundle}
     else
-      _ -> {:error, :keychain}
+      {:error, :not_found} -> {:error, :missing_credentials}
+      {:error, reason} when is_atom(reason) -> {:error, :keychain}
+      _ -> {:error, :missing_credentials}
     end
   end
 

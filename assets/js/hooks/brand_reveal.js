@@ -68,8 +68,8 @@ const BrandAnimation = {
   },
 
   finishWithoutMotion() {
-    // Suppress callbacks and skip both entrance and exit when reduced motion
-    // is requested, including during an active exit.
+    // Suppress callbacks and skip both entrance and exit for reduced motion or
+    // a return to an already unlocked workspace, including during an active exit.
     this.timeline.progress(1, true).pause()
     this.complete()
   },
@@ -99,9 +99,14 @@ export default {
 
   mounted() {
     this.initialize()
-    // Also handle focus established before the LiveView hook finished mounting.
-    const pane = this.el.closest("#workspace").querySelector("#workspace-pane")
-    if (pane.getAttribute("aria-pressed") === "true") this.reveal()
+    const root = this.el.closest("#workspace")
+    if (root.querySelector("#main-content").getAttribute("data-enter-on-return") === "true") {
+      this.finishWithoutMotion()
+    } else {
+      // Also handle focus established before the LiveView hook finished mounting.
+      const pane = root.querySelector("#workspace-pane")
+      if (pane.getAttribute("aria-pressed") === "true") this.reveal()
+    }
   },
 
   destroyed() {

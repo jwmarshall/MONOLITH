@@ -38,7 +38,7 @@ defmodule LovelaceWeb.GitHubLiveTest do
     }
   end
 
-  test "Home keeps organizations distinct, escapes provider text and preserves readouts after workspace detach",
+  test "Home keeps owner summaries distinct, workspace details escape provider text, and detach preserves summaries",
        %{conn: conn, workspace: workspace, session: session} do
     hostile = ~s(<img src="https://remote.invalid/tracker">)
     TestGitHub.configure(rows: [TestGitHub.row(%{"title" => hostile, "checks" => "FAILURE"})])
@@ -58,22 +58,47 @@ defmodule LovelaceWeb.GitHubLiveTest do
     beta = connect_owner(workspace, session, "synthetic")
 
     {:ok, view, html} = live(conn, "/")
-    assert has_element?(view, "#github-org-#{acme.id} .github-pr-title", hostile)
-    assert has_element?(view, "#github-org-#{acme.id}", "Checks failing")
-    assert has_element?(view, "#github-org-#{beta.id}", "Independent personal change")
-    assert has_element?(view, "#github-org-#{beta.id}", "Draft")
-    refute has_element?(view, "#github-org-#{acme.id}", "Independent personal change")
+
+    assert has_element?(
+             view,
+             "#github-org-#{acme.id} .github-home-metric:first-child .github-home-attention",
+             "1"
+           )
+
+    assert has_element?(
+             view,
+             "#github-org-#{beta.id} .github-home-metric:first-child .github-home-attention",
+             "0"
+           )
+
+    refute has_element?(view, "#github-readouts .github-pr-title")
+    refute has_element?(view, "#github-readouts button, #github-readouts details")
     refute has_element?(view, "#github-readouts img")
     refute html =~ TestGitHub.bundle().access_token
     refute inspect(:sys.get_state(view.pid).socket.assigns) =~ TestGitHub.bundle().refresh_token
 
+    render_patch(view, "/workspaces/#{workspace.id}")
+    assert has_element?(view, "#workspace-github-org-#{acme.id} .github-pr-title", hostile)
+    assert has_element?(view, "#workspace-github-org-#{beta.id}", "Independent personal change")
+    assert has_element?(view, "#workspace-github-org-#{beta.id}", "Draft")
+    refute has_element?(view, "#workspace-github-org-#{acme.id}", "Independent personal change")
+    refute has_element?(view, "#workspace-github-readouts img")
+    render_patch(view, "/")
+
     {:ok, _} = GitHub.detach(workspace.id, acme.id, actor: @owner)
-    assert has_element?(view, "#github-org-#{acme.id}", "Not attached to a workspace")
-    assert has_element?(view, "#github-org-#{acme.id} .github-pr-title", hostile)
+
+    assert has_element?(
+             view,
+             "#github-org-#{acme.id} a[href='/connections/github']",
+             "Add to workspace"
+           )
+
+    assert has_element?(view, "#github-org-#{acme.id} .github-home-number", "1")
+    refute has_element?(view, "#github-org-#{acme.id} a[href^='/workspaces/']")
 
     {:ok, _} = GitHub.disconnect(acme.id, actor: @owner)
     refute has_element?(view, "#github-org-#{acme.id}")
-    assert has_element?(view, "#github-org-#{beta.id}", "Independent personal change")
+    assert has_element?(view, "#github-org-#{beta.id} .github-home-number", "1")
   end
 
   test "refresh failure retains the observation and shows stale rather than an empty success", %{
@@ -86,9 +111,11 @@ defmodule LovelaceWeb.GitHubLiveTest do
     TestGitHub.configure(response: {:error, :rate_limited})
     {:ok, _} = GitHub.refresh(org.id, actor: @owner)
     GitHub.poll(org.id, org.generation, actor: @owner)
-    assert has_element?(view, "#github-org-#{org.id}", "GitHub rate limit")
-    assert has_element?(view, "#github-org-#{org.id}", "Stale")
-    assert has_element?(view, "#github-org-#{org.id}", "Synthetic pull request")
+    render_patch(view, "/workspaces/#{workspace.id}")
+    assert has_element?(view, "#workspace-github-org-#{org.id}", "GitHub rate limit")
+    assert has_element?(view, "#workspace-github-org-#{org.id}", "Stale")
+    render_patch(view, "/")
+    assert has_element?(view, "#github-org-#{org.id} .github-home-number", "1")
     refute has_element?(view, "#github-org-#{org.id}", "No open pull requests")
   end
 
@@ -110,8 +137,14 @@ defmodule LovelaceWeb.GitHubLiveTest do
 
     org = connect_owner(workspace, session)
     {:ok, view, _} = live(conn, "/")
-    assert has_element?(view, "#github-org-#{org.id}", "2 open")
-    assert has_element?(view, "#github-org-#{org.id}", "details are unavailable")
+    assert has_element?(view, "#github-org-#{org.id} .github-home-number", "2")
+
+    assert has_element?(
+             view,
+             "#github-org-#{org.id} .github-home-metric:first-child .github-home-attention",
+             "—"
+           )
+
     refute has_element?(view, "#github-org-#{org.id}", "No open pull requests")
   end
 
@@ -346,9 +379,19 @@ defmodule LovelaceWeb.GitHubLiveTest do
     refute has_element?(view, "#workspace-github-readouts", "Issue in first")
 
     render_patch(view, "/")
-    assert has_element?(view, "#github-org-#{org.id}", "Change in first")
-    assert has_element?(view, "#github-org-#{org.id}", "Change in second")
-    assert has_element?(view, "#github-org-#{org.id}", "2 open in accessible repositories")
+    assert has_element?(view, "#github-org-#{org.id} .github-home-number", "2")
+    refute has_element?(view, "#github-org-#{org.id} .github-pr-list")
+    destination = "/workspaces/#{workspace.id}#workspace-github-org-#{org.id}"
+    other_destination = "/workspaces/#{other.id}#workspace-github-org-#{org.id}"
+    assert has_element?(view, "#github-org-#{org.id} a[href='#{other_destination}']")
+
+    view
+    |> element("#github-org-#{org.id} a[href='#{destination}']")
+    |> render_click()
+
+    assert_patch(view, "/workspaces/#{workspace.id}")
+    assert has_element?(view, "#workspace-github-readouts", "Change in first")
+    refute has_element?(view, "#workspace-github-readouts", "Change in second")
 
     GitHub.attach!(workspace.id, org.id, actor: @owner)
     render_patch(view, "/workspaces/#{workspace.id}")
@@ -377,8 +420,14 @@ defmodule LovelaceWeb.GitHubLiveTest do
 
     org = connect_owner(workspace, session)
     {:ok, view, _} = live(conn, "/")
-    assert has_element?(view, "#github-org-#{org.id}", "Issue details unavailable")
-    assert has_element?(view, "#github-org-#{org.id}", "Workflow run details unavailable")
+    assert has_element?(view, "#github-org-#{org.id} .github-home-number", "—")
+
+    assert has_element?(
+             view,
+             "#github-org-#{org.id} .github-home-metric:last-child .github-home-total",
+             "—"
+           )
+
     refute has_element?(view, "#github-org-#{org.id}", "No open issues")
     refute has_element?(view, "#github-org-#{org.id}", "No recent workflow runs")
   end

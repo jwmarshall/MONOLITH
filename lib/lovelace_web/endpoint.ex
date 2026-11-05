@@ -31,6 +31,7 @@ defmodule LovelaceWeb.Endpoint do
 
   plug LovelaceWeb.Plugs.LocalHost
   plug Plug.Session, @session_options
+  plug LovelaceWeb.WorkspaceReturn, :capture
   plug LovelaceWeb.Plugs.OwnerSetup
   plug LovelaceWeb.Plugs.GoogleSetupCredentials
   plug LovelaceWeb.OwnerUnlock

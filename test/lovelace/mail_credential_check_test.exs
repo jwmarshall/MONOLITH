@@ -96,6 +96,7 @@ defmodule Lovelace.MailCredentialCheckTest do
         last_success_at: ~U[2026-01-01 12:00:00Z],
         next_poll_at: ~U[2026-01-02 12:00:00Z],
         inbox_unread_count: 7,
+        inbox_unread_recent_count: 2,
         inbox_unread_at: ~U[2026-01-01 11:00:00Z],
         inbox_unread_error: :provider
       })
