@@ -109,9 +109,11 @@ Saved direction is a default for future images, not a record of past images' pro
 
 ## Bundled installation default
 
-Three owner-approved existing scenes ship as local JPEG assets in
-`priv/static/images/scenes/`, with provenance and SHA-256 pins recorded there. Their
-private originals are unchanged. A separate Ash `DefaultScene` singleton chooses one
+Three owner-approved existing scenes are active installation defaults in
+`priv/static/images/scenes/`; four additional owner-supplied backgrounds are bundled
+there for later default-install use without changing the current selection.
+Provenance and SHA-256 pins for all seven are recorded in that directory's README.
+Their private originals are unchanged. A separate Ash `DefaultScene` singleton chooses one
 randomly when encrypted persistence starts after owner unlock and preserves it across
 restarts, independently of generation opt-in. Reinitialization is an immutable upsert,
 including concurrent starts of unlocked persistence.
