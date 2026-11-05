@@ -51,11 +51,20 @@ defmodule Lovelace.TestSupport.SubprocessCoverage do
       {:ok, _} = :cover.start()
       modules = manifest |> File.read!() |> :erlang.binary_to_term()
 
-      for {module, digest} <- modules,
-          beam when is_list(beam) and beam != [] <- [:code.which(module)],
-          ^digest <- [:crypto.hash(:sha256, File.read!(beam))] do
-        {:ok, ^module} = :cover.compile_beam(beam)
-      end
+      matching =
+        for {module, digest} <- modules,
+            beam when is_list(beam) and beam != [] <- [:code.which(module)],
+            ^digest <- [:crypto.hash(:sha256, File.read!(beam))],
+            do: {module, beam}
+
+      # Submit the complete set once so OTP can instrument it with its bounded
+      # worker pool, rather than serializing one compilation per server call.
+      beams = Enum.map(matching, &elem(&1, 1))
+      expected = matching |> Enum.map(fn {module, _beam} -> {:ok, module} end) |> Enum.sort()
+      results = beams |> :cover.compile_beam() |> Enum.sort()
+
+      unless results == expected,
+        do: raise("Subprocess coverage compilation failed: #{inspect(results)}")
 
       System.at_exit(fn _ ->
         path = System.fetch_env!("LOVELACE_COVER_COUNTERS")

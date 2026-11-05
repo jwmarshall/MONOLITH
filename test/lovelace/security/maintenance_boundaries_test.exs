@@ -5,7 +5,9 @@ defmodule Lovelace.Security.MaintenanceBoundariesTest do
 
   for scenario <-
         ~w(owner_mismatch owner_short owner_cancel google_cancel migration_cancel migration_auth journal_invalid journal_identity journal_symlink) do
-    @tag timeout: 60_000
+    # A cold production VM also loads/compiles dependencies and instruments
+    # byte-identical modules under --cover; use the maintenance startup bound.
+    @tag timeout: 300_000
     test "terminal refusal preserves storage: #{scenario}" do
       root = Path.expand("tmp/maintenance-boundary-#{System.unique_integer([:positive])}")
       on_exit(fn -> File.rm_rf!(root) end)

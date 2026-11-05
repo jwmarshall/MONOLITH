@@ -75,8 +75,7 @@ defmodule Mix.Tasks.Lovelace.SyntheticMaintenance do
         end
 
       assert_failure(mode, failure)
-      assert_native_shutdown(mode)
-      assert_no_unexpected_exit()
+      assert_no_unexpected_exit(mode)
       failure
     after
       Process.group_leader(self(), leader)
@@ -108,25 +107,16 @@ defmodule Mix.Tasks.Lovelace.SyntheticMaintenance do
       do: raise("Unexpected #{mode} maintenance failure: #{Exception.message(failure)}")
   end
 
-  defp assert_native_shutdown("google") do
-    unless native_available?() do
-      # A failed start_link also signals its caller. Observe the exact native
-      # refusal rather than letting it kill the fixture or accepting any exit.
-      receive do
-        {:EXIT, supervisor,
-         {:shutdown, {:failed_to_start_child, Lovelace.Security.Vault, :vault_unavailable}}}
-        when is_pid(supervisor) ->
-          :ok
-      after
-        5_000 -> raise("Missing fail-closed native vault shutdown")
-      end
-    end
-  end
-
-  defp assert_native_shutdown(_), do: :ok
-
-  defp assert_no_unexpected_exit do
+  defp assert_no_unexpected_exit(mode) do
     receive do
+      {:EXIT, supervisor,
+       {:shutdown, {:failed_to_start_child, Lovelace.Security.Vault, :vault_unavailable}}}
+      when is_pid(supervisor) and mode == "google" ->
+        # start_link returns the refusal; newer OTP releases unlink and flush its
+        # EXIT before returning. Older releases may leave this exact signal.
+        if native_available?(), do: raise("Unexpected native vault shutdown")
+        assert_no_unexpected_exit(mode)
+
       {:EXIT, _process, reason} when reason != :normal ->
         raise("Unexpected linked maintenance failure: #{inspect(reason)}")
     after

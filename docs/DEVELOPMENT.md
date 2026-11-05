@@ -581,15 +581,19 @@ these functions change; never extend them to arbitrary uploads or user-selected 
 The browser pipeline retains its explicit CSP; the image endpoint has a restrictive CSP
 and `nosniff`. These are not an email sanitizer or a complete auth/security review.
 
-`mix audit` runs `mix deps.audit` for known security advisories and `mix hex.audit`
-for retired packages. It is intentionally separate from the local quality gate
-because it accesses external registries/advisory repositories. CI runs both gates.
-A clean audit is a point-in-time result, not a guarantee about all transitive code.
+`mix audit` runs `mix deps.audit` and `mix hex.audit` for known security advisories
+and retired packages. Use Hex 2.6 or newer (`bin/lovelace mix local.hex --force`);
+older Hex releases can report only retirements, not the current Hex advisory feed.
+Audits are intentionally separate from the local quality gate because they access
+external registries/advisory repositories. CI installs current Hex and runs both
+gates. A clean audit is a point-in-time result, not a guarantee about transitive code.
 
 Hosted CI runs the full `bin/lovelace check` gate on pull requests and pushes to
 `main`; use the workflow's manual dispatch for a development branch without a PR.
 Branch pushes with an open PR do not create a second identical run. New commits
 cancel superseded runs for the same ref, and each job has a 25-minute deadline.
+The runner is pinned to Ubuntu 24.04; actions use immutable revisions of supported
+Node 24-based releases. Native build caches include the runner image and architecture.
 The dependency audit still runs after a quality/test failure when dependency
 installation succeeded. Generated synthetic HTML coverage reports are retained
 as GitHub Actions artifacts for seven days, including failed coverage runs.
@@ -598,8 +602,10 @@ This is a verification workflow, not an automatic deployment or release pipeline
 
 The Linux runner verifies that production maintenance refuses unavailable native
 keychain access without changing original storage or starting protected work.
-That is not proof of macOS native-keychain availability or authorization; attended
-native checks remain explicit, and the browser UI gate below remains separate.
+The task's refusal is the contract, not an unsolicited supervisor `EXIT`: OTP may
+flush failed-start link signals before returning. That is not proof of macOS native
+keychain availability or authorization; attended native checks remain explicit,
+and the browser UI gate below remains separate.
 
 ## Browser UI regressions
 
@@ -699,6 +705,9 @@ Managed-vault and terminal-maintenance scenarios run in separate BEAMs.
 and imports only byte-identical modules; production builds are never replaced
 with test builds to merge coverage. Failed children still fail their regression
 tests, and a successful child without a readable coverage export fails collection.
+Child coverage compilation submits the byte-identical set to OTP's bounded worker
+pool. Maintenance subprocess tests allow up to five minutes for cold production
+compilation and instrumentation; hangs still fail, without automatic retries.
 Temporary manifests/counters are removed after each child. Ordinary test runs
 do not instrument children. Attended native-keychain tests remain opt-in and
 excluded from the automated suite; line coverage does not certify browser visuals,
