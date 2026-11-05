@@ -41,14 +41,24 @@ Open <http://localhost:4321>. New storage redirects to **first-run setup**:
    and acknowledge that there is **no password reset or recovery**. Forgetting it
    permanently loses access to the encrypted data. Never put passwords in shell arguments.
 3. LOVELACE creates the dedicated password-unlocked macOS file keychain, independently
-   generated database key, SQLCipher schema, owner, and Personal workspace.
+   generated database key, SQLCipher schema, and owner.
    Native creation may request macOS authorization for that dedicated keychain; use
    the same owner password. Explicit setup/migration alone can enable attended UI;
    ordinary unlock and background access remain noninteractive.
-4. Continue through the in-app Google project, authentication/scopes, audience/test users,
-   Desktop OAuth client, and Gmail connection guide. Client credentials go directly
-   into the unlocked dedicated keychain; saving makes no Google request and needs no restart.
-   Google changes and consent remain your explicit actions. You can skip Gmail honestly.
+4. Name your first workspace. Google setup, Gmail and Calendar are optional: **Skip Google**
+   goes straight to final review, bypassing Gmail and Calendar without saving credentials or authorizing anything.
+   You can also follow the project, authentication/scopes, audience and Desktop OAuth client
+   guide, then skip Gmail or Calendar individually. Returning to the workspace step edits
+   the same workspace; setup and Home never create a predetermined Personal workspace.
+   Client credentials go directly into the dedicated keychain without a Google request or
+   restart. Google changes and consent remain explicit actions. Calendar consent returns
+   to the same setup step to choose calendars, including shared calendars or none.
+   Only **Finish setup** ends the guide and opens Home.
+
+Later, **Connections → Google** manages the shared Desktop OAuth client independently of
+onboarding progress. It reports local settings availability, never verified provider health.
+Save there, then connect accounts in **Connections → Gmail** and explicitly authorize Calendar
+in **Connections → Calendar**. Gemini remains a separate API-key integration.
 
 Interrupted setup retains private markers and resumes at `/setup` with a new terminal
 pairing code and the **original password**, without replacing an owner or initialized
@@ -58,7 +68,7 @@ staging files may remain after interruption; they are not recovery keys.
 The Google guide saves progress in encrypted storage when you continue. After restart,
 ordinary unlock resumes unfinished onboarding unless a safe requested destination takes
 precedence. Existing installations without guide state still land on Home. `/onboarding`
-reopens the guide; **Finish setup** remains available while it is unfinished.
+reopens the saved step; **Continue setup** remains available while it is unfinished.
 
 The attended terminal tasks `lovelace.owner.setup` and `lovelace.google.configure` remain
 available for explicit maintenance, not required developer setup. They and vault migration
@@ -395,8 +405,8 @@ connector is disabled in test builds.
 ## Saved workspaces
 
 `Lovelace.Workspaces` owns a SQLite `Workspace` resource with explicit read/create/rename
-and starter-initialization actions. All require the server-supplied `%{role: :local_owner}`
-capability, checked strictly (including missing IDs). This is **not authentication** and
+actions. All require the server-supplied `%{role: :local_owner}` capability, checked strictly
+(including missing IDs). This is **not authentication** and
 must not be reused as a multi-user access design. The protected UI now mints it only after
 owner-session verification. Workspace/account membership reuses Gmail connections without
 mixing inboxes; credentials remain in Keychain and mail queries require account scoping.
@@ -407,12 +417,14 @@ protected work starts; do not start an unkeyed Repo or run standalone `ecto.migr
 against managed real data. Existing plaintext installations must first use the stopped
 migration procedure above.
 
-The first connected LiveView mount initializes **Personal** through a conflict-safe Ash
-upsert with a fixed ID and no update fields. Reloads, reconnects, and directory refreshes
-never reset its renamed name or timestamps. Disconnected HTTP rendering does not write
-workspace records. Creation and rename use focused native-dialog modals with `AshPhoenix.Form`; names are trimmed, nonblank,
-and bounded to 64 characters server-side. There are deliberately no delete/archive actions,
-or projects. Account connection and read-only mail are implemented separately in `Lovelace.Mail`.
+Onboarding creates the owner's named first workspace and persists its association with
+the guide in one Ash transaction. Repeated submissions and returning to rename edit that
+same workspace. Existing guides retain their legacy starter association when it exists;
+new installations, Home mounts, reloads, and directory refreshes never manufacture one.
+Later creation and rename use focused native-dialog modals with `AshPhoenix.Form`; names
+are trimmed, nonblank, and bounded to 64 characters server-side. There are deliberately
+no delete/archive actions or projects. Account connection and read-only mail are
+implemented separately in `Lovelace.Mail`.
 
 `StatusComponents.status_signal/1`, `assets/css/status.css` and the `StatusSignal` hook
 share custom SVG activity/last-known-health states across Home, workspaces, mail, Calendar,
@@ -493,13 +505,15 @@ bin/lovelace setup
 bin/lovelace server
 bin/lovelace console
 bin/lovelace test test/lovelace/security/developer_setup_test.exs
+bin/lovelace test test/lovelace/security/launcher_test.exs
 bin/lovelace mix format
 bin/lovelace check
 bin/lovelace audit
 bin/lovelace help
 ```
 
-The launcher runs commands from the project root and preserves their exit status.
+The launcher runs commands from the project root, preserves argument boundaries
+(including spaces and shell metacharacters), and propagates their exit status.
 Use `bin/lovelace mix TASK [arguments]` for the underlying Mix commands below.
 `bin/lovelace check` selects `MIX_ENV=test` and executes:
 
@@ -603,6 +617,11 @@ selection, preserved imagery, protected deep links and narrow/forced-color layou
   `LOVELACE_TEST_DATABASE` at a real development/production database or migration backup.
 - Keep ConnCase/LiveView tests synchronous because they also acquire the sandbox.
   Pure functions and isolated `Req.Test` cases may be asynchronous.
+- Launcher regression tests execute `bin/lovelace` from an unrelated directory with
+  spaces using a temporary, fake-only `PATH`. Keep environment overrides child-local
+  (`System.cmd/3`), clean up temporary files with `on_exit/1`, and assert captured
+  argv/cwd/environment and exit statuses. These isolated cases may be asynchronous;
+  they must never invoke real Mix, IEx, Homebrew, native helpers, or providers.
 - Create records through Ash actions or `Ash.Generator` helpers. Use `Ash.Test` for
   validation/policy assertions; test denied operations as deliberately as allowed ones.
 - Production domains go in `config :lovelace, :ash_domains`; don't register test-only

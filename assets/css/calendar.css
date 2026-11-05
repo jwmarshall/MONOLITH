@@ -42,7 +42,6 @@
 }
 /* Home keeps Gmail and today's agenda on the same quiet reading plane. */
 .home-readouts .calendar-agenda { margin: 0; }
-.home-readouts .calendar-heading { min-height: 38px; gap: 4px 12px; padding-bottom: 16px; }
 .home-readouts .calendar-account { padding-block: 12px; }
 .home-readouts .calendar-account-heading { align-items: center; gap: 8px; margin-bottom: 8px; }
 .home-readouts .calendar-status { margin: 0; }

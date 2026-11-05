@@ -8,23 +8,33 @@ defmodule LovelaceWeb.WorkspacesLiveTest do
   alias Lovelace.Workspaces
 
   @owner %{role: :local_owner}
-  @personal_id "00000000-0000-4000-8000-000000000001"
 
-  test "initializes Personal once and preserves its renamed name on reconnect", %{conn: conn} do
+  test "Home and an empty directory never manufacture a starter workspace", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/")
+    assert Workspaces.list_workspaces!(actor: @owner) == []
+    view |> element("#show-workspaces") |> render_click()
+    refute has_element?(view, ".workspace-card-name")
+    assert Workspaces.list_workspaces!(actor: @owner) == []
+    render_click(view, "retry_workspaces")
+    assert Workspaces.list_workspaces!(actor: @owner) == []
+  end
+
+  test "preserves an explicitly created workspace and renamed name on reconnect", %{conn: conn} do
+    workspace = Workspaces.create_workspace!("Reading room", actor: @owner)
     {:ok, view, _html} = live(conn, ~p"/")
     assert has_element?(view, "#home-overview")
     view |> element("#show-workspaces") |> render_click()
-    assert has_element?(view, "#open-#{@personal_id}", "Personal")
+    assert has_element?(view, "#open-#{workspace.id}", "Reading room")
 
-    view |> element("#rename-#{@personal_id}") |> render_click()
+    view |> element("#rename-#{workspace.id}") |> render_click()
     view |> form("#workspace-form", workspace: %{name: "My quiet corner"}) |> render_submit()
-    assert has_element?(view, "#open-#{@personal_id}", "My quiet corner")
+    assert has_element?(view, "#open-#{workspace.id}", "My quiet corner")
 
     {:ok, reopened, _html} = live(conn, ~p"/")
     assert has_element?(reopened, "#home-overview")
     refute has_element?(reopened, "#workspace-list")
     reopened |> element("#show-workspaces") |> render_click()
-    assert has_element?(reopened, "#open-#{@personal_id}", "My quiet corner")
+    assert has_element?(reopened, "#open-#{workspace.id}", "My quiet corner")
     assert length(Workspaces.list_workspaces!(actor: @owner)) == 1
   end
 
@@ -49,14 +59,7 @@ defmodule LovelaceWeb.WorkspacesLiveTest do
     assert has_element?(view, "#directory-heading", "Studio")
     assert has_element?(view, "#workspace-landing", "Gmail")
     assert has_element?(view, "#workspace > #workspace-background.workspace-background")
-    assert has_element?(view, "#workspace > #workspace-monogram.stage-monogram path")
     refute has_element?(view, ".workspace-signature")
-
-    assert has_element?(
-             view,
-             "#workspace > #main-content.workspace-glass #workspace-content #mail-accounts",
-             "No Gmail accounts attached yet"
-           )
 
     refute has_element?(view, "#workspace-list")
 
@@ -65,8 +68,7 @@ defmodule LovelaceWeb.WorkspacesLiveTest do
     assert has_element?(view, "#directory-heading", "Observatory")
     view |> element("#back-to-workspaces") |> render_click()
     assert has_element?(view, "#open-#{studio.id}", "Observatory")
-    assert has_element?(view, "#open-#{@personal_id}", "Personal")
-    assert length(Workspaces.list_workspaces!(actor: @owner)) == 2
+    assert length(Workspaces.list_workspaces!(actor: @owner)) == 1
   end
 
   test "validates names on the server without losing the editor or writing records", %{conn: conn} do
@@ -85,7 +87,7 @@ defmodule LovelaceWeb.WorkspacesLiveTest do
                "#workspace-name[aria-invalid=true][aria-describedby='workspace-name-hint workspace-form-feedback']"
              )
 
-      assert length(Workspaces.list_workspaces!(actor: @owner)) == 1
+      assert Workspaces.list_workspaces!(actor: @owner) == []
     end
 
     view |> element("#workspace-form button[type=button]") |> render_click()
@@ -117,16 +119,17 @@ defmodule LovelaceWeb.WorkspacesLiveTest do
        %{
          conn: conn
        } do
+    workspace = Workspaces.create_workspace!("Studio", actor: @owner)
     {:ok, view, _html} = live(conn, ~p"/")
     assert_push_event(view, "workspace:focus-heading", %{})
     view |> element("#show-workspaces") |> render_click()
     assert_push_event(view, "workspace:focus-heading", %{})
-    view |> element("#open-#{@personal_id}") |> render_click()
+    view |> element("#open-#{workspace.id}") |> render_click()
     assert_push_event(view, "workspace:focus-heading", %{})
 
     view |> element("#show-connections") |> render_click()
     assert_push_event(view, "workspace:focus-heading", %{})
-    render_patch(view, "/workspaces/#{@personal_id}")
+    render_patch(view, "/workspaces/#{workspace.id}")
     assert_push_event(view, "workspace:focus-heading", %{})
 
     view |> element("#rename-current-workspace") |> render_click()
@@ -134,7 +137,7 @@ defmodule LovelaceWeb.WorkspacesLiveTest do
 
     assert has_element?(
              view,
-             "#workspace-modal[data-return-focus='#workspace-menu-#{@personal_id} summary']"
+             "#workspace-modal[data-return-focus='#workspace-menu-#{workspace.id} summary']"
            )
 
     view |> form("#workspace-form", workspace: %{name: "   "}) |> render_submit()
@@ -192,13 +195,14 @@ defmodule LovelaceWeb.WorkspacesLiveTest do
 
     assert has_element?(view, "#workspace-form-feedback[role=alert]", "couldn’t be saved")
     refute_push_event(view, "workspace:focus-heading", %{})
-    assert length(Workspaces.list_workspaces!(actor: @owner)) == 1
+    assert Workspaces.list_workspaces!(actor: @owner) == []
   end
 
   test "background updates preserve the current workspace and unsaved form", %{conn: conn} do
+    workspace = Workspaces.create_workspace!("Studio", actor: @owner)
     {:ok, view, _html} = live(conn, ~p"/")
     view |> element("#show-workspaces") |> render_click()
-    view |> element("#open-#{@personal_id}") |> render_click()
+    view |> element("#open-#{workspace.id}") |> render_click()
     view |> element("#rename-current-workspace") |> render_click()
     view |> form("#workspace-form", workspace: %{name: "Not saved yet"}) |> render_change()
 
@@ -208,7 +212,7 @@ defmodule LovelaceWeb.WorkspacesLiveTest do
       {:stage_background, %{url: nil, status: :failed}}
     )
 
-    assert has_element?(view, "#directory-heading", "Personal")
+    assert has_element?(view, "#directory-heading", "Studio")
     assert has_element?(view, "#workspace-name[value='Not saved yet']")
     assert has_element?(view, "#workspace-brand[phx-update=ignore]")
   end

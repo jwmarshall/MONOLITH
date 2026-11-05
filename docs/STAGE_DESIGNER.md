@@ -7,9 +7,19 @@ on the first successful ordinary owner unlock of each application startup when o
 or through an explicitly confirmed request in **Scenes**. It never generates before
 unlock, from a page load, later relock/unlock, LiveView reconnect, gallery/status refresh,
 or inactivity event. One locally bundled JPEG remains underneath locally served generated imagery.
-Scenes includes a saved, guided **Scene direction** editor and an expandable exact prompt.
-Scenes shows the retained local gallery, permanent paginated generation-attempt history,
-current phase, safe failure details and manual eligibility; unknown legacy image dates are labelled.
+Until the local credential check confirms a stored Gemini key, Scenes shows only
+the Gemini setup information card linking to **Connections → Gemini**. The direction editor,
+generation controls, gallery, attempt history and dialogs stay hidden in missing, initial,
+checking, locked, invalid and unavailable states. The card distinguishes unavailable/locked
+credentials from a confirmed missing key; uncertainty never reveals the designer.
+Bundled and already selected scenery remain available. The setup card retains local loading,
+error and earlier-request warnings: removing a key does not cancel active or unknown work
+or eliminate possible charges. Restore Gemini access to manage those requests; the card's
+status refresh only reads local state.
+With a confirmed stored key, Scenes includes a saved, guided **Scene direction** editor and an
+expandable exact prompt, the retained local gallery, permanent paginated generation-attempt
+history, current phase, safe failure details and manual eligibility; unknown legacy image
+dates are labelled. Saving a key does not probe Google or generate a scene.
 A dedicated Oban SQLite queue submits authorized work, polls saved Google interaction IDs and
 cleans up remote results. A recovery sweep repairs existing work; it never schedules new scenes.
 Generation phase changes broadcast updates to connected LiveViews; a quiet global signal links
@@ -137,8 +147,11 @@ Google OAuth or Gemini credentials. The Gemini API key is entered in **Connectio
 Gemini** and stored in the dedicated password-unlocked LOVELACE file keychain under
 the separate `LOVELACE Gemini` service, never alongside Gmail tokens.
 `GEMINI_API_KEY`, `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` have no runtime
-environment fallback. Configure Google OAuth with the terminal-only
-`mix lovelace.google.configure` task after owner setup; see [GMAIL.md](GMAIL.md).
+environment fallback. Configure the shared Google Desktop OAuth client in
+**Connections → Google** (`/connections/google`) while LOVELACE is unlocked, or
+during browser onboarding. Saving credentials makes no provider request and needs
+no restart. The hidden-prompt `bin/lovelace mix lovelace.google.configure` task is
+an explicit stopped-server maintenance alternative; see [GMAIL.md](GMAIL.md).
 The dotenvx decryption key is in private `.env.keys`; both environment files are ignored
 and mode `0600`. `.env.example` is deliberately readable, credential-free, and disabled by default.
 

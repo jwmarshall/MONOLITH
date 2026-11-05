@@ -33,10 +33,10 @@ defmodule LovelaceWeb.OwnerHTML do
               aria-describedby={@error? && "owner-unlock-error"}
               class="owner-password"
             />
-            <button type="submit" class="owner-submit">Unlock</button>
+            <button type="submit" class="workspace-action workspace-action-primary">Unlock</button>
           </form>
           <p :if={@setup_state in [:new, :setup_incomplete]} id="owner-setup-instructions">
-            <a href="/setup" class="workspace-action">Continue secure setup</a>
+            <a href="/setup" class="workspace-action workspace-action-primary">Continue secure setup</a>
             Pair with the terminal that started LOVELACE. Interrupted setup requires the original password.
           </p>
           <p :if={@setup_state == :migration_required} id="owner-migration-instructions" role="status">

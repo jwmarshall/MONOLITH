@@ -5,6 +5,17 @@ defmodule Lovelace.Onboarding.Operation do
     authorizers: [Ash.Policy.Authorizer]
 
   actions do
+    action :save_workspace, :struct do
+      constraints instance_of: Lovelace.Onboarding.State
+
+      argument :name, :string do
+        allow_nil? false
+        constraints trim?: true, allow_empty?: false, max_length: 64
+      end
+
+      run Lovelace.Onboarding.SaveWorkspace
+    end
+
     action :save_credentials, :boolean do
       argument :client_id, :string do
         allow_nil? false

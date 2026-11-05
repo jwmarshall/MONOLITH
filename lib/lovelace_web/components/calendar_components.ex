@@ -14,16 +14,19 @@ defmodule LovelaceWeb.CalendarComponents do
 
     ~H"""
     <section id={@id} class="calendar-agenda" aria-labelledby={"#{@id}-heading"}>
-      <header class="calendar-heading">
+      <header class={if @home, do: "home-section-heading", else: "calendar-heading"}>
         <h3 id={"#{@id}-heading"} class="home-eyebrow">Today · Calendar</h3>
-        <span class="calendar-muted">{timezone(@window)}</span>
+        <span class={["calendar-muted", @home && "home-section-meta"]}>{timezone(@window)}</span>
       </header>
-      <div :if={@accounts == []} class="calendar-empty">
-        <p class="calendar-message">Calendar not enabled.</p>
-        <.link
-          patch="/connections/calendar"
-          class="workspace-action"
-        >Set up Calendar</.link>
+      <div :if={@accounts == []} class="calendar-empty empty-state">
+        <.icon name="hero-calendar-days" class="empty-state-mark size-6" />
+        <div class="empty-state-body">
+          <h4 class="empty-state-title">Calendar isn’t connected</h4>
+          <p class="empty-state-copy">
+            Connect Calendar and choose which calendars appear here, read-only.
+          </p>
+          <.link patch="/connections/calendar" class="workspace-action workspace-action-link">Set up Calendar</.link>
+        </div>
       </div>
       <section
         :for={{account, snapshot} <- @readouts}
@@ -44,30 +47,38 @@ defmodule LovelaceWeb.CalendarComponents do
             disabled={snapshot.loading}
           >Refresh</button>
         </header>
-        <div :if={!snapshot.enabled} class="calendar-message">
-          <p>Calendar is not enabled for this account.</p>
-          <.link
-            patch="/connections/calendar"
-            class="workspace-action"
-          >
-            Enable in Connections →
-          </.link>
+        <div :if={!snapshot.enabled} class="empty-state">
+          <.icon name="hero-calendar-days" class="empty-state-mark size-6" />
+          <div class="empty-state-body">
+            <h4 class="empty-state-title">Calendar is not connected</h4>
+            <p class="empty-state-copy">Enable read-only Calendar access for this account.</p>
+            <.link patch="/connections/calendar" class="workspace-action workspace-action-link">Set up Calendar</.link>
+          </div>
         </div>
         <div :if={snapshot.enabled}>
           <.status snapshot={snapshot} id={"#{@id}-status-#{account.id}"} warnings_only={@home} />
           <.link
             :if={snapshot.error == :reconnect}
             patch="/connections/calendar"
-            class="workspace-action"
-          >Authorize Calendar again in Connections →</.link>
-          <p
-            :if={successful?(snapshot) && snapshot.events == []}
-            class="calendar-message"
-          >
-            {if snapshot.selected_ids == [],
-              do: "No calendars selected in LOVELACE.",
-              else: "No events today in selected calendars."}
-          </p>
+            class="workspace-action workspace-action-link"
+          >Authorize Calendar again in Connections</.link>
+          <div :if={successful?(snapshot) && snapshot.events == []} class="calendar-message">
+            <div class="empty-state-body">
+              <h4 class="empty-state-title">
+                {if snapshot.selected_ids == [], do: "No calendars selected", else: "No events today"}
+              </h4>
+              <p class="empty-state-copy">
+                {if snapshot.selected_ids == [],
+                  do: "Choose which calendars appear in LOVELACE.",
+                  else: "Your selected calendars have no events today."}
+              </p>
+              <.link
+                :if={snapshot.selected_ids == []}
+                patch="/connections/calendar"
+                class="workspace-action workspace-action-link"
+              >Choose calendars</.link>
+            </div>
+          </div>
           <ul :if={snapshot.events != []} class="calendar-events">
             <li
               :for={{event, index} <- Enum.with_index(snapshot.events)}
@@ -97,9 +108,9 @@ defmodule LovelaceWeb.CalendarComponents do
                 target="_blank"
                 rel="noopener noreferrer"
                 referrerpolicy="no-referrer"
-                class="calendar-event-link"
+                class="calendar-event-link workspace-action-link"
                 aria-label={"Open #{present(event.title, "untitled event")} in Google Calendar (new tab)"}
-              >Google Calendar ↗</a>
+              >Google Calendar</a>
             </li>
           </ul>
         </div>
@@ -110,6 +121,7 @@ defmodule LovelaceWeb.CalendarComponents do
 
   attr :accounts, :list, required: true
   attr :workspace_options, :list, required: true
+  attr :google_status, :atom, required: true
   attr :window, :map, default: nil
   attr :refresh, :integer, default: 0
   attr :id, :string, default: "calendar-connections"
@@ -123,9 +135,44 @@ defmodule LovelaceWeb.CalendarComponents do
         <h3 id={"#{@id}-heading"} class="mail-section-title">Calendar</h3>
         <p class="calendar-muted">Read-only · Uses your Google connections</p>
       </header>
-      <p :if={@accounts == []} class="calendar-message">
-        Connect Gmail first to add Calendar to the same Google account.
+      <p
+        :if={@google_status != :stored}
+        id={"#{@id}-google-prerequisite"}
+        class="calendar-muted"
+        role="status"
+      >
+        <%= if @google_status in [:unknown, :loading] do %>
+          Checking Google client settings…
+        <% else %>
+          Set up or restore client settings in
+          <.link patch="/connections/google" class="workspace-action-link">Google connections</.link>
+          before connecting Calendar.
+        <% end %>
       </p>
+      <div :if={@accounts == []} class="empty-state connection-card empty-state-card">
+        <.icon name="hero-calendar-days" class="empty-state-mark size-6" />
+        <div class="empty-state-body">
+          <h4 class="empty-state-title">Start with a Google connection</h4>
+          <p class="empty-state-copy">
+            Connect Gmail first, then return here to enable Calendar for the same account
+            and choose which calendars appear. Calendar access is read-only.
+          </p>
+          <.link
+            :if={@google_status == :stored}
+            patch="/connections/gmail"
+            class="workspace-action workspace-action-primary"
+          >
+            Connect Gmail
+          </.link>
+          <button
+            :if={@google_status != :stored}
+            type="button"
+            class="workspace-action workspace-action-primary"
+            disabled
+            aria-describedby={"#{@id}-google-prerequisite"}
+          >Connect Gmail</button>
+        </div>
+      </div>
       <article
         :for={{account, snapshot} <- @readouts}
         id={"#{@id}-account-#{account.id}"}
@@ -142,6 +189,7 @@ defmodule LovelaceWeb.CalendarComponents do
           workspace_options={@workspace_options}
           id={@id}
           reconnect={snapshot.error == :reconnect}
+          disabled={@google_status != :stored}
         />
         <div :if={snapshot.enabled}>
           <.status snapshot={snapshot} id={"#{@id}-status-#{account.id}"} />
@@ -160,7 +208,9 @@ defmodule LovelaceWeb.CalendarComponents do
               <input type="hidden" name="account_id" value={account.id} />
               <%!-- An empty selection still submits a list; the handler discards the sentinel. --%>
               <input type="hidden" name="calendar_ids[]" value="" />
-              <fieldset disabled={snapshot.loading || snapshot.error == :reconnect}>
+              <fieldset disabled={
+                snapshot.loading || snapshot.error == :reconnect || @google_status != :stored
+              }>
                 <legend>Choose up to 20 calendars for this account</legend>
                 <p class="calendar-muted">
                   Google-selected calendars are used by default. Changes here affect only LOVELACE.
@@ -175,25 +225,32 @@ defmodule LovelaceWeb.CalendarComponents do
                   />
                   <span>{present(calendar.name, "(Unnamed calendar)")}</span>
                 </label>
-                <button type="submit" class="workspace-action">Save calendar selection</button>
+                <button type="submit" class="workspace-action workspace-action-primary">Save calendar selection</button>
               </fieldset>
             </.form>
           </details>
-          <p :if={snapshot.calendars == []} class="calendar-message">
-            {if successful?(snapshot),
-              do: "No calendars available for this account.",
-              else: "Calendar list unavailable until a successful update."}
+          <div :if={snapshot.calendars == [] && successful?(snapshot)} class="calendar-message">
+            <div class="empty-state-body">
+              <h4 class="empty-state-title">No calendars available</h4>
+              <p class="empty-state-copy">
+                Google returned no calendars for this account.
+              </p>
+            </div>
+          </div>
+          <p :if={snapshot.calendars == [] && !successful?(snapshot)} class="calendar-message">
+            Calendar list unavailable until a successful update.
           </p>
           <button
             type="button"
             class="workspace-action"
             phx-click="calendar:refresh"
             phx-value-id={account.id}
-            disabled={snapshot.loading || is_nil(@window)}
+            disabled={snapshot.loading || is_nil(@window) || @google_status != :stored}
           >Refresh Calendar</button>
         </div>
       </article>
       <details
+        :if={@accounts != []}
         id={"#{@id}-disconnect-help"}
         class="calendar-muted calendar-disconnect-help connection-help"
         phx-mounted={JS.ignore_attributes("open")}
@@ -203,7 +260,7 @@ defmodule LovelaceWeb.CalendarComponents do
           Calendar has no separate disconnect. Disconnect everywhere removes the shared Google
           connection from every workspace.
         </p>
-        <.link patch="/connections/gmail" class="workspace-action">Manage in Gmail</.link>
+        <.link patch="/connections/gmail" class="workspace-action workspace-action-link">Manage in Gmail</.link>
       </details>
     </section>
     """
@@ -213,6 +270,7 @@ defmodule LovelaceWeb.CalendarComponents do
   attr :workspace_options, :list, required: true
   attr :id, :string, required: true
   attr :reconnect, :boolean, required: true
+  attr :disabled, :boolean, required: true
 
   defp authorize(assigns) do
     assigns =
@@ -237,8 +295,13 @@ defmodule LovelaceWeb.CalendarComponents do
         prompt="Choose workspace"
         class="connection-workspace-select"
         required
+        disabled={@disabled}
       />
-      <button type="submit" class="workspace-action" disabled={@workspace_options == []}>
+      <button
+        type="submit"
+        class="workspace-action workspace-action-primary"
+        disabled={@disabled || @workspace_options == []}
+      >
         {if @reconnect, do: "Authorize Calendar again", else: "Enable read-only Calendar"}
       </button>
       <p :if={@workspace_options == []} class="calendar-muted">Create a workspace first.</p>

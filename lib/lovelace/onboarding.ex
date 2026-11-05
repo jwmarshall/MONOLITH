@@ -7,8 +7,16 @@ defmodule Lovelace.Onboarding do
   alias Lovelace.Security.Vault
 
   @owner %{role: :local_owner}
-  @personal "00000000-0000-4000-8000-000000000001"
-  @steps [:project, :authentication, :audience, :client, :connect, :complete]
+  @steps [
+    :workspace,
+    :project,
+    :authentication,
+    :audience,
+    :client,
+    :connect,
+    :calendar,
+    :complete
+  ]
 
   resources do
     resource State do
@@ -16,19 +24,33 @@ defmodule Lovelace.Onboarding do
     end
 
     resource Lovelace.Onboarding.Operation do
-      define :save_credentials, action: :save_credentials, args: [:client_id, :client_secret]
+      define :persist_credentials, action: :save_credentials, args: [:client_id, :client_secret]
+      define :save_workspace, action: :save_workspace, args: [:name]
     end
   end
 
   def steps, do: @steps
-  def personal_workspace_id, do: @personal
   def path(step) when step in @steps, do: "/onboarding/#{step}"
   def parse_step(value), do: Enum.find(@steps, &(Atom.to_string(&1) == value))
 
   @doc "Explicitly starts fresh setup; existing guide progress is never reset."
-  def start(opts \\ []) do
-    with {:ok, _workspace} <- Lovelace.Workspaces.initialize_personal(%{}, opts) do
-      start_progress(%{}, opts)
+  def start(opts \\ []), do: start_progress(%{}, opts)
+
+  @doc "The workspace explicitly chosen for this guide, if one has been saved."
+  def workspace(opts \\ []) do
+    with {:ok, state} <- progress(opts) do
+      if state && state.workspace_id do
+        Lovelace.Workspaces.get_workspace(state.workspace_id, opts)
+      else
+        {:ok, nil}
+      end
+    end
+  end
+
+  def save_credentials(client_id, client_secret, opts \\ []) do
+    with {:ok, workspace} <- workspace(opts),
+         :ok <- require_workspace(workspace) do
+      persist_credentials(client_id, client_secret, opts)
     end
   end
 
@@ -38,6 +60,7 @@ defmodule Lovelace.Onboarding do
   def entry_path do
     if Vault.open?() do
       case progress(actor: @owner) do
+        {:ok, %{finished: false, workspace_id: nil}} -> path(:workspace)
         {:ok, %{finished: false, step: step}} -> path(step)
         {:ok, _} -> "/"
         _ -> "/onboarding"
@@ -54,13 +77,25 @@ defmodule Lovelace.Onboarding do
 
   def continue(step, opts \\ []) when step in @steps do
     with {:ok, state} <- start(opts),
+         :ok <- require_workspace(state.workspace_id),
          {:ok, next} <- next_step(step, state) do
       Ash.update(state, %{step: next}, Keyword.put(opts, :action, :advance))
     end
   end
 
+  @doc "Skips optional integration guidance without changing credentials, accounts, or grants."
+  def skip(step, opts \\ [])
+      when step in [:project, :authentication, :audience, :client, :connect, :calendar] do
+    with {:ok, state} <- start(opts),
+         :ok <- require_workspace(state.workspace_id) do
+      next = if step == :connect, do: :calendar, else: :complete
+      Ash.update(state, %{step: next}, Keyword.put(opts, :action, :advance))
+    end
+  end
+
   def finish(opts \\ []) do
-    with {:ok, state} <- start(opts) do
+    with {:ok, state} <- start(opts),
+         :ok <- require_workspace(state.workspace_id) do
       Ash.update(state, %{}, Keyword.put(opts, :action, :finish))
     end
   end
@@ -69,8 +104,18 @@ defmodule Lovelace.Onboarding do
   # a claim that console settings have been verified. One account is enough to
   # offer the first-read path; each account remains independently scoped.
   def connection(opts \\ []) do
+    with {:ok, workspace} <- workspace(opts) do
+      if workspace do
+        workspace_connection(workspace.id, opts)
+      else
+        {:ok, nil}
+      end
+    end
+  end
+
+  defp workspace_connection(workspace_id, opts) do
     Lovelace.Mail.WorkspaceAccount
-    |> Ash.Query.for_read(:read, %{workspace_id: @personal})
+    |> Ash.Query.for_read(:read, %{workspace_id: workspace_id})
     |> Ash.Query.filter(account.status != :disconnected)
     |> Ash.Query.sort(created_at: :asc, id: :asc)
     |> Ash.Query.limit(1)
@@ -81,6 +126,9 @@ defmodule Lovelace.Onboarding do
         {:ok,
          Map.take(account, [
            :id,
+           :generation,
+           :email,
+           :calendar_enabled,
            :status,
            :last_success_at,
            :last_error,
@@ -96,10 +144,15 @@ defmodule Lovelace.Onboarding do
     end
   end
 
+  defp require_workspace(nil), do: {:error, :workspace_required}
+  defp require_workspace(_), do: :ok
+
+  defp next_step(:workspace, _), do: {:ok, :project}
   defp next_step(:project, _), do: {:ok, :authentication}
   defp next_step(:authentication, _), do: {:ok, :audience}
   defp next_step(:audience, _), do: {:ok, :client}
   defp next_step(:client, %{credentials_saved: true}), do: {:ok, :connect}
-  defp next_step(:connect, _), do: {:ok, :complete}
+  defp next_step(:connect, _), do: {:ok, :calendar}
+  defp next_step(:calendar, _), do: {:ok, :complete}
   defp next_step(_, _), do: {:error, :save_credentials_first}
 end

@@ -94,11 +94,12 @@ defmodule LovelaceWeb.HomeNavigation do
   defp keys(_action), do: []
 
   defp provider(%{"provider" => provider})
-       when provider in ["gmail", "gemini", "calendar", "github"],
+       when provider in ["google", "gmail", "gemini", "calendar", "github"],
        do:
          {:ok,
           Map.fetch!(
             %{
+              "google" => :google,
               "gmail" => :gmail,
               "gemini" => :gemini,
               "calendar" => :calendar,

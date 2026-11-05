@@ -3,11 +3,20 @@ defmodule LovelaceWeb.SetupHTML do
 
   def show(assigns) do
     ~H"""
-    <Layouts.stage id="setup-stage" class="stage-static" static>
+    <Layouts.stage
+      id="setup-stage"
+      class="stage-static"
+      data-first-run-entrance={
+        if !@paired? && !@interrupted? && is_nil(@error),
+          do: "true",
+          else: "false"
+      }
+      static
+    >
       <main id="main-content" class="workspace-glass owner-glass" aria-labelledby="setup-heading">
         <section class="setup-content">
           <p class="home-eyebrow">LOVELACE · First setup</p>
-          <h1 id="setup-heading">
+          <h1 id="setup-heading" tabindex="-1">
             {if @paired?, do: "Protect your workspace", else: "Pair this browser"}
           </h1>
           <p :if={@error} id="setup-error" class="connection-warning" role="alert">{@error}</p>
@@ -39,7 +48,7 @@ defmodule LovelaceWeb.SetupHTML do
             <p class="mail-muted">
               Codes expire after 15 minutes and can be used once. Restart the server for a new code; your setup files are preserved.
             </p>
-            <button type="submit" class="owner-submit">Continue securely</button>
+            <button type="submit" class="workspace-action workspace-action-primary">Continue securely</button>
           </form>
           <form
             :if={@paired?}
@@ -97,12 +106,13 @@ defmodule LovelaceWeb.SetupHTML do
             <p class="mail-muted">
               Creating the vault may take up to two minutes. If macOS requests authorization for the dedicated LOVELACE keychain, use this same password. Keep this page open until setup finishes.
             </p>
-            <button type="submit" class="owner-submit">{if @interrupted?,
+            <button type="submit" class="workspace-action workspace-action-primary">{if @interrupted?,
               do: "Resume encrypted setup",
               else: "Create encrypted workspace"}</button>
           </form>
         </section>
       </main>
+      <Layouts.brand id="first-run-brand" static />
     </Layouts.stage>
     """
   end

@@ -1,9 +1,10 @@
 defmodule LovelaceWeb.ScenesLiveTest do
   use LovelaceWeb.ConnCase, async: false
+  use Oban.Testing, repo: Lovelace.Repo, engine: Oban.Engines.Lite
   import Phoenix.LiveViewTest
 
   alias Lovelace.StageDesigner
-  alias Lovelace.StageDesigner.{Attempt, Generation, Models, Settings, Storage}
+  alias Lovelace.StageDesigner.{Attempt, Generation, GenerationWorker, Models, Settings, Storage}
   alias Lovelace.TestSupport.{GeminiVault, PNG, SceneGeneration}
 
   @actor %{role: :stage_designer}
@@ -15,6 +16,7 @@ defmodule LovelaceWeb.ScenesLiveTest do
     previous_vault = Application.get_env(:lovelace, :gemini_vault)
     start_supervised!(GeminiVault)
     Application.put_env(:lovelace, :gemini_vault, GeminiVault)
+    assert :ok = GeminiVault.put("unused", "synthetic-scenes-key")
     settings = %Settings{enabled: false, storage_dir: directory}
     Application.put_env(:lovelace, :stage_designer, settings)
 
@@ -42,6 +44,7 @@ defmodule LovelaceWeb.ScenesLiveTest do
     assert has_element?(view, "#show-scenes[aria-current=page]")
     assert has_element?(view, "#directory-heading", "Scenes")
     assert has_element?(view, "#scenes-empty", "No generated scenes yet")
+    refute has_element?(view, "#scene-gemini-setup")
 
     assert has_element?(view, ".scene-toolbar > .scene-status.connection-card[role=status]")
 
@@ -84,6 +87,267 @@ defmodule LovelaceWeb.ScenesLiveTest do
     refute has_element?(view, "#scenes-panel")
     view |> element("#home-link") |> render_click()
     assert has_element?(view, "#home-overview")
+  end
+
+  test "Scenes switches between setup-only and the configured designer without exposing the key",
+       %{
+         conn: conn,
+         settings: settings
+       } do
+    key = "synthetic-scenes-key-never-rendered"
+    assert :ok = GeminiVault.put("unused", key)
+    digest = publish(settings, @now, PNG.image())
+    {:ok, view, _} = live(conn, "/scenes")
+    html = render_async(view)
+
+    refute has_element?(view, "#scene-gemini-setup")
+    refute html =~ key
+    refute inspect(:sys.get_state(view.pid).socket.assigns) =~ key
+    assert has_element?(view, "#scene-direction-form")
+    assert has_element?(view, "#scene-generation-settings")
+    assert has_element?(view, "#scene-gallery #scene-#{digest}")
+    assert has_element?(view, "#scene-attempt-history")
+    state = StageDesigner.get_state!(1, actor: @actor)
+
+    assert :ok = GeminiVault.delete("unused")
+    view |> element("#scenes-refresh") |> render_click()
+    render_async(view)
+    assert has_element?(view, "#scene-gemini-setup", "No Gemini API key is stored")
+    assert_setup_only(view)
+    assert StageDesigner.get_state!(1, actor: @actor) == state
+
+    view |> element("#scene-gemini-setup a") |> render_click()
+    assert_patch(view, "/connections/gemini")
+    assert :ok = GeminiVault.put("unused", key)
+    view |> element("#show-scenes") |> render_click()
+    html = render_async(view)
+    refute has_element?(view, "#scene-gemini-setup")
+    assert has_element?(view, "#scene-direction-form")
+    assert has_element?(view, "#scene-generation-settings")
+    assert has_element?(view, "#scene-gallery #scene-#{digest}")
+    assert has_element?(view, "#scene-attempt-history")
+    refute html =~ key
+    assert StageDesigner.get_state!(1, actor: @actor) == state
+  end
+
+  test "Scenes stays setup-only until the local key check confirms stored credentials", %{
+    conn: conn
+  } do
+    document = conn |> get("/scenes") |> html_response(200) |> LazyHTML.from_fragment()
+    assert Enum.empty?(LazyHTML.query(document, "#scene-direction, #scene-generation-settings"))
+
+    vault = Process.whereis(GeminiVault)
+    :ok = :sys.suspend(vault)
+
+    try do
+      {:ok, view, _} = live(conn, "/scenes")
+      assert has_element?(view, "#scenes-panel[aria-busy=true]")
+      assert_setup_only(view)
+      refute has_element?(view, "#scene-gemini-setup", "No Gemini API key is stored")
+
+      :ok = :sys.resume(vault)
+      render_async(view)
+      refute has_element?(view, "#scene-gemini-setup")
+      assert has_element?(view, "#scene-direction-form")
+      assert has_element?(view, "#scene-generation-settings")
+    after
+      :sys.resume(vault)
+    end
+  end
+
+  test "refresh retains the direction draft while rechecking credentials",
+       %{conn: conn} do
+    {:ok, view, _} = live(conn, "/scenes")
+    render_async(view)
+
+    values = %{
+      "subject" => "landscape",
+      "setting" => "coast",
+      "light" => "dawn",
+      "palette" => "sea_glass"
+    }
+
+    view |> form("#scene-direction-form", direction: values) |> render_change()
+    vault = Process.whereis(GeminiVault)
+    :ok = :sys.suspend(vault)
+
+    try do
+      view |> element("#scenes-refresh") |> render_click()
+      assert has_element?(view, "#scenes-panel[aria-busy=true]")
+      assert has_element?(view, "#scene-credential-check-signal")
+      refute has_element?(view, "#scene-gemini-setup")
+      assert has_element?(view, "#scene-direction-subject option[value=landscape][selected]")
+      assert has_element?(view, "#scene-prompt-preview summary", "Preview unsaved prompt")
+      assert has_element?(view, "#scenes-refresh[aria-disabled=true]:not([disabled])")
+      assert has_element?(view, "#scene-generate[disabled]")
+
+      assert StageDesigner.get_state!(1, actor: @actor) == nil
+
+      :ok = :sys.resume(vault)
+      render_async(view)
+      refute has_element?(view, "#scene-credential-check-signal")
+      assert has_element?(view, "#scenes-refresh[aria-disabled=false]")
+      assert has_element?(view, "#scene-direction-subject option[value=landscape][selected]")
+      assert has_element?(view, "#scene-direction-guidance", "Unsaved changes")
+      assert has_element?(view, "#scene-prompt-preview summary", "Preview unsaved prompt")
+      assert StageDesigner.get_state!(1, actor: @actor) == nil
+    after
+      :sys.resume(vault)
+    end
+  end
+
+  test "rechecking credentials blocks an otherwise eligible clean direction after gallery loading",
+       %{conn: conn} do
+    {:ok, view, _} = live(conn, "/scenes")
+    render_async(view)
+    assert has_element?(view, "#scene-generate:not([disabled])")
+    vault = Process.whereis(GeminiVault)
+    :ok = :sys.suspend(vault)
+
+    try do
+      view |> element("#scenes-refresh") |> render_click()
+      await_scene_async(view, :scene_gallery)
+
+      assert %{
+               scenes: true,
+               gemini_status: :rechecking,
+               scene_data: %{eligible: true},
+               scene_loading: false,
+               scene_error: false,
+               scene_request_pending: false,
+               scene_preparing: false,
+               scene_settings: %{error: ""},
+               scene_direction: %{status: :ready, dirty: false, error: ""}
+             } = :sys.get_state(view.pid).socket.assigns
+
+      assert Map.has_key?(:sys.get_state(view.pid).socket.private.live_async, :gemini_status)
+      render_click(view, "scenes:request", %{})
+      await_scene_async(view, :scene_prepare)
+      assert_no_scene_confirmation(view)
+      refute has_element?(view, "#scene-generation-modal")
+
+      render_click(view, "scenes:confirm", %{})
+      await_scene_async(view, :scene_request)
+      await_scene_async(view, :scene_gallery)
+      assert_no_generation_requested(nil)
+
+      :ok = :sys.resume(vault)
+      render_async(view)
+      assert has_element?(view, "#scene-generate:not([disabled])")
+      assert_no_scene_confirmation(view)
+      assert_no_generation_requested(nil)
+    after
+      :sys.resume(vault)
+    end
+  end
+
+  test "a failed refresh credential check removes operational controls and preserves scenery", %{
+    conn: conn,
+    settings: settings
+  } do
+    digest = publish(settings, @now, PNG.image())
+    {:ok, view, _} = live(conn, "/scenes")
+    render_async(view)
+    view |> form("#scene-generation-settings") |> render_submit()
+    render_async(view)
+    assert has_element?(view, "#scene-generation-modal")
+    state = StageDesigner.get_state!(1, actor: @actor)
+
+    GeminiVault.fail(:unavailable)
+    view |> element("#scenes-refresh") |> render_click()
+    render_async(view)
+    assert_setup_only(view)
+    assert has_element?(view, "#scene-gemini-setup", "key availability couldn’t be checked")
+    assert has_element?(view, "#workspace-background img[src='#{Storage.url(digest)}']")
+
+    render_click(view, "scenes:request", %{})
+    render_async(view)
+    assert_no_scene_confirmation(view)
+    render_click(view, "scenes:confirm", %{})
+    render_async(view)
+    refute has_element?(view, "#scene-generation-modal")
+    assert_no_generation_requested(state)
+  end
+
+  test "unavailable Gemini credentials are not presented as a missing key", %{conn: conn} do
+    GeminiVault.fail(:unavailable)
+    {:ok, view, _} = live(conn, "/scenes")
+    render_async(view)
+
+    assert has_element?(view, "#scene-gemini-setup", "key availability couldn’t be checked")
+    assert has_element?(view, "#scene-gemini-setup a[href='/connections/gemini']")
+    refute has_element?(view, "#scene-gemini-setup", "No Gemini API key is stored")
+    assert_setup_only(view)
+    assert StageDesigner.get_state!(1, actor: @actor) == nil
+
+    GeminiVault.fail(:locked)
+    view |> element("#scene-gemini-setup a") |> render_click()
+    view |> element("#show-scenes") |> render_click()
+    render_async(view)
+    assert has_element?(view, "#scene-gemini-setup", "keychain is locked or access was denied")
+    refute has_element?(view, "#scene-gemini-setup", "No Gemini API key is stored")
+    assert_setup_only(view)
+  end
+
+  test "invalid Gemini credentials keep the designer hidden", %{conn: conn} do
+    assert :ok = GeminiVault.put("unused", "invalid key with spaces")
+    {:ok, view, _} = live(conn, "/scenes")
+    render_async(view)
+
+    assert has_element?(view, "#scene-gemini-setup", "invalid format")
+    assert_setup_only(view)
+    assert StageDesigner.get_state!(1, actor: @actor) == nil
+  end
+
+  test "a missing Gemini key shows only setup before any generation", %{conn: conn} do
+    assert :ok = GeminiVault.delete("unused")
+    {:ok, view, _} = live(conn, "/scenes")
+    render_async(view)
+
+    assert has_element?(view, "#scene-gemini-setup", "No Gemini API key is stored")
+
+    assert has_element?(
+             view,
+             "#scene-gemini-setup a[href='/connections/gemini']",
+             "Set up Gemini"
+           )
+
+    assert_setup_only(view)
+    assert StageDesigner.get_state!(1, actor: @actor) == nil
+  end
+
+  test "setup-only retains active and unknown request warnings after removing the key", %{
+    conn: conn
+  } do
+    assert {:ok, :started} = SceneGeneration.manual()
+    attempt = SceneGeneration.current()
+    assert :ok = GeminiVault.delete("unused")
+    {:ok, view, _} = live(conn, "/scenes")
+    render_async(view)
+
+    assert_setup_only(view)
+    assert has_element?(view, "#scene-setup-generation-status", "queued locally")
+    assert has_element?(view, "#scene-setup-generation-status", "charges may still apply")
+    assert has_element?(view, "#scene-global-activity")
+
+    {:ok, _} = Attempt.record(attempt, %{status: :submitting})
+    assert :ok = Generation.perform(attempt.id, :submit)
+    render_async(view)
+    view |> element("#scene-gemini-setup a") |> render_click()
+    view |> element("#show-scenes") |> render_click()
+    render_async(view)
+
+    assert_setup_only(view)
+    assert has_element?(view, "#scene-setup-generation-status", "Generation outcome unconfirmed")
+
+    assert has_element?(
+             view,
+             "#scene-setup-generation-status",
+             "does not cancel an earlier request"
+           )
+
+    assert has_element?(view, "#scene-global-activity")
+    assert SceneGeneration.current().status == :unknown
   end
 
   test "picker confirmation captures exact settings without changing startup defaults", %{
@@ -278,9 +542,11 @@ defmodule LovelaceWeb.ScenesLiveTest do
     assert_receive {:stage_background, %{status: :queued}}, 1_000
     assert SceneGeneration.current().status == :queued
     assert has_element?(view, "#scene-generate[disabled]")
-    # Explicit execution resolves the empty fake vault locally, without HTTP.
+    # Remove the fake credential before explicit execution so it fails locally, without HTTP.
+    assert :ok = GeminiVault.delete("unused")
     assert :ok = Generation.perform(SceneGeneration.current().id, :submit)
     assert_receive {:stage_background, %{status: :failed}}, 1_000
+    assert :ok = GeminiVault.put("unused", "synthetic-scenes-key")
     render_async(view)
     assert has_element?(view, "#scenes-panel", "generation failed")
     assert has_element?(view, "#scene-generate:not([disabled])")
@@ -489,6 +755,50 @@ defmodule LovelaceWeb.ScenesLiveTest do
     assert has_element?(view, "#scenes-panel[data-page='1']")
     assert has_element?(view, "#scenes-newer[disabled]")
     assert StageDesigner.background!().url == Storage.url(oldest)
+  end
+
+  defp await_scene_async(view, name) do
+    # Like render_async/1, monitor the real task and render after it exits, but
+    # leave the deliberately suspended credential check running.
+    case Map.get(:sys.get_state(view.pid).socket.private.live_async, name) do
+      {_ref, pid, :start} ->
+        monitor = Process.monitor(pid)
+        assert_receive {:DOWN, ^monitor, :process, ^pid, _reason}, 1_000
+
+      nil ->
+        :ok
+    end
+
+    render(view)
+    refute Map.has_key?(:sys.get_state(view.pid).socket.private.live_async, name)
+  end
+
+  defp assert_no_scene_confirmation(view) do
+    assert %{
+             scene_preparing: false,
+             scene_prepared: nil,
+             scene_confirmation: false,
+             scene_confirmation_prompt: nil,
+             scene_request_pending: false
+           } = :sys.get_state(view.pid).socket.assigns
+  end
+
+  defp assert_no_generation_requested(expected_state) do
+    assert StageDesigner.get_state!(1, actor: @actor) == expected_state
+    assert {:ok, []} = Attempt.page(1)
+    assert all_enqueued(worker: GenerationWorker) == []
+  end
+
+  defp assert_setup_only(view) do
+    assert has_element?(view, "#scenes-panel > #scene-gemini-setup")
+    refute has_element?(view, "#scenes-refresh")
+
+    refute has_element?(
+             view,
+             "#scene-direction, #scene-direction-form, .scene-toolbar, " <>
+               "#scene-generation-settings, #scenes-empty, #scene-gallery, #scene-pagination, " <>
+               "#scene-attempt-history, #scene-generation-modal, #scene-acknowledgement-modal"
+           )
   end
 
   defp assert_same_persisted_state(expected) do

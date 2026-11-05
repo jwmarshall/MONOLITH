@@ -2,13 +2,18 @@ defmodule Lovelace.Onboarding.Credentials do
   @moduledoc false
   @behaviour Ash.Resource.Actions.Implementation
 
-  alias Lovelace.Integrations.Google.ClientCredentials
-
   @impl true
   def run(input, _opts, context) do
     # Validate here, not through length/format constraints that can retain raw
     # submitted values in an Ash error. Nothing from the adapter is returned.
-    with :ok <- ClientCredentials.save(input.arguments.client_id, input.arguments.client_secret),
+    with {:ok, workspace} when not is_nil(workspace) <-
+           Lovelace.Onboarding.workspace(actor: context.actor),
+         {:ok, true} <-
+           Lovelace.Google.save_client_credentials(
+             input.arguments.client_id,
+             input.arguments.client_secret,
+             actor: context.actor
+           ),
          {:ok, state} <- Lovelace.Onboarding.start(actor: context.actor),
          {:ok, _} <-
            Ash.update(state, %{}, action: :credentials_saved, actor: context.actor) do

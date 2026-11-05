@@ -382,8 +382,7 @@ defmodule LovelaceWeb.OwnerControllerTest do
           "#owner-stage.glass-workspace.stage-static",
           "#owner-stage-background.workspace-background[aria-hidden=true]",
           "#owner-stage > #main-content.workspace-glass.owner-glass[aria-labelledby=owner-unlock-heading]",
-          "#owner-unlock-heading.sr-only",
-          "#owner-stage > #owner-stage-monogram.stage-monogram[aria-hidden=true][focusable=false] path"
+          "#owner-unlock-heading.sr-only"
         ] do
       assert document |> LazyHTML.query(selector) |> Enum.any?()
     end

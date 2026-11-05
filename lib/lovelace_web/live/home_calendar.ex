@@ -32,6 +32,15 @@ defmodule LovelaceWeb.HomeCalendar do
     end
   end
 
+  def handle_event(
+        event,
+        _params,
+        %{assigns: %{connections: true, connection_view: :calendar, google_status: status}} =
+          socket
+      )
+      when event in ["calendar:refresh", "calendar:select"] and status != :stored,
+      do: {:noreply, socket}
+
   def handle_event("calendar:refresh", %{"id" => id}, socket) do
     result = Lovelace.Calendar.refresh(id, actor: @owner)
     {:noreply, feedback(socket, result) |> changed()}

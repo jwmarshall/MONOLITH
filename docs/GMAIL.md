@@ -100,19 +100,29 @@ until the next startup; instant crash-time locking is not guaranteed.
 
 After owner creation, `/onboarding` walks through these steps and saves your progress
 locally when you continue. Console links open a new tab; keep the same project selected.
-The guide does not automate or independently verify console changes. You can skip Gmail
-and return later. Use a dedicated project at <https://console.cloud.google.com/>:
+The guide does not automate or independently verify console changes. After naming your
+workspace, you can defer all Google setup, or skip Gmail and Calendar individually.
+Configure the client later in **Connections → Google** and connect accounts separately
+in **Connections → Gmail**. Use a dedicated project at <https://console.cloud.google.com/>:
 
 1. Enable the **Gmail API**. Enable **Google Calendar API** too only when using the
    optional [Calendar integration](CALENDAR.md).
 2. Configure **Google Auth Platform** branding and audience. Use **External** for
    personal Gmail or accounts from different organizations. Internal is limited to
    the project's own Google Workspace organization.
-3. Add these Gmail scopes to the consent configuration (optional Calendar scopes are
-   documented separately; Gmail-only authorization does not request them):
+3. Add these Gmail scopes to the consent configuration:
    - `openid`
    - `https://www.googleapis.com/auth/userinfo.email` (the console's canonical email scope)
    - `https://www.googleapis.com/auth/gmail.readonly`
+
+   For optional Calendar agendas, also add:
+   - `https://www.googleapis.com/auth/calendar.events.readonly`
+   - `https://www.googleapis.com/auth/calendar.calendarlist.readonly`
+
+   The onboarding authentication step lists both groups. Configuring these scopes does
+   not grant access: Gmail connection still requests Gmail-only authorization. Enable
+   Calendar explicitly in the following optional onboarding step, or later through
+   **Connections → Calendar**; see [CALENDAR.md](CALENDAR.md).
 
    OAuth requests may spell the email scope as the OpenID alias `email`; LOVELACE accepts
    Google's returned `userinfo.email` form too. Do not add `userinfo.profile` just to
@@ -121,13 +131,18 @@ and return later. Use a dedicated project at <https://console.cloud.google.com/>
    A Desktop client is public; its bundled client secret is not a security boundary.
    Do not use service-account/domain-wide delegation or the obsolete OOB flow.
 5. Keep the client ID and client secret local. Paste them into the protected
-   `/onboarding/client` form while LOVELACE is unlocked. The form stores them directly
-   in the dedicated keychain, never displays them again, and performs no provider probe.
+   **Connections → Google** (`/connections/google`) form while LOVELACE is unlocked, or
+   save them during `/onboarding/client`. Both use the same dedicated keychain namespace.
+   The forms never display stored values and perform no provider probe.
    No server restart is required. Runtime `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`
    environment variables are not read. Never paste credentials into chat, source, logs,
    URLs, or shell history; do not commit downloaded client JSON.
    For explicit stopped-server maintenance, `bin/lovelace mix lovelace.google.configure`
    remains available with hidden terminal prompts; it does not start provider work.
+   Google Connections reports only local credential presence/availability, not verified
+   Google access. Saving settings does not grant Gmail or Calendar access. Replacing the
+   client leaves existing accounts and grants intact; switching clients may require
+   reconnecting those accounts.
 
 LOVELACE uses `http://localhost:4321/oauth/google/callback` by default. A custom `PORT`
 changes the callback port too. Desktop clients support loopback redirects without
@@ -156,8 +171,9 @@ administrator approval. Tokens can be revoked or expire for other reasons too.
 
 ## 3. Connect and read
 
-The fresh browser guide offers **Connect Google account**, with **Personal** shown as
-the receiving workspace and read-only access explained before Google consent starts.
+The fresh browser guide first asks you to name a workspace, then offers **Connect Google
+account**, with that workspace shown as the destination and read-only access explained
+before Google consent starts.
 The server is already running; Google credentials are not required to start it.
 For later sessions:
 
@@ -177,8 +193,11 @@ Gmail never starts a browser or requests consent automatically.
    and explicitly choose the receiving workspace in the modal, then **Connect Google account**.
    Cancel/Escape dismisses the modal without starting OAuth.
 2. Choose the intended Google account and grant read-only mail access.
-   Successful consent returns to that workspace. While onboarding is unfinished,
-   **Finish setup** opens the guide's completion page. It distinguishes saved Google
+   Consent started in onboarding returns to `/onboarding/calendar`, where you can enable
+   Calendar for the same account or skip it. Calendar consent returns to that same step
+   to select calendars, including shared calendars or none, without visiting Connections.
+   Choose **Continue** to review setup, then explicitly finish setup. Consent started elsewhere returns
+   to the receiving workspace. The guide's completion page distinguishes saved Google
    authorization, an unconfirmed first read, failures, and a timestamped saved read
    observation. Open that account's inbox to request its first read; finishing or skipping
    the guide never invents a connection or a successful read.
@@ -216,10 +235,15 @@ Authorization uses system-browser code flow, S256 PKCE, offline access, single-u
 10-minute state bound to the unlocked owner session, and a fresh identity lookup.
 Restarting during consent cancels the in-memory attempt safely; start again.
 A denied or expired grant produces a reconnect state, not endless credential retries.
-Successful Gmail consent returns directly to `/workspaces/:id` for the explicitly selected
-receiving workspace; safe failure categories return to `/connections/gmail`. These are real
-paths, not root-query navigation. Receiving-workspace fields in OAuth forms/state remain
-membership intent, separate from global Connections navigation.
+Successful Gmail and Calendar consent started in onboarding saves and returns to
+`/onboarding/calendar`; only explicitly continuing advances to the review step. Other Gmail
+consent returns directly to `/workspaces/:id` for the explicitly selected receiving workspace.
+The origin is saved with the single-use OAuth attempt, not taken from callback parameters
+or an arbitrary return URL. Validated setup failures return to the corresponding guide
+step with a generic retry/skip notice. Invalid or expired state and failures outside
+setup retain safe diagnostics at `/connections/gmail`. These are real paths, not root-query navigation.
+Receiving-workspace fields in OAuth forms/state remain membership intent, separate
+from the post-consent destination and global Connections navigation.
 
 ## Connection troubleshooting
 
@@ -345,6 +369,10 @@ retain stock Bandit after reviewing this distinction:
 - Early password and OAuth callback plugs avoid *additional* Phoenix router/endpoint
   exposure. Normalized aliases cannot bypass them. Passwords/codes are not accepted in
   normal credential-bearing query-based forms, and logs filter sensitive parameter names.
+  Calendar provider IDs can be email addresses: Phoenix filters `calendar_id` (including
+  `calendar_ids` and nested selection values) before HTTP route and LiveView event
+  parameter logging, including rejected, stale, and unauthorized form submissions.
+  This does not sanitize raw request telemetry; never add raw payload logging.
 - Provider HTTP uses private passive Mint, no Req/Finch payload telemetry, redirects,
   proxies or automatic retries. Fixed Google hosts/paths, TLS verification, byte/deadline
   caps and allowlisted errors apply. Test builds reject ordinary real-provider connections

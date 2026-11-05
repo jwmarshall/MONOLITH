@@ -5,6 +5,9 @@ defmodule LovelaceWeb.SetupControllerTest do
   @password "synthetic onboarding password"
 
   setup %{conn: conn} do
+    # Pairing and owner creation must not inherit earlier tests' node-wide login budget.
+    :ok = Supervisor.terminate_child(Lovelace.Supervisor, Owner.Throttle)
+    {:ok, _} = Supervisor.restart_child(Lovelace.Supervisor, Owner.Throttle)
     :ok = Supervisor.terminate_child(Lovelace.Supervisor, Bootstrap)
     observer = self()
 

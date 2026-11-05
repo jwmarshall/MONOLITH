@@ -16,14 +16,41 @@ descriptions/HTML or load remote imagery. Repeating events are expanded by Googl
 3. Complete the encrypted owner setup or stopped-application migration described in
    [GMAIL.md](GMAIL.md); never reset a private database or apply plaintext SQLite tooling
    to the encrypted database.
-4. Start LOVELACE with `bin/lovelace server` and unlock, then open **Connections → Calendar**. For an existing Google account, choose a receiving
-   workspace and explicitly authorize Calendar. This reuses the same Google subject and
-   Keychain item, not a second identity or owner login. Choosing another Google identity
-   is rejected. Granting Calendar also retains read-only Gmail access.
-5. Consent returns directly to `/connections/calendar`. Google's selected calendars seed
-   the LOVELACE selection, including shared calendars. Use the checkboxes there to override
-   the selection locally.
+4. Start LOVELACE with `bin/lovelace server` and unlock. During onboarding, connect Gmail,
+   then use **Calendar (optional) → Enable read-only Calendar**, or skip Calendar and
+   retain Gmail alone. The account's email is shown before consent; choose that same
+   Google account. Later, **Connections → Calendar** offers the same opt-in authorization
+   for an existing Google account with an explicitly selected receiving workspace.
+   This reuses the same Google subject and Keychain item, not a second identity or owner
+   login. Choosing another Google identity is rejected. Granting Calendar also retains
+   read-only Gmail access.
+5. Consent started in onboarding returns to `/onboarding/calendar`, where the browser
+   requests a queued first read for its local day and shows the calendar selection inline.
+   Google's selected calendars seed the selection, including shared calendars. Save your
+   selection (at most 20 calendars), then choose **Continue** to review setup before explicitly finishing.
    An empty selection is valid; it means no calendars selected, not no events in Google.
+   A validated cancelled or failed attempt returns to the same step to retry or skip
+   without removing Gmail. Consent started in Connections returns to `/connections/calendar`,
+   where the same selection can be changed later.
+
+The inline picker binds every load and status response to the workspace, account and
+connection generation that started it. Initial page assembly also checks that the heading
+and picker identities agree; a concurrent change leaves the picker unavailable rather
+than exposing another account's controls. Reload the whole step to see the current
+connection. Reconnect/detach fences still apply to every server mutation. Pending requests
+are aborted on navigation, and late responses cannot update a departed page. Owner-session
+redirects navigate the whole page rather than installing partial HTML.
+
+Status checks run at 1.5-second intervals for at most 20 attempts. If work remains
+pending, the picker explicitly says automatic checks have stopped; this does not cancel
+the queued read or claim success. **Refresh calendar status** performs one metadata-only
+GET, without starting another provider read or another automatic polling loop. Its
+`?status=1` reload also suppresses first-read autoload. It preserves existing unsaved
+choices and keyboard focus when the picker can become ready. **Refresh calendars** is
+different: it explicitly queues the existing bounded read even before the normal interval,
+while retaining job uniqueness and all rate-limit cooldowns. Every browser request has a
+10-second deadline covering both fetch and response-body reading. Failure or timeout keeps
+edits, exposes recovery, and does not automatically retry; it does not cancel queued work.
 
 Calendar consent is never requested automatically. Denying the optional consent leaves
 an existing Gmail connection intact. A normal Gmail reconnect disables Calendar locally;
@@ -31,7 +58,9 @@ explicitly authorize Calendar again afterward. Calendar failures have their own 
 freshness, rather than overwriting Gmail's unread count or sync errors. A global Google
 credential failure can still require reconnecting the shared connection.
 
-The Google setup, terminal `mix lovelace.google.configure` workflow, testing-mode token
+The browser's `/onboarding/project` and `/onboarding/authentication` steps include the
+Calendar API and both scopes above alongside Gmail setup. The optional stopped-terminal
+`bin/lovelace mix lovelace.google.configure` maintenance workflow, testing-mode token
 lifetime, local-only OAuth flow, owner session security and dedicated-keychain/signing
 limitations in [GMAIL.md](GMAIL.md) also apply. Runtime Google client ID/secret environment
 variables are ignored. Calendar shares the dedicated password-unlocked LOVELACE keychain
@@ -61,8 +90,10 @@ limits impose a five-minute Calendar cooldown, including manual Refresh.
 Work is bounded to 100 listed calendars, 20 selected calendars, 100 expanded events per
 calendar and 500 retained agenda events, within a 512 KiB payload bound. Provider pages
 beyond these limits are not silently represented as complete: the UI labels partial
-results. Google-selected calendars beyond the selection bound require a smaller explicit
-selection. No local full-calendar mirror, history index or push service is introduced.
+results, including the onboarding picker. The persisted bounded-result warning is separate
+from the warning that Google-selected calendars exceeded the 20-calendar selection bound;
+the latter requires a smaller explicit selection. No local full-calendar mirror, history
+index or push service is introduced.
 API time bounds are widened before exact local-day filtering to account for all-day
 entries whose calendar timezone differs from the browser's.
 

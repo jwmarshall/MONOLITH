@@ -11,10 +11,12 @@ defmodule LovelaceWeb.HomeLive do
     CalendarComponents,
     GeminiComponents,
     GitHubComponents,
+    GoogleComponents,
     HomeCalendar,
     HomeComponents,
     HomeGemini,
     HomeGitHub,
+    HomeGoogle,
     HomeMail,
     HomeNavigation,
     HomeScenes,
@@ -65,6 +67,7 @@ defmodule LovelaceWeb.HomeLive do
       |> HomeMail.init()
       |> HomeCalendar.init()
       |> HomeGemini.init()
+      |> HomeGoogle.init()
       |> HomeGitHub.init(session)
       |> HomeScenes.init()
 
@@ -116,6 +119,8 @@ defmodule LovelaceWeb.HomeLive do
       do: HomeScenes.handle_async(name, result, socket)
 
   def handle_async(:gemini_status, result, socket), do: HomeGemini.handle_async(result, socket)
+
+  def handle_async(:google_status, result, socket), do: HomeGoogle.handle_async(result, socket)
 
   def handle_async(name, result, socket),
     do: reconcile_mail_navigation(socket, HomeMail.handle_async(name, result, socket))
@@ -229,6 +234,15 @@ defmodule LovelaceWeb.HomeLive do
   end
 
   defp event(
+         "google:check",
+         _params,
+         %{assigns: %{connections: true, connection_view: :google}} = socket
+       ),
+       do: {:noreply, HomeGoogle.open(socket)}
+
+  defp event("google:check", _params, socket), do: {:noreply, socket}
+
+  defp event(
          "gemini:check",
          _params,
          %{assigns: %{connections: true, connection_view: :gemini}} = socket
@@ -242,10 +256,16 @@ defmodule LovelaceWeb.HomeLive do
          %{"provider" => provider},
          %{assigns: %{connections: true}} = socket
        )
-       when provider in ["gemini", "gmail", "calendar", "github"] do
+       when provider in ["google", "gemini", "gmail", "calendar", "github"] do
     view =
       Map.fetch!(
-        %{"gemini" => :gemini, "gmail" => :gmail, "calendar" => :calendar, "github" => :github},
+        %{
+          "google" => :google,
+          "gemini" => :gemini,
+          "gmail" => :gmail,
+          "calendar" => :calendar,
+          "github" => :github
+        },
         provider
       )
 
@@ -256,7 +276,15 @@ defmodule LovelaceWeb.HomeLive do
         if socket.assigns.connection_view == :index, do: focus_heading(socket), else: socket
 
       socket = socket |> HomeMail.close_connection() |> assign(:connection_view, view)
-      {:noreply, if(view == :gemini, do: HomeGemini.open(socket), else: socket)}
+
+      socket =
+        case view do
+          view when view in [:google, :gmail, :calendar] -> HomeGoogle.open(socket)
+          :gemini -> HomeGemini.open(socket)
+          _ -> socket
+        end
+
+      {:noreply, socket}
     end
   end
 
@@ -569,20 +597,21 @@ defmodule LovelaceWeb.HomeLive do
   end
 
   defp load_workspaces(socket) do
-    with {:ok, _personal} <- Workspaces.initialize_personal(actor: @owner),
-         {:ok, workspaces} <- Workspaces.list_workspaces(actor: @owner) do
-      socket
-      |> assign(
-        workspaces_error: false,
-        loading: false,
-        workspace_options: Enum.map(workspaces, &{&1.name, &1.id})
-      )
-      |> HomeGitHub.reload()
-      |> load_workspace_health(workspaces)
-      |> HomeCalendar.reload()
-      |> stream(:workspaces, workspaces, reset: true)
-    else
-      _ -> assign(socket, workspaces_error: true, home_error: true, loading: false)
+    case Workspaces.list_workspaces(actor: @owner) do
+      {:ok, workspaces} ->
+        socket
+        |> assign(
+          workspaces_error: false,
+          loading: false,
+          workspace_options: Enum.map(workspaces, &{&1.name, &1.id})
+        )
+        |> HomeGitHub.reload()
+        |> load_workspace_health(workspaces)
+        |> HomeCalendar.reload()
+        |> stream(:workspaces, workspaces, reset: true)
+
+      _ ->
+        assign(socket, workspaces_error: true, home_error: true, loading: false)
     end
   end
 
@@ -691,6 +720,7 @@ defmodule LovelaceWeb.HomeLive do
     socket
     |> resume_calendar(params)
     |> resume_gemini(params)
+    |> resume_google(params)
     |> HomeGitHub.resume(params)
   end
 
@@ -726,6 +756,27 @@ defmodule LovelaceWeb.HomeLive do
     end
   end
 
+  defp resume_google(socket, %{"provider" => "google", "google" => result})
+       when result in ["saved", "failed"] do
+    if connected?(socket) do
+      case result do
+        "saved" ->
+          put_flash(socket, :info, "Google client settings saved. No account access was granted.")
+
+        "failed" ->
+          put_flash(
+            socket,
+            :error,
+            "Google client settings could not be saved. Check the values and Keychain access, then try again."
+          )
+      end
+    else
+      socket
+    end
+  end
+
+  defp resume_google(socket, _params), do: socket
+
   defp focus_heading(socket), do: push_event(socket, "workspace:focus-heading", %{})
 
   @impl true
@@ -733,26 +784,7 @@ defmodule LovelaceWeb.HomeLive do
     ~H"""
     <Layouts.app flash={@flash} background={@background}>
       <h1 id="workspace-title" class="sr-only">LOVELACE</h1>
-      <div
-        id="workspace-brand"
-        class="workspace-brand"
-        aria-hidden="true"
-        phx-hook="BrandReveal"
-        phx-update="ignore"
-      >
-        <Layouts.monogram
-          id="lovelace-monogram"
-          class="workspace-monogram"
-          stroke_id="lovelace-monogram-stroke"
-        />
-        <p class="workspace-wordmark" aria-label="LOVELACE">
-          <span
-            :for={{letter, index} <- Enum.with_index(String.graphemes("LOVELACE"))}
-            id={"lovelace-letter-#{index}"}
-            class="workspace-letter"
-          >{letter}</span>
-        </p>
-      </div>
+      <Layouts.brand />
 
       <div id="workspace-content" class="workspace-content" inert>
         <span id="calendar-context" phx-hook="CalendarDay" class="hidden" aria-hidden="true"></span>
@@ -810,18 +842,18 @@ defmodule LovelaceWeb.HomeLive do
             :if={@selected && !@connections}
             id="back-to-workspaces"
             patch="/workspaces"
-            class="workspace-back workspace-action"
+            class="workspace-back workspace-action workspace-action-link"
           >
-            <span aria-hidden="true">←</span> All workspaces
+            All workspaces
           </.link>
 
           <.link
             :if={@connections && @connection_view != :index}
             id="back-to-connections"
             patch="/connections"
-            class="workspace-back workspace-action"
+            class="workspace-back workspace-action workspace-action-link"
           >
-            <.icon name="hero-arrow-left" class="size-4" /> All connections
+            All connections
           </.link>
 
           <HomeComponents.daily_heading :if={@home} />
@@ -845,6 +877,12 @@ defmodule LovelaceWeb.HomeLive do
               class="connections-subnav"
               aria-label="Connection providers"
             >
+              <.link
+                id="connections-google"
+                patch={HomeNavigation.connections_path(:google)}
+                class="workspace-nav-link"
+                aria-current={if @connection_view == :google, do: "page"}
+              >Google</.link>
               <.link
                 id="connections-gemini"
                 patch={HomeNavigation.connections_path(:gemini)}
@@ -873,15 +911,15 @@ defmodule LovelaceWeb.HomeLive do
             <button
               :if={
                 !@selected && !@settings && !@connections && !@scenes && @mail.scope != :home &&
-                  !@editor
+                  !@editor && @workspace_options != []
               }
               id="new-workspace"
               type="button"
-              class="workspace-action"
+              class="workspace-action workspace-action-primary"
               phx-click="new_workspace"
               disabled={@loading || @workspaces_error}
             >
-              <.icon name="hero-plus" class="size-4" /> New workspace
+              New workspace
             </button>
             <WorkspaceComponents.workspace_menu
               :if={@selected && !@connections && !@editor}
@@ -890,8 +928,12 @@ defmodule LovelaceWeb.HomeLive do
             />
           </div>
           <p :if={@onboarding_pending} class="mail-muted">
-            <.link id="finish-onboarding" href="/onboarding/complete" class="workspace-action">
-              Finish setup
+            <.link
+              id="finish-onboarding"
+              href="/onboarding"
+              class="workspace-action workspace-action-link"
+            >
+              Continue setup
             </.link>
           </p>
 
@@ -961,6 +1003,31 @@ defmodule LovelaceWeb.HomeLive do
             />
           </div>
 
+          <div
+            :if={
+              !@home && !@settings && !@selected && !@connections && !@scenes &&
+                @mail.scope != :home && !@loading && !@workspaces_error && @workspace_options == []
+            }
+            id="workspaces-empty"
+            class="empty-state"
+          >
+            <.icon name="hero-squares-2x2" class="empty-state-mark size-6" />
+            <div class="empty-state-body">
+              <h3 class="empty-state-title">No workspaces yet</h3>
+              <p class="empty-state-copy">
+                Name a space for an area of life. Add connections whenever you’re ready.
+              </p>
+              <button
+                id="new-workspace"
+                type="button"
+                class="workspace-action workspace-action-primary"
+                phx-click="new_workspace"
+              >
+                New workspace
+              </button>
+            </div>
+          </div>
+
           <div :if={@home} id="home-readouts" class="home-readouts">
             <HomeComponents.overview
               accounts={@home_accounts}
@@ -1017,6 +1084,7 @@ defmodule LovelaceWeb.HomeLive do
 
           <SceneComponents.gallery
             :if={@scenes}
+            gemini_status={@gemini_status}
             data={@scene_data}
             loading={@scene_loading}
             error={@scene_error}
@@ -1033,6 +1101,11 @@ defmodule LovelaceWeb.HomeLive do
 
           <LovelaceWeb.ConnectionComponents.overview :if={@connections && @connection_view == :index} />
 
+          <GoogleComponents.connection
+            :if={@connections && @connection_view == :google}
+            status={@google_status}
+          />
+
           <GeminiComponents.connection
             :if={@connections && @connection_view == :gemini}
             status={@gemini_status}
@@ -1041,12 +1114,14 @@ defmodule LovelaceWeb.HomeLive do
           <MailComponents.connections
             :if={@connections && @connection_view == :gmail}
             mail={@mail}
+            google_status={@google_status}
             workspace_options={@workspace_options}
           />
 
           <CalendarComponents.connections
             :if={@connections && @connection_view == :calendar}
             accounts={@calendar_accounts}
+            google_status={@google_status}
             workspace_options={@workspace_options}
             window={@calendar_window}
             refresh={@calendar_revision}

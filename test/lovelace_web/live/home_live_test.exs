@@ -67,11 +67,6 @@ defmodule LovelaceWeb.HomeLiveTest do
 
     assert has_element?(view, "#lovelace-monogram[aria-hidden=true][focusable=false] path")
 
-    assert has_element?(
-             view,
-             "#workspace > #workspace-monogram.stage-monogram[aria-hidden=true][focusable=false] path"
-           )
-
     refute has_element?(view, ".workspace-signature")
     refute has_element?(view, ".workspace-topline", "LOVELACE")
     assert has_element?(view, "#workspace-content[inert]")
@@ -83,8 +78,6 @@ defmodule LovelaceWeb.HomeLiveTest do
            )
 
     refute has_element?(view, "#workspace > #home-link, .stage-home-button")
-    refute has_element?(view, "#workspace-monogram[phx-click], #workspace-monogram[tabindex]")
-    refute has_element?(view, "#workspace-brand #home-link, #workspace-monogram #home-link")
     assert has_element?(view, "#center-nav[aria-label='Main navigation'] #show-workspaces")
     assert has_element?(view, "#center-nav #show-connections")
     assert has_element?(view, "#center-nav > #home-link:first-child")
@@ -110,7 +103,8 @@ defmodule LovelaceWeb.HomeLiveTest do
     view |> element("#show-workspaces") |> render_click()
     assert has_element?(view, "#workspace-list[phx-update=stream]")
     assert has_element?(view, "#directory-heading", "Workspaces")
-    assert has_element?(view, ".workspace-card-name", "Personal")
+    refute has_element?(view, ".workspace-card-name")
+    assert Lovelace.Workspaces.list_workspaces!(actor: %{role: :local_owner}) == []
     refute has_element?(view, "#home-link[aria-current=page], #home-overview")
 
     view |> element("#home-link") |> render_click()

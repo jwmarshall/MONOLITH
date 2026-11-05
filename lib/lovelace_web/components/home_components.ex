@@ -35,9 +35,17 @@ defmodule LovelaceWeb.HomeComponents do
         <p>Accounts couldn’t be loaded.</p>
         <button type="button" class="workspace-action" phx-click="retry_workspaces">Try again</button>
       </div>
-      <div :if={!@loading && !@error && @accounts == []} id="home-empty" class="home-empty">
-        <p>No Gmail accounts connected.</p>
-        <.link patch="/connections/gmail" class="workspace-action">Connect Gmail</.link>
+      <div :if={!@loading && !@error && @accounts == []} id="home-empty" class="empty-state">
+        <.icon name="hero-envelope" class="empty-state-mark size-6" />
+        <div class="empty-state-body">
+          <h4 class="empty-state-title">No Gmail accounts connected</h4>
+          <p class="empty-state-copy">
+            Connect an account to see unread counts here. Each inbox stays separate.
+          </p>
+          <.link patch="/connections/gmail" class="workspace-action workspace-action-link">
+            Connect Gmail
+          </.link>
+        </div>
       </div>
       <ul :if={!@error && !@loading && @accounts != []} id="home-accounts" class="home-accounts">
         <.account_readout :for={account <- @accounts} account={account} />
@@ -82,9 +90,9 @@ defmodule LovelaceWeb.HomeComponents do
         <.link
           :if={@account.status == :reconnect || @account.last_error == :keychain}
           patch="/connections/gmail"
-          class="home-recovery"
+          class="home-recovery workspace-action workspace-action-link"
           aria-label={"Manage connection for #{@account.email}"}
-        >Connections →</.link>
+        >Connections</.link>
       </div>
     </li>
     """
@@ -133,17 +141,19 @@ defmodule LovelaceWeb.HomeComponents do
         <div class="theme-options">
           <label
             :for={
-              {id, name, description} <- [
-                {"charcoal", "Charcoal", "Quiet neutrals"},
-                {"earth", "Earth", "Warm, grounded tones"},
-                {"sea-glass", "Sea Glass", "Soft teal accents"},
-                {"mist", "Mist", "Cool slate and silver"}
+              {id, name} <- [
+                {"charcoal", "Charcoal"},
+                {"earth", "Earth"},
+                {"sea-glass", "Sea Glass"},
+                {"mist", "Mist"}
               ]
             }
             class="theme-option"
             data-theme-choice={id}
             for={"theme-#{id}"}
           >
+            <span class="theme-swatch" aria-hidden="true"></span>
+            <span class="theme-option-name">{name}</span>
             <input
               id={"theme-#{id}"}
               type="radio"
@@ -151,11 +161,6 @@ defmodule LovelaceWeb.HomeComponents do
               value={id}
               checked={id == "sea-glass"}
             />
-            <span class="theme-swatch" aria-hidden="true"></span>
-            <span class="theme-option-copy">
-              <span class="theme-option-name">{name}</span>
-              <span class="theme-option-description">{description}</span>
-            </span>
           </label>
         </div>
         <p id="theme-status" class="theme-status" role="status" aria-live="polite" aria-atomic="true">

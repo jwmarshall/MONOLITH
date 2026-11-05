@@ -2,6 +2,8 @@ defmodule LovelaceWeb.CalendarLiveTest do
   use LovelaceWeb.ConnCase, async: false
   import Phoenix.LiveViewTest
   alias Lovelace.{Calendar, Mail, Workspaces}
+  alias Lovelace.Integrations.Google.ClientCredentials
+  alias Lovelace.TestSupport.OnboardingKeychain
   @owner %{role: :local_owner}
 
   defmodule FakeIO do
@@ -40,10 +42,13 @@ defmodule LovelaceWeb.CalendarLiveTest do
   end
 
   setup %{conn: conn} do
+    start_supervised!(OnboardingKeychain)
+
     for {key, value} <- [
           gmail_provider: FakeIO,
           gmail_vault: FakeIO,
           calendar_provider: FakeIO,
+          google_client_keychain: OnboardingKeychain,
           calendar_live_owner: self()
         ] do
       previous = Application.fetch_env(:lovelace, key)
@@ -56,6 +61,8 @@ defmodule LovelaceWeb.CalendarLiveTest do
         end
       end)
     end
+
+    :ok = ClientCredentials.save("synthetic-calendar-client", "synthetic-calendar-secret")
 
     a = account("a", true)
     b = account("b", true)
@@ -129,6 +136,7 @@ defmodule LovelaceWeb.CalendarLiveTest do
     poll(ctx.a, ctx.window)
     view |> element("#show-connections") |> render_click()
     view |> element("#open-connection-calendar") |> render_click()
+    render_async(view)
     assert has_element?(view, "#calendar-connections")
     refute has_element?(view, "#connections-panel, #gemini-connection")
 
@@ -160,6 +168,89 @@ defmodule LovelaceWeb.CalendarLiveTest do
 
     assert has_element?(view, "#connections-panel")
     refute has_element?(view, "#calendar-connections")
+  end
+
+  test "unavailable Google settings disable Calendar changes without hiding cached data", ctx do
+    for failure <- [:not_found, :locked, :unavailable] do
+      poll(ctx.a, ctx.window)
+      OnboardingKeychain.fail(failure)
+      {:ok, view, _} = live(ctx.conn, ~p"/connections/calendar")
+      render_hook(view, "calendar:day", ctx.window)
+      render_async(view)
+
+      assert has_element?(
+               view,
+               "#calendar-connections-google-prerequisite a[href='/connections/google']"
+             )
+
+      assert has_element?(
+               view,
+               "#calendar-connections-authorize-#{ctx.disabled.id} button[disabled]"
+             )
+
+      assert has_element?(view, "#calendar-connections-workspace-#{ctx.disabled.id}[disabled]")
+      assert has_element?(view, "#calendar-connections-select-#{ctx.a.id} fieldset[disabled]")
+
+      assert has_element?(
+               view,
+               "#calendar-connections-account-#{ctx.a.id} button[phx-click='calendar:refresh'][disabled]"
+             )
+
+      assert has_element?(
+               view,
+               "#calendar-connections-select-#{ctx.a.id} input[value=primary][checked]"
+             )
+
+      assert {:ok, before} =
+               Calendar.snapshot(
+                 ctx.a.id,
+                 ctx.window["from"],
+                 ctx.window["to"],
+                 ctx.window["date"],
+                 actor: @owner
+               )
+
+      render_submit(view, "calendar:select", %{"account_id" => ctx.a.id, "calendar_ids" => [""]})
+      render_click(view, "calendar:refresh", %{"id" => ctx.a.id})
+
+      assert {:ok, ^before} =
+               Calendar.snapshot(
+                 ctx.a.id,
+                 ctx.window["from"],
+                 ctx.window["to"],
+                 ctx.window["date"],
+                 actor: @owner
+               )
+
+      OnboardingKeychain.fail(nil)
+      view |> element("#calendar-connections-google-prerequisite a") |> render_click()
+      render_async(view)
+      view |> element("#connections-calendar") |> render_click()
+      render_async(view)
+      refute has_element?(view, "#calendar-connections-select-#{ctx.a.id} fieldset[disabled]")
+
+      refute has_element?(
+               view,
+               "#calendar-connections-authorize-#{ctx.disabled.id} button[disabled]"
+             )
+
+      render_submit(view, "calendar:select", %{"account_id" => ctx.a.id, "calendar_ids" => [""]})
+
+      assert {:ok, after_selection} =
+               Calendar.snapshot(
+                 ctx.a.id,
+                 ctx.window["from"],
+                 ctx.window["to"],
+                 ctx.window["date"],
+                 actor: @owner
+               )
+
+      assert after_selection.explicit_selection
+      assert after_selection.selected_ids == []
+
+      Calendar.select_calendars(ctx.a.id, ["primary"], actor: @owner)
+      GenServer.stop(view.pid)
+    end
   end
 
   test "invalid browser contexts are ignored without provider calls", ctx do

@@ -48,6 +48,96 @@ defmodule LovelaceWeb.GoogleOAuthTest do
     assert redirected_to(conn) == "/unlock"
   end
 
+  test "setup Gmail start failures return to the fixed connection step", %{conn: conn} do
+    response =
+      post(conn, "/oauth/google/start", %{
+        workspace_id: Ash.UUID.generate(),
+        origin: "onboarding",
+        return_to: "https://untrusted.invalid/"
+      })
+
+    assert redirected_to(response) == "/onboarding/connect?notice=connection_failed"
+    assert Lovelace.Mail.list_accounts!(actor: @owner) == []
+  end
+
+  test "setup Gmail cancellation trusts only the validated one-use attempt", %{
+    conn: conn,
+    workspace: w
+  } do
+    session = get_session(conn, :owner_session_token)
+    {:ok, setup_state, _} = OAuth.begin(w.id, session, nil, :gmail, nil, :onboarding)
+    {:ok, normal_state, _} = OAuth.begin(w.id, session)
+
+    response =
+      get(
+        conn,
+        "/oauth/google/callback?" <>
+          URI.encode_query(%{
+            state: setup_state,
+            error: "access_denied",
+            error_description: "private-provider-detail",
+            origin: "connections",
+            return_to: "https://untrusted.invalid/"
+          })
+      )
+
+    assert redirected_to(response, 303) == "/onboarding/connect?notice=connection_failed"
+    assert {:error, :invalid_state} = OAuth.take(setup_state, session)
+
+    response =
+      get(
+        conn,
+        "/oauth/google/callback?" <>
+          URI.encode_query(%{state: normal_state, error: "access_denied", origin: "onboarding"})
+      )
+
+    assert_failure(response, "consent", "denied")
+
+    response =
+      get(
+        conn,
+        "/oauth/google/callback?" <>
+          URI.encode_query(%{
+            state: setup_state,
+            code: "fake-code",
+            origin: "onboarding",
+            return_to: "/onboarding/complete"
+          })
+      )
+
+    assert_failure(response, "state", "invalid_state")
+    assert Lovelace.Mail.list_accounts!(actor: @owner) == []
+    assert {:ok, nil} = Lovelace.Onboarding.progress(actor: @owner)
+  end
+
+  test "setup Gmail consent returns to Calendar in the saved workspace", %{conn: conn} do
+    assert {:ok, %{workspace_id: workspace_id}} =
+             Lovelace.Onboarding.save_workspace("My first workspace", actor: @owner)
+
+    {:ok, state, _} =
+      OAuth.begin(
+        workspace_id,
+        get_session(conn, :owner_session_token),
+        nil,
+        :gmail,
+        nil,
+        :onboarding
+      )
+
+    response =
+      get(conn, "/oauth/google/callback?" <> URI.encode_query(%{code: "fake-code", state: state}))
+
+    assert redirected_to(response, 303) == "/onboarding/calendar"
+
+    assert {:ok, %{step: :calendar, workspace_id: ^workspace_id, finished: false}} =
+             Lovelace.Onboarding.progress(actor: @owner)
+
+    assert [%{subject: "new-subject"} = account] = Lovelace.Mail.list_accounts!(actor: @owner)
+    assert [%{account_id: id}] = Lovelace.Mail.workspace_accounts!(workspace_id, actor: @owner)
+    assert id == account.id
+    refute account.calendar_enabled
+  end
+
   test "callback binds Google subject and leaks no code into Phoenix telemetry", %{
     conn: conn,
     workspace: w

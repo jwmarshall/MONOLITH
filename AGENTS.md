@@ -14,20 +14,23 @@ Stack: Phoenix LiveView, Ash/AshSqlite over Ecto/SQLite, and Tailwind.
   not a unified inbox. Meaningful views have URLs; reload/deep links and browser history
   preserve destination/context, including a safe requested destination through unlock.
   Workspaces lives behind navigation; Escape/idle wake preserves current work.
-- Workspaces represent areas of life; **Personal** is the starter. One reusable Google
-  connection can appear in several workspaces, and a workspace can contain several accounts.
-  Keep account/integration tiles separate; workspace removal is not global disconnect.
+- Workspaces represent areas of life; onboarding asks the owner to name their first workspace,
+  rather than creating a predetermined starter. One reusable Google connection can appear in
+  several workspaces, and a workspace can contain several accounts. Keep account/integration
+  tiles separate; workspace removal is not global disconnect.
 - The current slice is read-only Gmail and opt-in Google Calendar: per-account browser-local
   today's agendas on Home and workspaces, selected/shared calendars, no calendar writes.
   Reuse Google connections with explicit Calendar consent; Calendar health is independent of Gmail.
   Organizing mail, drafting, sending and projects
   are outside current scope, not an implicit roadmap. Revisit only on a fresh user request;
   any future project must belong to one account with explicit/manual thread membership.
-- Read-only GitHub.com organizations can be attached to several workspaces. Home shows
-  separate, bounded open-PR readouts per organization, not a cross-organization inbox.
-  Fine-grained tokens live under organization UUIDs in the dedicated keychain; immutable
-  GitHub identity and connection generations fence caches/jobs. No repository writes.
-  See the GitHub section in docs/DEVELOPMENT.md before changing credentials or polling.
+- Read-only GitHub.com personal/organization installations can belong to several
+  workspaces. Home shows separate, bounded open-PR readouts per installation owner,
+  not a cross-owner inbox. GitHub App access/refresh bundles live under connection UUIDs
+  in the dedicated keychain; immutable owner identities and connection generations
+  fence caches/jobs. Rotating-token refresh is one-shot after a durable reservation;
+  unknown outcomes require sign-in again. No repository writes. See the GitHub section
+  in docs/DEVELOPMENT.md before changing credentials or polling.
 - Gmail owns mail state; LOVELACE owns workspace/project data. Use bounded on-demand caching
   and Gmail search, not a full offline mirror or local mail index. Poll while the app runs;
   do not promise instant updates or execution while the computer is asleep/off.

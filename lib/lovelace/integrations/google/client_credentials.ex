@@ -7,12 +7,35 @@ defmodule Lovelace.Integrations.Google.ClientCredentials do
   @service "LOVELACE Google OAuth"
   @max_json 16 * 1024
 
+  @type status :: :stored | :not_connected | :locked | :invalid | :unavailable
+
+  @spec status() :: status()
+  def status do
+    case read_stored() do
+      {:ok, _credentials} -> :stored
+      {:error, :not_found} -> :not_connected
+      {:error, :invalid_configuration} -> :invalid
+      {:error, :locked} -> :locked
+      _ -> :unavailable
+    end
+  end
+
+  # Provider callers historically treat a missing item as invalid configuration.
   def read do
+    case read_stored() do
+      {:error, :not_found} -> {:error, :invalid_configuration}
+      result -> result
+    end
+  end
+
+  defp read_stored do
     access(fn ->
       case keychain().get(@account, @service) do
         {:ok, json} when is_binary(json) and byte_size(json) <= @max_json -> decode(json)
+        {:ok, _} -> {:error, :invalid_configuration}
+        {:error, :not_found} -> {:error, :not_found}
         {:error, reason} -> safe_error(reason)
-        _ -> {:error, :invalid_configuration}
+        _ -> {:error, :unavailable}
       end
     end)
   end

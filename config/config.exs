@@ -59,6 +59,7 @@ config :lovelace,
     Lovelace.Mail,
     Lovelace.Calendar,
     Lovelace.GitHub,
+    Lovelace.Google,
     Lovelace.Onboarding,
     Lovelace.Owner
   ],
@@ -110,7 +111,8 @@ config :phoenix, :filter_parameters, [
   "page_token",
   "refresh_token",
   "access_token",
-  "api_key"
+  "api_key",
+  "calendar_id"
 ]
 
 # Configure LiveView

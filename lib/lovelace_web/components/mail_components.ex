@@ -65,7 +65,7 @@ defmodule LovelaceWeb.MailComponents do
           patch={HomeNavigation.workspace_path(@mail.workspace_id) <> "/integrations"}
           class="workspace-action workspace-action-primary"
         >
-          <.icon name="hero-plus" class="size-4" /> Add integration
+          Add integration
         </.link>
       </div>
 
@@ -76,9 +76,14 @@ defmodule LovelaceWeb.MailComponents do
       </div>
 
       <div :if={!@account && !@mail.directory_error && @mail.scope != :home} id="mail-accounts">
-        <div :if={@mail.memberships == []} class="integration-empty">
-          <.icon name="hero-squares-plus" class="size-7" />
-          <p>No Gmail accounts attached yet.</p>
+        <div :if={@mail.memberships == [] && !@mail.adding} class="empty-state">
+          <.icon name="hero-envelope" class="empty-state-mark size-6" />
+          <div class="empty-state-body">
+            <h4 class="empty-state-title">No Gmail accounts in this workspace</h4>
+            <p class="empty-state-copy">
+              Add a Gmail account to read its inbox here. Each account stays separate.
+            </p>
+          </div>
         </div>
         <div class="integration-grid">
           <.integration_tile
@@ -101,7 +106,7 @@ defmodule LovelaceWeb.MailComponents do
         <.link
           :if={!@workspace && (@account.status == :reconnect || @mail.error == :reconnect)}
           patch="/connections/gmail"
-          class="workspace-action"
+          class="workspace-action workspace-action-link"
         >Reconnect in Connections</.link>
         <div class="mail-toolbar">
           <div class="mail-actions">
@@ -109,18 +114,18 @@ defmodule LovelaceWeb.MailComponents do
               :if={@mail.scope != :home}
               patch={HomeNavigation.workspace_path(@mail.workspace_id)}
               phx-click={JS.focus(to: "#mail-heading")}
-              class="workspace-action"
+              class="workspace-action workspace-action-link"
             >All accounts</.link>
             <.link
               :if={@mail.thread_id}
               id="mail-back"
               patch={HomeNavigation.mail_path(@mail, %{thread_id: nil})}
-              class="workspace-action"
-            >← Back to results</.link>
+              class="workspace-action workspace-action-link"
+            >Back to results</.link>
             <.link
               :if={!@mail.thread_id && (@mail.query || @mail.page_token)}
               patch={HomeNavigation.mail_path(@mail, %{page_token: nil})}
-              class="workspace-action"
+              class="workspace-action workspace-action-link"
             >First page</.link>
             <span :if={!@mail.thread_id} class="mail-muted">{if @mail.query,
               do: "Search results",
@@ -312,8 +317,8 @@ defmodule LovelaceWeb.MailComponents do
         <div :if={!@mail.thread_id && @mail.next_page_token} class="mail-pagination">
           <.link
             patch={HomeNavigation.mail_path(@mail, %{page_token: @mail.next_page_token})}
-            class="workspace-action"
-          >Next page →</.link>
+            class="workspace-action workspace-action-link"
+          >Next page</.link>
         </div>
       </div>
     </section>
@@ -353,7 +358,7 @@ defmodule LovelaceWeb.MailComponents do
           <button
             id={"detach-#{@account.id}"}
             type="button"
-            class="workspace-action"
+            class="workspace-action workspace-action-danger"
             phx-click={
               JS.remove_attribute("open", to: "#integration-menu-#{@account.id}")
               |> JS.push("mail:detach")
@@ -392,14 +397,14 @@ defmodule LovelaceWeb.MailComponents do
           id="close-add-integration"
           patch={HomeNavigation.workspace_path(@workspace.id)}
           phx-click={JS.focus(to: "#mail-heading")}
-          class="workspace-action"
+          class="workspace-action workspace-action-link"
         >
           Done
         </.link>
       </div>
       <h5 class="mail-section-title">Available connections</h5>
       <p :if={!Enum.any?(@mail.accounts, &(&1.id not in @mail.memberships))} class="mail-muted">
-        No other connected accounts.
+        No other Gmail accounts are available. Connect another Google account below.
       </p>
       <div
         :for={account <- @mail.accounts}
@@ -422,7 +427,7 @@ defmodule LovelaceWeb.MailComponents do
           phx-value-id={account.id}
           disabled={!!@mail.command}
         >
-          <.icon name="hero-plus" class="size-4" /> Add to workspace
+          Add to workspace
         </button>
         <.connect
           :if={account.status == :reconnect}
@@ -446,6 +451,7 @@ defmodule LovelaceWeb.MailComponents do
 
   attr :mail, :map, required: true
   attr :workspace_options, :list, required: true
+  attr :google_status, :atom, required: true
 
   def connections(assigns) do
     ~H"""
@@ -457,16 +463,70 @@ defmodule LovelaceWeb.MailComponents do
       <div class="connections-heading">
         <h3 id="gmail-connections-heading" class="mail-section-title">Gmail accounts</h3>
         <button
+          :if={@mail.accounts != [] || @mail.directory_error}
           id="new-gmail-connection"
           type="button"
           class="workspace-action workspace-action-primary"
           phx-click="mail:new_connection"
-          disabled={!!@mail.command || @mail.directory_error}
+          disabled={!!@mail.command || @mail.directory_error || @google_status != :stored}
+          aria-describedby={if @google_status != :stored, do: "gmail-google-prerequisite"}
         >
-          <.icon name="hero-plus" class="size-4" /> Add Gmail account
+          Add Gmail account
         </button>
       </div>
-      <p class="mail-muted">
+      <p
+        :if={@google_status != :stored}
+        id="gmail-google-prerequisite"
+        class="mail-muted"
+        role="status"
+      >
+        <%= if @google_status in [:unknown, :loading] do %>
+          Checking Google client settings…
+        <% else %>
+          Set up or restore client settings in
+          <.link patch="/connections/google" class="workspace-action-link">Google connections</.link>
+          before adding a Gmail account.
+        <% end %>
+      </p>
+      <div
+        :if={@mail.accounts == [] && !@mail.directory_error}
+        class="empty-state connection-card empty-state-card"
+      >
+        <.icon name="hero-envelope" class="empty-state-mark size-6" />
+        <div class="empty-state-body">
+          <h4 class="empty-state-title">
+            {if @workspace_options == [],
+              do: "Create a workspace first",
+              else: "Connect your first Gmail account"}
+          </h4>
+          <p class="empty-state-copy">
+            {if @workspace_options == [],
+              do:
+                "Create a workspace for your first Gmail connection. You can reuse the account in other spaces later.",
+              else:
+                "Read your mail here without changing it in Gmail. Each account keeps its own inbox."}
+          </p>
+          <.link
+            :if={@workspace_options == []}
+            patch="/workspaces"
+            class="workspace-action workspace-action-primary"
+          >
+            Create a workspace
+          </.link>
+          <button
+            :if={@workspace_options != []}
+            id="new-gmail-connection"
+            type="button"
+            class="workspace-action workspace-action-primary"
+            phx-click="mail:new_connection"
+            disabled={!!@mail.command || @mail.directory_error || @google_status != :stored}
+            aria-describedby={if @google_status != :stored, do: "gmail-google-prerequisite"}
+          >
+            Add Gmail account
+          </button>
+        </div>
+      </div>
+      <p :if={@mail.accounts != []} class="mail-muted">
         Read-only · Separate inboxes
       </p>
       <p :if={@mail.notice} id="mail-notice" class="mail-notice" role="status">{@mail.notice}</p>
@@ -474,9 +534,6 @@ defmodule LovelaceWeb.MailComponents do
         <p>Connections couldn’t be loaded.</p>
         <button type="button" class="workspace-action" phx-click="mail:reload_accounts">Try again</button>
       </div>
-      <p :if={!@mail.directory_error && @mail.accounts == []} class="integration-empty">
-        No Gmail accounts connected yet.
-      </p>
       <div class="gmail-connection-list">
         <article
           :for={account <- @mail.accounts}
@@ -534,6 +591,7 @@ defmodule LovelaceWeb.MailComponents do
         >Cancel</button>
       </LovelaceWeb.ModalComponents.modal>
       <details
+        :if={@mail.accounts != []}
         id="gmail-keychain-help"
         class="mail-muted connection-help"
         phx-mounted={JS.ignore_attributes("open")}
@@ -554,6 +612,7 @@ defmodule LovelaceWeb.MailComponents do
         </p>
       </details>
       <details
+        :if={@mail.accounts != []}
         id="gmail-disconnect-help"
         class="mail-muted connection-help"
         phx-mounted={JS.ignore_attributes("open")}
@@ -673,6 +732,13 @@ defmodule LovelaceWeb.MailComponents do
       method="post"
       class="mail-oauth"
     >
+      <p :if={!@account} class="mail-muted">
+        First, save your shared client settings in <.link
+          patch="/connections/google"
+          class="workspace-action-link"
+        >Google connections</.link>.
+        Connecting here requests read-only Gmail access for the selected account.
+      </p>
       <.input
         :if={@workspace}
         field={@form[:workspace_id]}
@@ -697,9 +763,11 @@ defmodule LovelaceWeb.MailComponents do
         id={"mail-expected-#{@account.id}"}
         type="hidden"
       />
-      <button type="submit" class="workspace-action workspace-action-primary" disabled={@busy}>{if @account,
-        do: "Reconnect Google",
-        else: "Connect Google account"}</button>
+      <button
+        type="submit"
+        class={["workspace-action", !@account && "workspace-action-primary"]}
+        disabled={@busy}
+      >{if @account, do: "Reconnect Google", else: "Connect Google account"}</button>
     </.form>
     """
   end
@@ -711,7 +779,7 @@ defmodule LovelaceWeb.MailComponents do
     ~H"""
     <button
       type="button"
-      class="workspace-action mail-disconnect"
+      class="workspace-action workspace-action-danger"
       phx-click="mail:disconnect"
       phx-value-id={@account.id}
       disabled={@busy}

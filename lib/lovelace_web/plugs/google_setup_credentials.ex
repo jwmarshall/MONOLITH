@@ -1,30 +1,41 @@
 defmodule LovelaceWeb.Plugs.GoogleSetupCredentials do
-  @moduledoc "Consumes Google setup secrets after session and before logging, telemetry and parsers."
+  @moduledoc "Consumes shared and onboarding Google secrets before logging, telemetry and parsers."
   import Plug.Conn
 
-  alias Lovelace.{Onboarding, Owner}
+  alias Lovelace.{Google, Onboarding, Owner}
   alias Lovelace.Security.Vault
   alias LovelaceWeb.Plugs.SensitivePath
   alias Plug.Conn.{Query, Utils}
 
-  @path ["onboarding", "credentials"]
+  @onboarding_path ["onboarding", "credentials"]
+  @connections_path ["connections", "google"]
   @owner %{role: :local_owner}
   @max_body 65_536
 
   def init(opts), do: opts
 
   def call(conn, _opts) do
-    if SensitivePath.matches?(conn, @path), do: consume(conn), else: conn
+    cond do
+      SensitivePath.matches?(conn, @onboarding_path) ->
+        consume(conn, :onboarding)
+
+      conn.method not in ["GET", "HEAD"] &&
+          SensitivePath.matches?(conn, @connections_path) ->
+        consume(conn, :connections)
+
+      true ->
+        conn
+    end
   end
 
-  defp consume(conn) do
+  defp consume(conn, destination) do
     conn = fetch_session(conn)
 
     cond do
       conn.query_string != "" -> reject(conn, 400)
       conn.method in ["GET", "HEAD"] -> redirect(conn, "/onboarding/client")
       conn.method != "POST" -> reject(conn, 400)
-      true -> submit(conn)
+      true -> submit(conn, destination)
     end
   rescue
     _ -> reject(conn, 400)
@@ -32,16 +43,16 @@ defmodule LovelaceWeb.Plugs.GoogleSetupCredentials do
     _, _ -> reject(conn, 400)
   end
 
-  defp submit(conn) do
+  defp submit(conn, destination) do
     # Authenticate before reading credentials; verify again under the vault lease
     # before persisting. No browser-supplied actor is ever accepted.
     case Owner.verify_session(get_session(conn, :owner_session_token)) do
-      {:ok, _} -> read_form(conn)
+      {:ok, _} -> read_form(conn, destination)
       _ -> redirect(conn, "/unlock")
     end
   end
 
-  defp read_form(conn) do
+  defp read_form(conn, destination) do
     with true <- form_content_type?(conn),
          {:ok, body, conn} <-
            read_body(conn, length: @max_body, read_length: @max_body, read_timeout: 5_000),
@@ -51,13 +62,8 @@ defmodule LovelaceWeb.Plugs.GoogleSetupCredentials do
       conn = Plug.CSRFProtection.call(conn, Plug.CSRFProtection.init(with: :exception))
       token = get_session(conn, :owner_session_token)
 
-      result = Vault.with_access(fn -> save_for_owner(token, params) end)
-
-      case result do
-        :saved -> redirect(conn, "/onboarding/connect")
-        :locked -> redirect(conn, "/unlock")
-        _ -> redirect(conn, "/onboarding/client?notice=save_failed")
-      end
+      result = Vault.with_access(fn -> save_for_owner(token, params, destination) end)
+      respond(conn, result, destination)
     else
       _ -> reject(conn, 400)
     end
@@ -69,22 +75,45 @@ defmodule LovelaceWeb.Plugs.GoogleSetupCredentials do
     _, _ -> reject(conn, 400)
   end
 
-  defp save_for_owner(token, params) do
+  defp save_for_owner(token, params, destination) do
     case Owner.verify_session(token) do
-      {:ok, _} -> save(params)
+      {:ok, _} -> save(params, destination)
       _ -> :locked
     end
   end
 
-  defp save(%{"client_id" => id, "client_secret" => secret})
+  defp save(%{"client_id" => id, "client_secret" => secret}, destination)
        when is_binary(id) and is_binary(secret) do
-    case Onboarding.save_credentials(id, secret, actor: @owner) do
+    result =
+      case destination do
+        :onboarding -> Onboarding.save_credentials(id, secret, actor: @owner)
+        :connections -> Google.save_client_credentials(id, secret, actor: @owner)
+      end
+
+    case result do
       {:ok, true} -> :saved
+      {:error, :workspace_required} -> :workspace_required
       _ -> :failed
     end
   end
 
-  defp save(_), do: :failed
+  defp save(_, _), do: :failed
+
+  defp respond(conn, result, _) when result in [:locked, {:error, :locked}],
+    do: redirect(conn, "/unlock")
+
+  defp respond(conn, result, :onboarding) do
+    case result do
+      :saved -> redirect(conn, "/onboarding/connect")
+      :workspace_required -> redirect(conn, "/onboarding/workspace")
+      _ -> redirect(conn, "/onboarding/client?notice=save_failed")
+    end
+  end
+
+  defp respond(conn, result, :connections) do
+    notice = if result == :saved, do: "saved", else: "failed"
+    redirect(conn, "/connections/google?google=" <> notice)
+  end
 
   defp form_content_type?(conn) do
     case get_req_header(conn, "content-type") do

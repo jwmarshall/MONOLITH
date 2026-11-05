@@ -207,6 +207,8 @@ try do
   Application.put_env(:lovelace, :calendar_provider, Lovelace.UIFixture)
   {:ok, _} = Lovelace.TestSupport.GeminiVault.start_link([])
   Application.put_env(:lovelace, :gemini_vault, Lovelace.TestSupport.GeminiVault)
+  {:ok, _} = Lovelace.TestSupport.OnboardingKeychain.start_link([])
+  Application.put_env(:lovelace, :google_client_keychain, Lovelace.TestSupport.OnboardingKeychain)
 
   scenery = %Lovelace.StageDesigner.Settings{
     enabled: false,
@@ -263,7 +265,17 @@ try do
 
   if default_status != 0, do: Mix.raise("Bundled default scenery browser regressions failed")
 
+  # The full gallery requires a configured integration. Test builds reject the
+  # production Gemini connector, so this synthetic key cannot reach Google.
+  :ok = Lovelace.TestSupport.GeminiVault.put(nil, "synthetic-browser-gemini-key")
+
   owner = %{role: :local_owner}
+
+  :ok =
+    Lovelace.Integrations.Google.ClientCredentials.save(
+      "synthetic-browser-google-client",
+      "synthetic-browser-google-secret"
+    )
 
   # Publish only locally encoded fixtures through the real validated image route.
   # All 23 distinct archived images remain available beyond the recent fallback

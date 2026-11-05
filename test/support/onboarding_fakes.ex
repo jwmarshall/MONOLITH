@@ -49,15 +49,21 @@ defmodule Lovelace.TestSupport.OnboardingGoogleTransport do
   alias Lovelace.TestSupport.OnboardingKeychain
 
   @impl true
-  def request(%{host: "oauth2.googleapis.com", path: "/token", method: "POST"}, _opts) do
+  def request(%{host: "oauth2.googleapis.com", path: "/token", method: "POST", body: body}, _opts) do
     OnboardingKeychain.record(:exchange)
+
+    scope =
+      if URI.decode_query(body)["code"] == "synthetic-calendar-code",
+        do:
+          "openid email https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/calendar.calendarlist.readonly https://www.googleapis.com/auth/calendar.events.readonly",
+        else: "openid email https://www.googleapis.com/auth/gmail.readonly"
 
     json(%{
       access_token: "synthetic-onboarding-access",
       refresh_token: "synthetic-onboarding-refresh",
       token_type: "Bearer",
       expires_in: 3600,
-      scope: "openid email https://www.googleapis.com/auth/gmail.readonly"
+      scope: scope
     })
   end
 
@@ -69,6 +75,32 @@ defmodule Lovelace.TestSupport.OnboardingGoogleTransport do
       email: "synthetic@example.invalid",
       email_verified: true
     })
+  end
+
+  def request(
+        %{
+          host: "www.googleapis.com",
+          path: "/calendar/v3/users/me/calendarList?" <> _,
+          method: "GET"
+        },
+        _opts
+      ) do
+    OnboardingKeychain.record(:calendars)
+
+    json(%{
+      items: [
+        %{id: "primary", summary: "Synthetic primary", selected: true},
+        %{id: "shared@example.invalid", summary: "Synthetic shared", selected: false}
+      ]
+    })
+  end
+
+  def request(
+        %{host: "www.googleapis.com", path: "/calendar/v3/calendars/" <> _, method: "GET"},
+        _opts
+      ) do
+    OnboardingKeychain.record(:events)
+    json(%{items: []})
   end
 
   def request(_request, _opts) do

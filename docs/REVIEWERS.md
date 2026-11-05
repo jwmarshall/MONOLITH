@@ -1,31 +1,31 @@
 # LOVELACE focused reviewers — Scopewright creation prompts
 
-This document defines the focused reviewer suite and preserves its Scopewright
-creation recipe. Reviewer definitions live in `.agents/skills/<reviewer-name>/SKILL.md`;
+This document defines the focused reviewer subagents and preserves their Scopewright
+creation recipe. Canonical definitions live in `.agents/agents/<reviewer-name>.md`;
 creating a reviewer is not a completed application review.
 
 For regeneration, paste the shared setup below into a Scopewright creation session,
 then run **one reviewer prompt at a time**, or assign each prompt and the complete
 shared setup to a separate creator subagent with its own output directory. Obtain
-explicit confirmation before overwriting an existing skill. Generated reviewers
+explicit confirmation before overwriting an existing agent. Generated reviewers
 must be self-contained; the shared setup is not a runtime dependency.
 
 ## Recommended suite and routing
 
 | Reviewer | Invoke when | Owns; does not own |
 | --- | --- | --- |
-| [`lovelace-architecture-reviewer`](../.agents/skills/lovelace-architecture-reviewer/SKILL.md) | Feature plans and changes to application boundaries, dependencies, configuration, or product scope | Product/convention drift and unnecessary infrastructure; not detailed schema or exploit analysis |
-| [`lovelace-ash-sqlite-reviewer`](../.agents/skills/lovelace-ash-sqlite-reviewer/SKILL.md) | Ash domains/resources/actions/policies, migrations, snapshots, or persistence changes | Data invariants, action contracts, SQLite concurrency and query shape; not provider retry semantics |
-| [`lovelace-security-privacy-reviewer`](../.agents/skills/lovelace-security-privacy-reviewer/SKILL.md) | Routes, auth/OAuth, credentials, HTML, HTTP boundaries, file/image handling, assets, or telemetry | Reachable security/privacy failures and self-hosting/provenance; not public-site cookie-law compliance |
-| [`lovelace-integration-reliability-reviewer`](../.agents/skills/lovelace-integration-reliability-reviewer/SKILL.md) | Provider calls, startup tasks, jobs, synchronization, sending, diagnostics, or recovery | Side-effect lifecycle, bounded work, uncertain outcomes, restart/sleep behavior; not schema mechanics |
-| [`lovelace-liveview-ui-reviewer`](../.agents/skills/lovelace-liveview-ui-reviewer/SKILL.md) | LiveViews, HEEx, hooks, shared components, CSS, or user-facing workflow state | Source-verifiable UI/accessibility contracts and hook lifecycle; not browser certification |
-| [`lovelace-test-reliability-reviewer`](../.agents/skills/lovelace-test-reliability-reviewer/SKILL.md) | Behavior changes and changes to tests, quality gates, or CI | Adversarial regression coverage, isolation, deterministic tests, and verification claims; not executing checks |
-| [`lovelace-account-isolation-reviewer`](../.agents/skills/lovelace-account-isolation-reviewer/SKILL.md) | **Starting with account/Gmail implementation:** account identity, projects, mail, caches, jobs, or PubSub | End-to-end account separation, including delayed work; not LOVELACE owner-login design |
-| [`lovelace-cross-file-reviewer`](../.agents/skills/lovelace-cross-file-reviewer/SKILL.md) | Final review of a multi-file feature/branch, after relevant focused reviews | Broken contracts between individually plausible changes; not repeating every specialist review |
+| [`lovelace-architecture-reviewer`](../.agents/agents/lovelace-architecture-reviewer.md) | Feature plans and changes to application boundaries, dependencies, configuration, or product scope | Product/convention drift and unnecessary infrastructure; not detailed schema or exploit analysis |
+| [`lovelace-ash-sqlite-reviewer`](../.agents/agents/lovelace-ash-sqlite-reviewer.md) | Ash domains/resources/actions/policies, migrations, snapshots, or persistence changes | Data invariants, action contracts, SQLite concurrency and query shape; not provider retry semantics |
+| [`lovelace-security-privacy-reviewer`](../.agents/agents/lovelace-security-privacy-reviewer.md) | Routes, auth/OAuth, credentials, HTML, HTTP boundaries, file/image handling, assets, or telemetry | Reachable security/privacy failures and self-hosting/provenance; not public-site cookie-law compliance |
+| [`lovelace-integration-reliability-reviewer`](../.agents/agents/lovelace-integration-reliability-reviewer.md) | Provider calls, startup authorization, durable jobs, polling, diagnostics, or recovery | Side-effect lifecycle, one-shot paid/rotating-token claims, bounded work, uncertain outcomes and restart/sleep behavior; not schema mechanics |
+| [`lovelace-liveview-ui-reviewer`](../.agents/agents/lovelace-liveview-ui-reviewer.md) | LiveViews, HEEx, hooks, shared components, CSS, or user-facing workflow state | Source-verifiable UI/accessibility contracts and hook lifecycle; not browser certification |
+| [`lovelace-test-reliability-reviewer`](../.agents/agents/lovelace-test-reliability-reviewer.md) | Behavior changes and changes to tests, quality gates, or CI | Adversarial regression coverage, isolation, deterministic tests, and verification claims; not executing checks |
+| [`lovelace-account-isolation-reviewer`](../.agents/agents/lovelace-account-isolation-reviewer.md) | Google/GitHub connections, workspace membership, integration caches/jobs, PubSub, or delayed UI | End-to-end integration identity/generation/context separation, including Calendar HTML polling and GitHub installation access; not LOVELACE owner-login design |
+| [`lovelace-cross-file-reviewer`](../.agents/agents/lovelace-cross-file-reviewer.md) | Final review of a multi-file feature/branch, after relevant focused reviews | Broken contracts between individually plausible changes; not repeating every specialist review |
 
-Use the first six as relevant to current work. Apply the account reviewer starting
-with the first connected account, and use the cross-file reviewer for substantive
-feature completion. Do not run every reviewer on every typo. Route based on affected behavior, not just filenames.
+Use focused reviewers as relevant to current behavior. Apply account isolation to
+Google/GitHub connection work and cross-file review to substantive feature completion.
+Do not run every reviewer on every typo; route by affected behavior, not just filenames.
 Security, persistence, reliability, and account isolation can legitimately examine the
 same path from different angles; the caller deduplicates findings by root cause.
 No reviewer may suppress a confirmed blocker merely because another reviewer owns it.
@@ -53,39 +53,43 @@ attention because they protect account-bearing behavior and provider side effect
 
 ## Invocation and output target
 
-The prompts below use the requested `scopewright:create` command name, shown as
-`/scopewright:create`. Use that command only in a harness where Scopewright exposes
-it. In this Pi session, the equivalent skill invocation is
-`/skill:scopewright-create` followed by the same prompt text. Slash syntax is not
-universal across harnesses.
+The canonical files are repository subagents, not skills to load into the parent
+session. Dispatch a reviewer by its exact `name` through the harness's subagent
+tool, supplying explicit target paths and review context.
 
-The prompts select **Pi**, matching this session. Scopewright's Pi output is only
-`.agents/skills/<reviewer-name>/SKILL.md`. Run `/reload` after creation in an active
-Pi session, then invoke `/skill:<reviewer-name>` with a bounded target-file list.
-This loads instructions in the current session, not an isolated subagent. A Pi
-extension's custom-agent adapter is a separate task, outside this creation recipe.
+OhMyPi discovers project agents under `.omp/agents/`; the tracked directory symlink
+`.omp/agents -> ../.agents/agents` exposes the canonical definitions without
+duplicating them. OhMyPi rediscovers agents at task dispatch, so newly added
+definitions can be invoked in the active session. Other harnesses need their own
+documented discovery adapter; `.agents/agents/` discovery is not universal.
 
-For another harness, change `Harness: pi` in the shared setup before creation and
-let Scopewright produce its documented portable skill and native adapter. Do not
-copy BMEzine's frontmatter or invent Pi-native `.agents/agents/` support. Preserve
-parent model/provider/authentication inheritance; do not pin a model or reasoning
-profile. Portable skills contain no model configuration. Prompt read-only limits
-are not an OS sandbox; use the selected harness's supported tool restrictions too.
+Definitions use `name`, `description`, and `tools: [read, grep, glob]` frontmatter.
+Omit model/provider fields to inherit the parent session's routing. The allowlist
+restricts built-ins, not additive extension/MCP tools or OS access; the explicit
+no-mutation/no-execution contract remains mandatory.
+
+The regeneration prompts use `/scopewright:create` where that command is exposed.
+Ask the creator for the repository subagent output contract below, rather than
+Scopewright's portable-only Pi skill output.
 
 ## Shared creation setup — paste once per creation session
 
 ```text
 I am creating focused read-only reviewers for LOVELACE, not asking you to review
 or fix the application. Apply these requirements to each subsequent creation
-request. Harness: pi. Use the exact kebab-case name and invocation description
-provided. Generate the portable skill only for Pi; inherit the parent session's
-provider/model/authentication, with no model fields in the skill. Inspect output
-paths first; obtain explicit approval before overwriting anything.
+request. Harness: OhMyPi, with canonical repository subagents in
+.agents/agents/<name>.md and .omp/agents symlinked to ../.agents/agents.
+Use the exact kebab-case name and invocation description provided. Generate only
+the self-contained subagent here, not a duplicate portable skill. Frontmatter:
+name, description, tools: [read, grep, glob]. Inherit the parent session's
+provider/model/authentication; omit model fields. Inspect output paths first;
+obtain explicit approval before overwriting anything.
 
 Use AGENTS.md and relevant operational guides as the project standards source.
 Read docs/DEVELOPMENT.md, mix.exs, mix.lock, .tool-versions, and relevant links
-in DEPENDENCY_RULES.md to ground creation. Read docs/GMAIL.md for Gmail-related
-reviewers and docs/STAGE_DESIGNER.md for stage-related reviewers. Do not require
+in DEPENDENCY_RULES.md to ground creation. Read docs/GMAIL.md and docs/CALENDAR.md
+for affected Google integrations, the GitHub section of docs/DEVELOPMENT.md for
+GitHub, and docs/STAGE_DESIGNER.md for stage-related reviewers. Do not require
 a handoff/status document or turn unresolved historical plans into requirements;
 unselected plans are retired, not a replacement roadmap. Never read
 .env, .env.keys, private databases/sidecars, generated images, credentials, real
@@ -100,16 +104,37 @@ Project grounding to embed without frozen capability or version inventories:
   do not embed creation-time version inventories or import BME's conventions.
 - Business behavior belongs in lib/lovelace/ as Ash domains/resources/actions/
   policies, UI in lib/lovelace_web/. No parallel hand-written Ecto contexts.
-- Verify schemas, Gmail/OAuth, credential storage, jobs, owner authentication and
-  stage behavior in current code. Installed packages alone do not establish
+- Verify schemas, provider authorization, credential storage, jobs, owner authentication
+  and stage behavior in current code. Installed packages alone do not establish
   configured or operational behavior; do not embed a frozen capabilities list.
-- Current scope is read-only Gmail in reusable workspaces, with bounded on-demand
-  caching rather than a full mirror. Mailbox writes and projects require a fresh
-  request and design discussion, not an implicit two-way or project roadmap.
-  Gmail owns mail state; LOVELACE owns workspace data and, if projects are
-  introduced, explicit/manual thread membership.
-- Multiple Gmail accounts must never share an inbox. Each project belongs to
-  exactly one account. Stage scenery is intentionally app-wide, not mail data.
+- Current scope is read-only Gmail, opt-in selected/shared Calendar and read-only
+  GitHub App personal/organization installations in reusable workspaces. Keep
+  inboxes/agendas per Google account and PR readouts per installation owner, not
+  merged feeds. Guides supply current grants, bounds, freshness and removal semantics.
+- Gmail owns mail state; LOVELACE owns workspace data. Mailbox/calendar/repository
+  writes and projects are deferred pending a fresh request and design discussion.
+  Any approved future project belongs to one account with explicit/manual thread
+  membership independent of evictable provider caches.
+- Scope integration credentials, queries, caches, jobs, events and late UI/HTML results
+  by immutable identity, connection generation and relevant day/selection revision.
+  Workspace removal is not global disconnect. Google shares Gmail/Calendar grants;
+  GitHub App connections can serve several installation owners/workspaces.
+- Stage scenery is intentionally app-wide. Authorized durable Oban jobs preserve
+  permanent one-shot paid claims even under rescue. Automatic generation is limited
+  to eligible first ordinary unlock per opted-in startup with a persistent minimum
+  24-hour startup-only cooldown. Manual reservations advance that cooldown but have
+  no manual daily cooldown; require fresh cost confirmation and refuse unresolved
+  overlap. Unknown submissions require charge/overlap acknowledgement before another
+  fresh confirmation; never retry an unknown paid POST or reuse old consent.
+- Background scenery explicitly permits provider storage; resume only retrieval of
+  saved interaction IDs. Publication/completion/remote-deletion intent commit before
+  deletion. Safe tracking/cleanup retries never authorize generation. Keep permanent
+  attempt history and all distinct published scenes with bounded reads, not a total
+  scene cap or bounded fallback-list retention policy. Current stage guide governs
+  storage exclusion, cleanup, paused/unknown states and narrow operator diagnostics.
+- Protected persistence/queues/provider work start after owner unlock and stop on
+  global Lock; visual idle/Escape does not stop them. Never promise local execution
+  with the app/computer stopped/asleep. A submitted remote renderer may continue.
 - Do not expand scope into a public/multi-user service, unified inbox, full mail
   mirror, or general task system. Open product decisions are not requirements.
   Do not reject the existing foundation for intentionally deferred features;
@@ -151,8 +176,8 @@ about a safety prerequisite into an advisory and approve the feature.
 
 O: Supply one decisive sentence defining this reviewer's scoped deliverable.
 
-P: Calibrate thoroughness for one person's private email, local data and real
-provider side effects/costs. Explain the specific consequence this reviewer
+P: Calibrate thoroughness for one person's private integration data, local state and
+real provider side effects/costs. Explain the specific consequence this reviewer
 prevents, without inventing an enterprise deployment or regulatory regime.
 
 E: Return a compact report: Verdict; Scope (current-state/change-only and files);
@@ -188,7 +213,7 @@ provider access, and reading secrets/private user data. Only read/search/list
 acquisition of allowed evidence is permitted, regardless of available tools.
 
 Keep S → C → O → P → E → D order. Embed the relevant concrete project criteria
-from the individual prompt as well as this contract in the generated skill.
+from the individual prompt as well as this contract in the generated subagent.
 Self-contained means no dependency on BMEzine, my Scopewright installation path,
 this creation conversation, or another reviewer's instructions. Local project
 references supply current evidence; they do not replace the embedded criteria.
@@ -207,9 +232,9 @@ LOVELACE product-scope drift, Ash boundaries, and unnecessary infrastructure.
 
 S: Specialize in a personal modular-monolith Phoenix/Ash application, not a
 public SaaS. Accept plans as target files as well as implementation. Ground
-rules in AGENTS.md and relevant operational guides, including docs/GMAIL.md
-for Gmail behavior; consult docs/DEVELOPMENT.md, manifests and relevant
-dependency guidance. Verify implementation in current code.
+rules in AGENTS.md and relevant operational guides: docs/GMAIL.md,
+docs/CALENDAR.md, docs/STAGE_DESIGNER.md and the GitHub section of
+docs/DEVELOPMENT.md. Consult manifests/dependency guidance; verify current code.
 
 C: Reject new business behavior implemented as parallel Ecto contexts or embedded
 in LiveViews/controllers instead of Ash actions/domains; provider HTTP or
@@ -227,10 +252,11 @@ Accept small feature-grounded modules and justified dependencies, not empty
 framework layers. Do not require every proposed future namespace immediately.
 Generic Ash actions and focused helper modules are legitimate; do not demand
 all code live in a resource DSL. Verify owner authentication in current code;
-connected Gmail identities are separate from LOVELACE owner identity. Current
-scope is read-only Gmail in reusable workspaces. Mailbox writes and projects
-require a fresh request and design discussion; do not infer a two-way roadmap.
-StageDesigner is app-wide.
+connected provider identities are separate from LOVELACE owner identity. Current
+scope is read-only Gmail, opt-in selected/shared Calendar and read-only GitHub App
+installations in reusable workspaces. Writes and projects require a fresh request
+and design discussion; do not infer a write/project roadmap. Stage is app-wide
+with durable authorized one-shot jobs, not account-owned mail data.
 
 O: Return a source- or plan-grounded verdict on whether the change preserves
 LOVELACE's confirmed product direction and application boundaries.
@@ -270,9 +296,13 @@ Test-only sandbox tables do not require production migrations/domain registratio
 Reject lost-update/read-then-write races without an enforceable database/action
 mechanism, transactions held across HTTP, and use of unsupported SQLite features.
 The current single-connection pool is not proof concurrent processes cannot race.
-Stage state intentionally uses record-path optimistic locking with a SQL version
-filter because SQLite lacks expr_error: require_atomic? false is not by itself
-a defect. Verify stale writes fail and reservations commit before side effects.
+Stage record-path optimistic locking with a SQL version filter is intentional
+where SQLite lacks expr_error; require_atomic? false alone is not a defect.
+Verify stale writes fail and reservation/attempt/job commits precede HTTP.
+Permanent paid claims must survive rescue without resubmission. Publication,
+completion and remote-deletion intent commit together; cleanup cannot authorize
+generation. Preserve startup-only cooldown/manual-confirmation semantics,
+permanent attempt history and the uncapped scene catalog with bounded reads.
 Reject concrete unbounded hot-path acquisition/N+1 or missing query support
 that makes the implemented workload unreliable; do not invent 10k-user traffic
 or impose indexes/denormalization without tracing queries. Evaluate NULL and
@@ -280,7 +310,7 @@ case-insensitive uniqueness deliberately, particularly if auth is introduced.
 
 Accept targeted Repo use for migrations/test setup and underlying infrastructure,
 not a second business API. Account separation also gets a dedicated end-to-end
-review. Stage manifests are deliberately bounded, app-wide scenery data.
+review. Stage is app-wide; bounded fallback history is not scene-retention authority.
 
 O: Return a verdict on scoped persistence/action contracts and their ability to
 preserve invariants on the actual SQLite stack.
@@ -314,12 +344,15 @@ private credentials to determine whether a value is live. Session signing alone
 is not confidentiality; require encryption/opaque references when sensitive
 session contents need it, not a blanket BME encryption_salt rule.
 
-When OAuth/token storage is introduced, check state/CSRF, identity/account binding,
-redirect handling, scopes, refresh/revoke/disconnect and separately protected key
-management against the supplied approved design. No secure design/code evidence
-for a newly activated private-mail path is a prerequisite gap, not approval.
-Evaluate owner-auth requirements against current standards and the actual
-affected trust boundary; do not invent an authentication strategy.
+Check owner-paired browser setup, early ordinary credential POSTs, session guards,
+Google single-use state/PKCE/subject binding, optional Calendar grants and shared
+disconnect semantics against current guides. Terminal configuration is maintenance,
+not a first-run prerequisite. GitHub App device authorization requires user and
+installation repository access; rotating-token refresh is one-shot after durable
+reservation and unknown results require sign-in. Preserve dedicated password-unlocked
+file-keychain boundaries, no environment/login-keychain fallback, initialized keys
+and explicit migration consent. No secure evidence for newly activated private-data
+paths is a prerequisite gap, not approval; do not invent an owner-auth strategy.
 
 Reject raw hostile email HTML, unsafe URL schemes/scripts, silent remote tracking
 content, unsafe redirects/outbound targets, secret forwarding, traversal/symlink
@@ -330,6 +363,14 @@ PNG structural bounds, local digest/manifest serving and fail-closed types.
 Native Vix decoding is not a sandbox; retained metadata is not authenticated
 provenance. Re-evaluate annotated Sobelow storage invariants if changed; reject
 blanket exclusions or annotations masking a real reachable unsafe path.
+Background scenery explicitly permits provider storage and known-ID resume; only
+safe retrieval/deletion retries are allowed, never replay of a paid submission.
+Keep generic request snapshots/known IDs/sanitized attempt and cleanup state,
+not credentials/raw provider payloads. Delete remotely after local publication
+commits; never promise zero retention. Apply the documented narrow Bandit metadata
+exception without authorizing payload logs/export. Filter Calendar IDs and OAuth/
+device parameters at actual request boundaries. Local fallback is bundled imagery,
+not a required historical SVG; catalog membership governs serving/cleanup.
 
 Reject runtime remote UI scripts/fonts/images, missing required third-party
 pins/licenses/provenance/checksums, and a new undisclosed private-data flow.
@@ -358,11 +399,12 @@ Create lovelace-integration-reliability-reviewer using the shared creation contr
 Description: Review provider calls, stage startup, sync/jobs and mail sends
 for bounded work, durable intent, safe retries and honest recovery states.
 
-S: Inspect the concrete lifecycle from user/startup intent through reservation,
-HTTP, validation, persistence, publication and UI notification. Read current
-supervision/config, Req options, diagnostics and tests. Stage startup is an
-asynchronous supervised attempt, not a durable queue. Verify configured Gmail
-jobs and their lifecycle in current code rather than assuming an engine.
+S: Inspect the lifecycle from startup/manual authorization through atomic
+reservation/attempt/job commit, one-shot submission, known-ID retrieval, validation,
+publication and remote cleanup. Read current supervision/config, Req options,
+diagnostics and tests. Stage uses durable authorized Oban jobs with permanent
+paid claims; rescue never replays generation. Verify each integration's actual
+SQLite queue, token-refresh and result-publication lifecycle in current code.
 
 C: Reject provider work in browser callbacks, unbounded time/bytes/retries,
 accidental credential forwarding through redirects, side effects before required
@@ -371,26 +413,36 @@ Trace transaction boundaries: companion DB writes intended to roll back with a
 parent are not external side effects. Check fake transport injection reaches
 the actual HTTP boundary, including process ownership.
 
-For StageDesigner, preserve one attempt per eligible opted-in startup or explicitly
-confirmed Scenes request, persistent minimum 24-hour startup-only cooldown even
-after failure/crash/unknown outcome, no manual daily cooldown, refusal of overlapping
-or unconfirmed manual work, no automatic HTTP/task retries, reservation
-committed before HTTP, saved-image/bundled-default fallback, an uncapped published-scene catalog
-with bounded gallery reads, and concurrency-safe publication/cleanup.
-The five-minute orphan/temp grace protects in-flight work. No page/reconnect/idle
-trigger, hidden daily timer or automatic retry of interrupted generating state.
-The separate operator-only failed-attempt diagnostic action is permitted only
-with explicit user consent for one potentially billable attempt; do not call it.
-Do not impose durable-job requirements on this deliberately non-retried task.
+For StageDesigner, preserve eligible first-unlock startup-only authorization and
+persistent minimum 24-hour startup-only cooldown through failure/unknown/abandonment.
+Manual reservations advance startup cooldown but have no manual daily cooldown.
+Require fresh single-use request-bound cost confirmation and unresolved-overlap
+refusal. Unknown submissions need explicit charge/overlap acknowledgement before
+fresh confirmation; invalidate old consent and fence late abandoned results.
+Permanent one-shot paid claims survive Oban rescue; stranded submissions become
+unknown, not resubmittable. No automatic paid-POST retry/model fallback.
+Background interactions allow provider storage and known-ID retrieval on resume.
+Bounded polling may pause; Check status retrieves the same ID, never generates.
+Recovery restores only authorized tracking/cleanup. Publication/completion/deletion
+intent commit before retryable remote deletion; cleanup failure is not generation
+failure. Keep permanent attempt history and all distinct published scenes with
+bounded reads, previous-image/bundled-default fallback and cross-BEAM catalog-based
+storage exclusion. Five-minute orphan/temp grace is not active-write exclusion.
+No page/reconnect/later-unlock/idle trigger or hidden daily timer. Internal failed-
+attempt diagnostics remain separate explicitly consented operator work, never invoked
+by this reviewer.
 
-When Gmail work exists, reject sync tied to tab lifetime, nonpersistent cursors/
-pending durable work, unsafe pagination/history-expiry handling, absent bounded
-rate-limit/backoff/reconciliation behavior, and claims work executes while the
-machine sleeps. Check restart/resume and account-scoped progress/events. Verify
-the chosen durable engine's actual SQLite/version/migration compatibility;
-unrequested functionality is not a defect. Gmail owns mail state; LOVELACE owns
-workspace data and, if projects are introduced, manual project membership.
-Linking must not silently change Gmail labels.
+Gmail is bounded on-demand caching/polling, not mandatory full-mirror/history-cursor
+reconciliation. Reject tab-owned work, lost pending durable work, unsafe implemented
+pagination and missing bounded action-specific backoff. Calendar adds explicit grants,
+selected/shared calendars, browser-local day/selection revisions, independent health
+and honest partial/empty results. GitHub App discovery/read publication checks user
+and installation repository access; rotating refresh claims are one-shot, with unknown
+results requiring sign-in. Use provider guides for exact bounds/cooldowns/removal,
+not uniform invented retries. Verify identity/generation/context and restart/resume.
+Global Lock stops protected work, visual idle does not. No local sleep/off execution
+promise; remote rendering may continue. Workspace/future manual membership is
+authoritative independently of evictable mail caches.
 
 For writes, require explicit account/sender and user intent. Never blindly retry
 an email send after an unknown result; require persisted intent and reconciliation
@@ -424,13 +476,14 @@ prohibition on glass, daisyUI or rounded utilities.
 
 C: Reject source-demonstrable loss of keyboard operation, accessible names,
 focus visibility, reduced-motion/forced-color handling or actionable error/state
-meaning. Preserve full-viewport glass and focus-plane behavior: at rest scenery
-is sharp/brand hidden; working chrome sharpens on intentional focus; Escape and
-configurable inactivity restore scenery. Click/keyboard/scroll/touch renew idle;
-mouse movement does not; hidden/sleep elapsed time counts and patches do not
-reset elapsed activity. Wake must preserve control focus and first-click intent.
-Replace the empty-shell full-pane button when adding real controls; do not layer
-it over them. Decorative branding must not become the only accessible heading.
+meaning. Preserve the edge-to-edge stage and focal planes, current entrance/exit
+sequence with inert working controls until completion and permanent activation-button
+removal. Duplicate activation cannot restart animation; completed entrance does not
+replay on idle/Escape wake. Static setup/onboarding has its own session-scoped intro.
+Click/keyboard/scroll/touch renew idle; mouse movement does not. Hidden/sleep elapsed
+time counts, patches do not reset it, and waking retains focus/first-input intent.
+No invisible overlay intercepts working controls. Keep accessible headings, reduced-
+motion completion, forced-color usability and current UI_CONTRACT.md theme/action rules.
 
 Reject leaked hook listeners/timers/GSAP contexts, duplicate initialization or
 reveal replay, LiveView patches clobbering owned DOM, missing hook IDs, and
@@ -443,9 +496,14 @@ LOVELACE identity and readable practical mail typography rather than wordmark
 tracking on long content. Exact token values are not an immutable style guide.
 Reject concrete mandatory design-contract contradictions; subjective polish is
 advisory. Do not flag colors within scenery as UI palette violations.
-When workflows exist, active account/sender must be unambiguous, send explicit,
-and loading/empty/offline/expired-credential/rate-limited/error/stale states honest.
-Do not invent controls or require a working mailbox in the placeholder shell.
+Preserve separate account agendas/inboxes and installation-owner PR readouts,
+truthful partial/loading/empty/error/stale states and unchanged failure timestamps.
+Calendar polling cannot replace editable choices under stale identity/generation/
+context. Scenes refresh/background patches preserve drafts/disclosure/focus, read
+local status only and never generate. Require confirmed local Gemini availability,
+fresh cost consent, overlap/unknown warnings and truthful tracking/cleanup status.
+Global Lock differs from visual idle. Writes are deferred; if introduced, require
+explicit account/sender/send intent and no blind retry of unknown outcomes.
 
 O: Return a source-only verdict on scoped LiveView/UI contracts, accessibility
 semantics and client lifecycle correctness.
@@ -485,17 +543,22 @@ name the concrete failing scenario, why current tests miss it, and the minimal
 new test boundary. Prioritize denied Ash actions, validation/rollback, stale
 writers, crash/partial failure, provider timeouts/rate limits, invalid MIME and
 payload bounds, local-file membership/symlink/tamper handling, hook patch/teardown,
-unknown-send outcomes, and account-switch races when those behaviors are touched.
-Use two accounts with reused provider IDs for isolation changes. Do not demand
-tests for unrequested functionality or blanket 100% coverage. Missing edge-case
-polish without a material risk is advisory.
+unknown-send outcomes, and account-switch races when touched. Exercise actual
+Calendar initialization/polling consumers, generation/context fences, partial results
+and exhaustion states, not wiring/source-text/mock echoes. Stage coverage protects
+durable one-shot paid claims under rescue, startup-only cooldown, fresh manual consent,
+known-ID recovery, remote cleanup and permanent history/uncapped scene retention.
+GitHub coverage follows App authorization/access and one-shot refresh when touched.
+Launcher coverage asserts argv/cwd/status through real synthetic command boundaries.
+Use reused IDs across two accounts for isolation. No unrequested features or blanket
+100% coverage; edge-case polish without material risk is advisory.
 
-Reject removal/bypass of relevant quality gates or claiming checks ran/passed
-without matching evidence. mix check includes format, warnings-as-errors,
-Credo/AshCredo, scoped Sobelow, Ash codegen drift, ExUnit, Node tests and assets;
-mix audit is the separate online advisory/retired-Hex gate. Inspect aliases and
-CI to confirm current wiring. Do not weaken checks to hide failures or claim
-Hex auditing covers vendored JS. Runtime targets remain user-owned.
+Reject removal/bypass of relevant gates or claims they passed without matching
+evidence. Inspect current aliases, launcher and CI rather than freezing a gate
+inventory. bin/lovelace check and bin/lovelace audit are project entry points;
+mix lint compiles in test for AshCredo. Trace relevant checks, Node-test inclusion
+and nonzero exit propagation. Hex audit does not cover all vendored/native dependencies.
+Do not weaken checks to hide failures; preserve user-owned runtime targets.
 
 O: Return a verdict on whether the scoped change has meaningful isolated
 regression protection and accurately represented verification limits.
@@ -505,27 +568,26 @@ E: Map changed invariants to exact test assertions and list material gaps.
 Distinguish tests present, check artifacts inspected, and checks not verified;
 historical handoff results are not fresh evidence for a new change. Source-only
 approval can cover test design while explicitly stating execution unverified.
-Recommend parent-run mix check/mix audit and targeted release/browser checks
+Recommend parent-run bin/lovelace check/bin/lovelace audit and targeted UI/release checks
 when relevant; this reviewer runs none of them. No new tooling mandate without
 a concrete unmet need.
 D: Apply the shared read-only verdict/failure contract. Do not invent a coverage
 threshold, install test packages or run a test command, even when called safe.
 ```
 
-## 7. Account isolation — activate with account/Gmail work
+## 7. Account and integration identity isolation
 
 ```text
 /scopewright:create
 Create lovelace-account-isolation-reviewer using the shared creation contract.
-Description: Review account/project/mail/cache/job/PubSub changes for end-to-end
-Gmail account separation, including delayed work and account-switch races.
+Description: Review Google/GitHub connection, workspace, cache, job and UI changes
+for end-to-end integration identity isolation, including delayed work and account-switch races.
 
-S: Treat connected Gmail identities as distinct from LOVELACE owner identity.
-Trace explicit account identity through routes/params, Ash actions/policies,
-queries, keys/constraints, credential lookup, HTTP, persisted state, jobs,
-PubSub subscriptions and LiveView results. Stage scenery is intentionally app-wide.
-Verify account/mailbox implementation in current code; assess only introduced
-or actually affected account-bearing paths.
+S: Provider connections are distinct from owner login. Trace identity/generation/
+context through routes/HTML forms, Ash actions/policies, keys, credentials, HTTP,
+jobs, PubSub, polling and LiveView results. Include Google accounts/Calendar
+selections and GitHub App connections/installation owners/repositories. Stage is
+intentionally app-wide. Assess only affected paths; projects/writes are deferred.
 
 C: Reject reads/writes/cache entries/provider IDs/cursors/job uniqueness keys
 or PubSub topics scoped only by provider object ID or the browser's current
@@ -533,10 +595,10 @@ selection when account identity is required. Two accounts can reuse provider
 thread/message IDs. Reject mutable singleton credentials/current-account state
 that lets one concurrent action use another account's token or sender.
 
-Require each project and linked thread to belong to the same account; reject
-cross-account links server-side, not just via filtered selects. Enforce durable
-constraints where feasible and verify bypass paths. Mail cache eviction must
-not erase authoritative project membership. Do not invent link cardinality.
+If projects are explicitly introduced, require one account and server-enforced manual
+thread membership independent of caches; do not invent link cardinality. Reusable
+connections can appear in several workspaces; detach is not disconnect. Preserve
+shared Google grant and multi-owner GitHub removal/retained-credential semantics.
 
 Trace a switch from A to B while A has a pending request/job/draft/subscription:
 late results must not land in B's UI/cache/draft; old subscriptions must be
@@ -545,6 +607,9 @@ identity. Reject ambiguous or mismatched account/sender during drafting/sending,
 credential refresh/disconnect affecting the wrong identity, and jobs borrowing
 an ambient selected account instead of their persisted account. Isolation
 failures are blockers even in a single-owner local app.
+Calendar HTML/status polling must not install controls under stale account/generation/
+day/selection identity. GitHub discovery/publication rechecks installation/repository
+access; unknown one-shot rotating refresh outcomes require sign-in, not token replay.
 
 Accept an owner-wide account chooser and explicitly app-wide scenery/config;
 not every app event needs an account ID. A first slice with one connected account
@@ -552,8 +617,8 @@ can be valid if implemented identity boundaries do not preclude safe separation.
 An absent Gmail feature is not itself a finding. Missing autosave/alias decisions
 must return missing-context status when they actually gate correctness.
 
-O: Return an end-to-end verdict on whether scoped mail/project behavior can
-cross an account boundary, including asynchronous and persisted paths.
+O: Return an end-to-end verdict on whether scoped integration behavior crosses an
+identity boundary, including asynchronous HTML/UI and persisted paths.
 P: Prevent private-account mixing, wrong-sender mail and durable ownership damage.
 E: Include an identity-flow map and concrete two-account scenario for each
 blocker, citing entry point and failing downstream site. Identify matching
@@ -584,12 +649,14 @@ sites. Work through this checklist, marking applicability and evidence:
    retention behavior preserve the same ownership/data-lifecycle invariants.
 3. Runtime/test/prod settings, supervision, routes, build imports and documented
    variables agree; dev-only tooling stays dev-only and listeners loopback.
-4. Provider reservation/HTTP/storage/publication/cleanup contracts compose safely
-   across failure/restart; payload MIME/extension/hash/manifest/route/UI allowlists
-   agree across PNG and JPEG. Exceptions such as diagnostic retry remain narrow.
-5. Account keys, credentials, jobs, PubSub topics/subscriptions and delayed UI
-   results preserve identity at every seam when account-bearing behavior exists;
-   app-wide stage events remain a deliberate exception.
+4. Stage reservation/attempt/job commit, one-shot paid claims under rescue, known-ID
+   tracking and publication/remote-cleanup compose across failure/restart. Startup-only
+   cooldown, fresh manual consent/overlap handling, permanent history and uncapped
+   scene catalog agree across UI/jobs/storage. MIME/extension/hash/catalog/route
+   allowlists agree across PNG/JPEG. Operator diagnostics stay explicitly consented.
+5. Provider identities/generations/context, credentials, jobs, PubSub and delayed
+   HTML/UI compose. Include Calendar selection/day fencing and GitHub user/app
+   repository access plus one-shot token refresh. Stage events remain app-wide.
 6. LiveView markup, client commands, hook-owned DOM, focus/idle/motion lifecycle
    and async update payloads agree; no invisible overlay breaks future controls.
 7. Tests and CI exercise the actual composed paths; README/handoff/operational
@@ -616,10 +683,10 @@ nested reviewers; the caller owns routing, remediation and final acceptance.
 ## Using the generated reviewers
 
 A caller should supply a bounded file list, feature intent and, for change-only
-review, a sanitized diff/baseline. For example, after creating the Pi skill:
+review, a sanitized diff/baseline. For example, dispatch
+`lovelace-integration-reliability-reviewer` through OhMyPi's `task` tool with:
 
 ```text
-/skill:lovelace-integration-reliability-reviewer
 <target_files>
 lib/lovelace/stage_designer/startup.ex
 lib/lovelace/stage_designer/gemini.ex
@@ -627,15 +694,16 @@ lib/lovelace/stage_designer/storage.ex
 test/lovelace/stage_designer/startup_test.exs
 </target_files>
 <review_context>
-Current-state review of the startup attempt lifecycle. Use current project
-requirements; inspect relevant collaborators. No live provider operations.
+Current-state review of durable startup authorization, one-shot submission and
+known-ID recovery. Use current requirements and collaborators. No live provider work.
 </review_context>
 ```
 
-Inspect every generated skill before use: verify SCOPED ordering, the complete
-shared contract, its specialty criteria, correct Pi output path, no model pin,
-no secret acquisition and no execution/write/delegation permissions. If creation
+Inspect every generated subagent before use: verify SCOPED ordering, the complete
+shared contract, its specialty criteria, correct canonical output path, no model
+pin, no secret acquisition and only read/search/list tool permissions. If creation
 happens in a new session, paste the shared setup again. Reviewers return findings;
-the development caller makes changes, runs `mix check` and `mix audit` as applicable,
-collects any required release/browser evidence, and requests re-review. An
+the development caller makes changes, runs `bin/lovelace check` and
+`bin/lovelace audit` as applicable, collects any required release/browser evidence,
+and requests re-review. An
 `[APPROVED]` source review never substitutes for those checks.

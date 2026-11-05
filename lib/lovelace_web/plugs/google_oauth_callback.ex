@@ -25,21 +25,35 @@ defmodule LovelaceWeb.Plugs.GoogleOAuthCallback do
 
     conn = %{conn | query_string: "", params: %{}, query_params: %{}}
 
-    target =
-      case result do
-        {:ok, _workspace, :calendar} -> "/connections/calendar?calendar=connected"
-        {:ok, workspace, :gmail} -> "/workspaces/" <> workspace <> "?gmail=connected"
-        {:error, failure} -> ConnectionDiagnostics.failure_path(failure)
-      end
-
     conn
     |> put_resp_header("cache-control", "no-store")
     |> put_resp_header("referrer-policy", "no-referrer")
     |> put_resp_header("content-security-policy", "default-src 'none'; frame-ancestors 'none'")
-    |> put_resp_header("location", target)
+    |> put_resp_header("location", destination(result))
     |> send_resp(303, "")
     |> halt()
   end
+
+  defp destination({:ok, %{capability: :gmail, origin: :onboarding}}),
+    do: "/onboarding/calendar"
+
+  defp destination({:ok, %{capability: :calendar, origin: :onboarding}}),
+    do: "/onboarding/calendar"
+
+  defp destination({:ok, %{capability: :calendar}}),
+    do: "/connections/calendar?calendar=connected"
+
+  defp destination({:ok, %{capability: :gmail, workspace_id: workspace}}),
+    do: "/workspaces/" <> workspace <> "?gmail=connected"
+
+  defp destination({:error, _failure, %{capability: :gmail, origin: :onboarding}}),
+    do: "/onboarding/connect?notice=connection_failed"
+
+  defp destination({:error, _failure, %{capability: :calendar, origin: :onboarding}}),
+    do: "/onboarding/calendar?notice=calendar_failed"
+
+  defp destination({:error, failure, _attempt}), do: destination({:error, failure})
+  defp destination({:error, failure}), do: ConnectionDiagnostics.failure_path(failure)
 
   defp complete(%{method: "GET", query_string: query} = conn) when byte_size(query) <= 8192 do
     conn = fetch_session(conn)
@@ -48,8 +62,20 @@ defmodule LovelaceWeb.Plugs.GoogleOAuthCallback do
 
     with {:ok, _} <- step(:session, fn -> Lovelace.Owner.verify_session(session) end),
          {:ok, state} <- step(:state, fn -> required(params, "state", 128) end),
-         {:ok, attempt} <- step(:state, fn -> OAuth.take(state, session) end),
-         :ok <- step(:consent, fn -> consent(params) end),
+         {:ok, attempt} <- step(:state, fn -> OAuth.take(state, session) end) do
+      complete_attempt(attempt, params, session)
+    end
+  rescue
+    _ -> ConnectionDiagnostics.failure(:callback, :unexpected)
+  catch
+    _, _ -> ConnectionDiagnostics.failure(:callback, :unexpected)
+  end
+
+  defp complete(_), do: ConnectionDiagnostics.failure(:callback, :invalid_callback)
+
+  defp complete_attempt(attempt, params, session) do
+    with :ok <- step(:consent, fn -> consent(params) end),
+         :ok <- step(:account_binding, fn -> current_onboarding(attempt) end),
          {:ok, code} <- step(:code, fn -> required(params, "code", 4096) end),
          {:ok, tokens} <-
            step(:token_exchange, fn ->
@@ -68,17 +94,61 @@ defmodule LovelaceWeb.Plugs.GoogleOAuthCallback do
            end),
          {:ok, refresh} <- step(:refresh_token, fn -> refresh_token(tokens, identity.subject) end),
          {:ok, _} <- step(:session, fn -> Lovelace.Owner.verify_session(session) end),
+         :ok <- step(:account_binding, fn -> current_onboarding(attempt) end),
          {:ok, _} <-
-           step(:connection, fn -> accept(attempt, identity, refresh) end) do
-      {:ok, attempt.workspace_id, attempt.capability}
+           step(:connection, fn -> accept(attempt, identity, refresh) end),
+         :ok <- step(:connection, fn -> continue_onboarding(attempt) end) do
+      {:ok, attempt}
+    else
+      {:error, failure} -> {:error, failure, attempt}
     end
   rescue
-    _ -> ConnectionDiagnostics.failure(:callback, :unexpected)
+    _ -> attempt_failure(attempt)
   catch
-    _, _ -> ConnectionDiagnostics.failure(:callback, :unexpected)
+    _, _ -> attempt_failure(attempt)
   end
 
-  defp complete(_), do: ConnectionDiagnostics.failure(:callback, :invalid_callback)
+  defp attempt_failure(attempt) do
+    {:error, failure} = ConnectionDiagnostics.failure(:callback, :unexpected)
+    {:error, failure, attempt}
+  end
+
+  defp continue_onboarding(%{origin: :onboarding} = attempt) do
+    case Ash.transact(Lovelace.Onboarding.State, fn -> advance_onboarding(attempt) end) do
+      {:ok, result} -> result
+      {:error, _} -> {:error, :unavailable}
+    end
+  end
+
+  defp continue_onboarding(_), do: :ok
+
+  defp advance_onboarding(attempt) do
+    with :ok <- onboarding_workspace(attempt),
+         {:ok, _} <- Lovelace.Onboarding.continue(:connect, actor: @owner) do
+      :ok
+    end
+  end
+
+  defp current_onboarding(%{origin: :onboarding, capability: :calendar} = attempt) do
+    with :ok <- onboarding_workspace(attempt),
+         {:ok, %{id: id, generation: generation}} <-
+           Lovelace.Onboarding.connection(actor: @owner),
+         true <- id == attempt.expected_account_id and generation == attempt.expected_generation do
+      :ok
+    else
+      _ -> {:error, :wrong_account}
+    end
+  end
+
+  defp current_onboarding(%{origin: :onboarding} = attempt), do: onboarding_workspace(attempt)
+  defp current_onboarding(_), do: :ok
+
+  defp onboarding_workspace(%{workspace_id: workspace_id}) do
+    case Lovelace.Onboarding.progress(actor: @owner) do
+      {:ok, %{workspace_id: ^workspace_id}} -> :ok
+      _ -> {:error, :wrong_account}
+    end
+  end
 
   defp capability_scopes(:gmail, _), do: :ok
 

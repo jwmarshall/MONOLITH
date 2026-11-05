@@ -1,5 +1,6 @@
 /* Retained local scenery, on the same glass and content plane as the directory. */
 .scenes-panel { font-size: 14px; line-height: 1.7; }
+#scene-gemini-setup .empty-state-actions { grid-column: 2; justify-self: start; flex-wrap: nowrap; align-items: stretch; max-width: 100%; }
 .scene-direction { border-top: 1px solid var(--color-base-300); border-bottom: 1px solid var(--color-base-300); padding-block: 20px; margin-bottom: 24px; }
 .scene-direction-heading { display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: 8px 24px; margin-bottom: 20px; }
 .scene-direction-heading h3 { font-size: 20px; font-weight: 400; }
@@ -54,6 +55,7 @@
 .scene-global-activity:hover { color: var(--color-base-content); }
 .scene-global-activity:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 3px; }
 @media (max-width: 640px) {
+  #scene-gemini-setup .empty-state-actions { grid-column: 1 / -1; }
   .scene-direction-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px 12px; }
   .scene-generation-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px 12px; }
   .scene-generation-fields > :first-child { grid-column: 1 / -1; }
