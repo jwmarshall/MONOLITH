@@ -2,7 +2,16 @@ defmodule Lovelace.GitHub.Operations do
   @moduledoc false
   use Ash.Resource.Actions.Implementation
   require Ash.Query
-  alias Lovelace.GitHub.{Connection, Error, Organization, PollWorker, WorkspaceOrganization}
+
+  alias Lovelace.GitHub.{
+    ClientCredentials,
+    Connection,
+    Error,
+    Organization,
+    PollWorker,
+    WorkspaceOrganization
+  }
+
   alias Lovelace.Security.Vault
   @owner %{role: :local_owner}
   @service %{role: :github_service}
@@ -22,6 +31,16 @@ defmodule Lovelace.GitHub.Operations do
     Vault.with_access(fn -> state(fn -> generations() end) end)
   end
 
+  # Called only while the configuration writer holds this module's state lock.
+  def client_changed do
+    Enum.each(connections(), fn account ->
+      if account.status != :disconnected,
+        do: fence_connection(account.id, :reauthorization, :reconnect)
+    end)
+
+    :ok
+  end
+
   # Auth supplies a synchronous callback that fences cancellation immediately before writes.
   # Never hold the domain lock while calling back into the protected Auth server.
   def authorize(session, bundle, commit \\ fn fun -> fun.() end, before \\ nil) do
@@ -30,6 +49,9 @@ defmodule Lovelace.GitHub.Operations do
 
   defp authorize_session(session, bundle, commit, before) do
     with :ok <- verify_session(session),
+         {:ok, client} <- ClientCredentials.current(),
+         bundle = Map.put_new(bundle, :client_generation, client.generation),
+         true <- bundle.client_generation == client.generation,
          {:ok, stored} <- encode_bundle(bundle),
          before = before || authorization_fence(),
          {:ok, identity} <- provider().user(bundle.access_token),
@@ -50,6 +72,7 @@ defmodule Lovelace.GitHub.Operations do
 
   defp authorize_unchanged(session, identity, owners, stored, before) do
     with :ok <- verify_session(session),
+         :ok <- current_client_bundle(stored),
          :ok <- unchanged(before, identity.github_id, owners),
          :ok <- compatible_owners(identity.github_id, owners) do
       authorize_current(session, identity, owners, stored)
@@ -92,14 +115,17 @@ defmodule Lovelace.GitHub.Operations do
     end)
   end
 
-  defp execute(:attach, args) do
+  defp execute(action, args) when action in [:attach, :attach_repositories] do
     state(fn ->
+      selected = if action == :attach, do: [], else: args.repository_ids
+
       with {:ok, %Lovelace.Workspaces.Workspace{}} <-
              Lovelace.Workspaces.get_workspace(args.workspace_id, actor: @owner),
-           %Organization{status: :ready, connection_id: connection_id} <-
+           %Organization{status: :ready, connection_id: connection_id} = org <-
              get(args.organization_id),
            %Connection{status: :ready} <- connection(connection_id),
-           {:ok, _} <- attach(args.workspace_id, args.organization_id) do
+           true <- valid_selection?(expire(org), selected),
+           {:ok, _} <- attach(args.workspace_id, args.organization_id, Enum.uniq(selected)) do
         broadcast(args.organization_id)
         {:ok, true}
       else
@@ -346,6 +372,10 @@ defmodule Lovelace.GitHub.Operations do
 
   defp token_bundle_intent(account, bundle) do
     cond do
+      not current_client_generation?(bundle["client_generation"]) ->
+        fence_connection(account.id, :reauthorization, :reconnect)
+        {:error, :reconnect}
+
       bundle["refresh_expires_at"] <= unix() ->
         fence_connection(account.id, :reauthorization, :expired)
         {:error, :expired}
@@ -362,16 +392,18 @@ defmodule Lovelace.GitHub.Operations do
             last_error: :reconnect
           })
 
-        {:rotate, reserved, bundle["refresh_token"]}
+        {:rotate, reserved, {bundle["refresh_token"], bundle["client_generation"]}}
     end
   end
 
-  defp rotate(expected, refresh) do
+  defp rotate(expected, {refresh, generation}) do
     result =
       safely(fn ->
-        with {:ok, client_id} <- client_id(),
-             {:ok, bundle} <- provider().refresh_token(client_id, refresh),
-             {:ok, stored} <- encode_bundle(bundle) do
+        with {:ok, client} <- ClientCredentials.current(),
+             true <- client.generation == generation,
+             {:ok, bundle} <-
+               provider().refresh_token(client.client_id, client.client_secret, refresh),
+             {:ok, stored} <- encode_bundle(Map.put(bundle, :client_generation, generation)) do
           {:ok, bundle.access_token, stored}
         else
           {:error, reason} -> {:error, safe_error(reason)}
@@ -395,6 +427,7 @@ defmodule Lovelace.GitHub.Operations do
 
   defp commit_rotation(account, result) do
     with {:ok, token, stored} <- result,
+         :ok <- current_client_bundle(stored),
          :ok <- put_token(account.id, stored) do
       current = transition!(account, %{status: :ready, last_error: nil})
       {:ok, token, current}
@@ -508,6 +541,12 @@ defmodule Lovelace.GitHub.Operations do
       generation: uuid(),
       status: status,
       pull_requests: [],
+      repositories: [],
+      issues: [],
+      workflow_runs: [],
+      issue_count: nil,
+      issues_truncated: false,
+      actions_truncated: false,
       fetched_at: nil,
       total_count: nil,
       last_error: error,
@@ -551,7 +590,37 @@ defmodule Lovelace.GitHub.Operations do
   end
 
   defp snapshot({:ok, data}, _) do
-    Map.take(data, [:pull_requests, :truncated, :total_count, :partial_reasons])
+    missing =
+      []
+      |> missing_snapshot_reason(data, :issues, "issues_unavailable")
+      |> missing_snapshot_reason(data, :workflow_runs, "actions_unavailable")
+
+    data =
+      Map.merge(
+        %{
+          repositories: [],
+          issues: [],
+          workflow_runs: [],
+          issue_count: nil,
+          issues_truncated: true,
+          actions_truncated: true
+        },
+        data
+      )
+
+    Map.take(data, [
+      :pull_requests,
+      :repositories,
+      :issues,
+      :workflow_runs,
+      :issue_count,
+      :issues_truncated,
+      :actions_truncated,
+      :truncated,
+      :total_count,
+      :partial_reasons
+    ])
+    |> Map.put(:partial_reasons, Enum.uniq(Map.get(data, :partial_reasons, []) ++ missing))
     |> Map.merge(%{
       fetched_at: now(),
       last_error: nil,
@@ -562,28 +631,67 @@ defmodule Lovelace.GitHub.Operations do
 
   defp snapshot({:error, reason}, previous) do
     error = safe_error(reason)
-    fresh = previous && recent?(previous.fetched_at)
 
-    %{
-      pull_requests: if(fresh, do: previous.pull_requests, else: []),
+    previous
+    |> cached_snapshot()
+    |> Map.merge(%{
       fetched_at: if(previous, do: previous.fetched_at),
-      total_count: if(fresh, do: previous.total_count),
-      truncated: if(fresh, do: previous.truncated, else: false),
-      partial_reasons: if(fresh, do: previous.partial_reasons, else: []),
       last_error: error,
       next_poll_at: later(if(error == :rate_limited, do: 900, else: 300)),
       cooldown_until: if(error == :rate_limited, do: later(900))
-    }
+    })
   end
 
   defp snapshot(_, previous), do: snapshot({:error, :provider}, previous)
+
+  defp cached_snapshot(previous) do
+    if previous && recent?(previous.fetched_at) do
+      Map.take(previous, [
+        :pull_requests,
+        :repositories,
+        :issues,
+        :workflow_runs,
+        :issue_count,
+        :issues_truncated,
+        :actions_truncated,
+        :total_count,
+        :truncated,
+        :partial_reasons
+      ])
+    else
+      %{
+        pull_requests: [],
+        repositories: [],
+        issues: [],
+        workflow_runs: [],
+        issue_count: nil,
+        issues_truncated: false,
+        actions_truncated: false,
+        total_count: nil,
+        truncated: false,
+        partial_reasons: []
+      }
+    end
+  end
+
+  defp missing_snapshot_reason(reasons, data, key, reason),
+    do: if(Map.has_key?(data, key), do: reasons, else: [reason | reasons])
+
   defp expire(%Organization{fetched_at: nil} = org), do: org
 
   defp expire(org) do
-    if not recent?(org.fetched_at) and (org.pull_requests != [] or not is_nil(org.total_count)) do
+    if not recent?(org.fetched_at) and
+         (org.repositories != [] or org.pull_requests != [] or org.issues != [] or
+            org.workflow_runs != [] or not is_nil(org.total_count) or not is_nil(org.issue_count)) do
       current =
         update!(org, %{
           pull_requests: [],
+          repositories: [],
+          issues: [],
+          workflow_runs: [],
+          issue_count: nil,
+          issues_truncated: false,
+          actions_truncated: false,
           total_count: nil,
           truncated: false,
           partial_reasons: [],
@@ -678,11 +786,13 @@ defmodule Lovelace.GitHub.Operations do
   defp encode_bundle(bundle) when is_map(bundle) do
     if valid_token?(bundle[:access_token]) and valid_token?(bundle[:refresh_token]) and
          is_integer(bundle[:expires_in]) and bundle.expires_in > 0 and
-         is_integer(bundle[:refresh_token_expires_in]) and bundle.refresh_token_expires_in > 0 do
+         is_integer(bundle[:refresh_token_expires_in]) and bundle.refresh_token_expires_in > 0 and
+         is_binary(bundle[:client_generation]) do
       {:ok,
        Jason.encode!(%{
          access_token: bundle.access_token,
          refresh_token: bundle.refresh_token,
+         client_generation: bundle.client_generation,
          expires_at: unix() + bundle.expires_in,
          refresh_expires_at: unix() + bundle.refresh_token_expires_in
        })}
@@ -690,8 +800,6 @@ defmodule Lovelace.GitHub.Operations do
       {:error, :provider}
     end
   end
-
-  defp encode_bundle(_), do: {:error, :provider}
 
   defp read_bundle(id) do
     with {:ok, value} when is_binary(value) and byte_size(value) <= 16_384 <- vault().get(id),
@@ -716,12 +824,23 @@ defmodule Lovelace.GitHub.Operations do
     end
   end
 
-  defp client_id do
-    case Application.get_env(:lovelace, :github, [])[:client_id] do
-      value when is_binary(value) and byte_size(value) > 0 -> {:ok, value}
-      _ -> {:error, :configuration}
+  defp current_client_bundle(stored) do
+    with {:ok, bundle} <- Jason.decode(stored),
+         true <- current_client_generation?(bundle["client_generation"]) do
+      :ok
+    else
+      _ -> {:error, :reconnect}
     end
   end
+
+  defp current_client_generation?(generation) when is_binary(generation) do
+    case ClientCredentials.current() do
+      {:ok, %{generation: ^generation}} -> true
+      _ -> false
+    end
+  end
+
+  defp current_client_generation?(_), do: false
 
   defp organizations, do: read(Organization)
   defp connections, do: read(Connection)
@@ -757,12 +876,21 @@ defmodule Lovelace.GitHub.Operations do
   defp transition!(account, attrs),
     do: account |> Ash.Changeset.for_update(:transition, attrs, actor: @service) |> Ash.update!()
 
-  defp attach(workspace, org) do
+  defp attach(workspace, org, repository_ids) do
     WorkspaceOrganization
-    |> Ash.Changeset.for_create(:attach, %{workspace_id: workspace, organization_id: org},
+    |> Ash.Changeset.for_create(
+      :attach,
+      %{workspace_id: workspace, organization_id: org, repository_ids: repository_ids},
       actor: @service
     )
     |> Ash.create()
+  end
+
+  defp valid_selection?(_org, []), do: true
+
+  defp valid_selection?(org, selected) do
+    recent?(org.fetched_at) and
+      Enum.all?(selected, fn id -> Enum.any?(org.repositories, &(&1["id"] == id)) end)
   end
 
   defp remove_memberships(org, workspace \\ nil) do

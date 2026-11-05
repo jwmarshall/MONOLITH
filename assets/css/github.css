@@ -23,7 +23,14 @@
 .github-connections .connection-help p { margin-block: 12px; line-height: 1.8; }
 #github-authorization > .mail-muted { line-height: 1.8; margin-block: 12px; }
 #github-authorization form { margin-block: 12px; }
-#github-user-code { display: inline-block; font-size: 20px; letter-spacing: 0.08em; margin-inline: 4px; }
+.github-readout-title { margin-top: 20px; font-size: 13px; font-weight: 500; color: var(--color-secondary); }
+.github-setup-steps { list-style: decimal; padding-left: 22px; max-width: 76ch; }
+.github-setup-steps li { margin-block: 14px; font-size: 14px; line-height: 1.9; }
+.github-setup-steps code { overflow-wrap: anywhere; user-select: all; }
+.github-repository-choices { display: grid; gap: 4px; max-height: 320px; overflow-y: auto; }
+.github-repository-choices legend { font-size: 13px; margin-bottom: 8px; }
+.github-repository-choices label { display: flex; gap: 12px; align-items: center; min-height: 44px; cursor: pointer; overflow-wrap: anywhere; }
+.github-repository-choices input[type="checkbox"] { width: 18px; height: 18px; flex: 0 0 auto; accent-color: var(--color-primary); }
 @media (max-width: 640px) {
   .github-pr { grid-template-columns: minmax(0, 1fr); gap: 8px; }
   .github-pr-state { flex-direction: row; flex-wrap: wrap; align-items: baseline; gap: 4px 16px; }

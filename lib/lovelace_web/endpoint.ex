@@ -38,6 +38,7 @@ defmodule LovelaceWeb.Endpoint do
   plug LovelaceWeb.Plugs.GitHubCredentials
   # Consume OAuth codes before any request instrumentation or parameter parsing.
   plug LovelaceWeb.Plugs.GoogleOAuthCallback
+  plug LovelaceWeb.Plugs.GitHubOAuthCallback
 
   # This exposes code/SQL execution to development tools. Never enable remote access.
   if Mix.env() == :dev do

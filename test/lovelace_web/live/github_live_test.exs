@@ -3,7 +3,7 @@ defmodule LovelaceWeb.GitHubLiveTest do
   import Phoenix.LiveViewTest
 
   alias Lovelace.{GitHub, TestGitHub, Workspaces}
-  alias Lovelace.GitHub.Operations
+  alias Lovelace.GitHub.{Auth, Operations}
 
   @owner %{role: :local_owner}
 
@@ -22,6 +22,13 @@ defmodule LovelaceWeb.GitHubLiveTest do
     end)
 
     conn = authenticate_owner(conn)
+
+    GitHub.save_client_credentials!(
+      "Iv1.synthetic",
+      "synthetic_client_secret",
+      "lovelace-synthetic",
+      actor: @owner
+    )
 
     %{
       conn: conn,
@@ -149,6 +156,171 @@ defmodule LovelaceWeb.GitHubLiveTest do
     assert has_element?(view, "#github-attach-editor:not([open])")
     render_patch(view, "/workspaces/#{other.id}/integrations")
     assert has_element?(view, "#github-attach-editor-setup[open]")
+  end
+
+  test "saved settings enable sign-in without returning the secret; keychain errors are not missing settings",
+       %{conn: conn} do
+    {:ok, view, _} = live(conn, "/connections/github")
+    html = render_async(view)
+    assert has_element?(view, "#github-sign-in-form")
+    refute html =~ "synthetic_client_secret"
+    refute inspect(:sys.get_state(view.pid).socket.assigns) =~ "synthetic_client_secret"
+    assert TestGitHub.state().calls == []
+
+    TestGitHub.configure(keychain_error: :locked)
+    render_patch(view, "/connections")
+    render_patch(view, "/connections/github")
+    render_async(view)
+    assert has_element?(view, "#github-authorization [role=alert]", "could not be read")
+    refute has_element?(view, "#github-sign-in-form")
+    refute has_element?(view, "#github-authorization [role=status]", "setup is required")
+  end
+
+  test "failed OAuth authorization remains a usable recovery page after the authorization tick",
+       %{conn: conn, session: session} do
+    {:ok, view, _} = live(conn, "/connections/github")
+    render_async(view)
+    {:ok, authorization_url} = Auth.begin(session)
+    params = authorization_url |> URI.parse() |> Map.fetch!(:query) |> URI.decode_query()
+
+    assert {:error, _} =
+             Auth.complete(session, %{"state" => params["state"], "error" => "access_denied"})
+
+    send(view.pid, :github_auth_tick)
+    render(view)
+    assert has_element?(view, "#github-authorization-error", "sign-in could not finish")
+    assert has_element?(view, "#github-sign-in-form")
+    refute has_element?(view, "#github-browser-authorization")
+  end
+
+  test "workspace repository selections isolate pull requests, issues and Actions without hiding Home owners",
+       %{conn: conn, workspace: workspace, session: session} do
+    repositories = [
+      %{"id" => "REPO_FIRST", "name" => "first", "full_name" => "acme/first"},
+      %{"id" => "REPO_SECOND", "name" => "second", "full_name" => "acme/second"}
+    ]
+
+    rows =
+      for {repo, number} <- Enum.with_index(repositories, 1) do
+        TestGitHub.row(%{
+          "repository_id" => repo["id"],
+          "repository" => repo["full_name"],
+          "title" => "Change in #{repo["name"]}",
+          "number" => number,
+          "url" => "https://github.com/#{repo["full_name"]}/pull/#{number}"
+        })
+      end
+
+    issues =
+      for {repo, number} <- Enum.with_index(repositories, 1) do
+        %{
+          "repository_id" => repo["id"],
+          "repository" => repo["full_name"],
+          "title" => "Issue in #{repo["name"]}",
+          "number" => number,
+          "author" => nil,
+          "updated_at" => "2026-11-04T01:00:00Z",
+          "url" => "https://github.com/#{repo["full_name"]}/issues/#{number}"
+        }
+      end
+
+    runs =
+      for {repo, number} <- Enum.with_index(repositories, 1) do
+        %{
+          "repository_id" => repo["id"],
+          "repository" => repo["full_name"],
+          "name" => "Build #{repo["name"]}",
+          "status" => "completed",
+          "conclusion" => "failure",
+          "updated_at" => "2026-11-04T01:00:00Z",
+          "url" => "https://github.com/#{repo["full_name"]}/actions/runs/#{number}"
+        }
+      end
+
+    TestGitHub.configure(
+      response:
+        {:ok,
+         %{
+           repositories: repositories,
+           pull_requests: rows,
+           total_count: 2,
+           truncated: false,
+           issues: issues,
+           issue_count: 2,
+           issues_truncated: false,
+           workflow_runs: runs,
+           actions_truncated: false,
+           partial_reasons: []
+         }}
+    )
+
+    org = connect_owner(workspace, session)
+    other = Workspaces.create_workspace!("Other repository", actor: @owner)
+    GitHub.attach_repositories!(workspace.id, org.id, ["REPO_FIRST"], actor: @owner)
+    GitHub.attach_repositories!(other.id, org.id, ["REPO_SECOND"], actor: @owner)
+
+    {:ok, view, _} = live(conn, "/workspaces/#{workspace.id}")
+    assert has_element?(view, "#workspace-github-readouts", "Change in first")
+    assert has_element?(view, "#workspace-github-readouts", "Issue in first")
+    assert has_element?(view, "#workspace-github-readouts", "Build first")
+    assert has_element?(view, "#workspace-github-readouts", "Author unavailable")
+    refute has_element?(view, "#workspace-github-readouts", "Deleted user")
+    assert has_element?(view, "#workspace-github-readouts", "Failed")
+    refute has_element?(view, "#workspace-github-readouts", "Change in second")
+    refute has_element?(view, "#workspace-github-readouts", "Issue in second")
+    refute has_element?(view, "#workspace-github-readouts", "Build second")
+    refute has_element?(view, "#workspace-github-readouts", "2 open in accessible repositories")
+
+    assert has_element?(
+             view,
+             "#github-repository-form-#{org.id} input[value='REPO_FIRST'][checked]"
+           )
+
+    refute has_element?(
+             view,
+             "#github-repository-form-#{org.id} input[value='REPO_SECOND'][checked]"
+           )
+
+    render_patch(view, "/workspaces/#{other.id}")
+    assert has_element?(view, "#workspace-github-readouts", "Issue in second")
+    refute has_element?(view, "#workspace-github-readouts", "Issue in first")
+
+    render_patch(view, "/")
+    assert has_element?(view, "#github-org-#{org.id}", "Change in first")
+    assert has_element?(view, "#github-org-#{org.id}", "Change in second")
+    assert has_element?(view, "#github-org-#{org.id}", "2 open in accessible repositories")
+
+    GitHub.attach!(workspace.id, org.id, actor: @owner)
+    render_patch(view, "/workspaces/#{workspace.id}")
+    assert has_element?(view, "#workspace-github-readouts", "Issue in second")
+    assert has_element?(view, "#workspace-github-#{org.id}", "Whole owner")
+  end
+
+  test "partial issue and Actions failures never become successful empty readouts",
+       %{conn: conn, workspace: workspace, session: session} do
+    TestGitHub.configure(
+      response:
+        {:ok,
+         %{
+           repositories: [],
+           pull_requests: [],
+           total_count: 0,
+           truncated: false,
+           issues: [],
+           issue_count: nil,
+           issues_truncated: true,
+           workflow_runs: [],
+           actions_truncated: true,
+           partial_reasons: ["issues_unavailable", "actions_unavailable"]
+         }}
+    )
+
+    org = connect_owner(workspace, session)
+    {:ok, view, _} = live(conn, "/")
+    assert has_element?(view, "#github-org-#{org.id}", "Issue details unavailable")
+    assert has_element?(view, "#github-org-#{org.id}", "Workflow run details unavailable")
+    refute has_element?(view, "#github-org-#{org.id}", "No open issues")
+    refute has_element?(view, "#github-org-#{org.id}", "No recent workflow runs")
   end
 
   defp connect_owner(workspace, session, login \\ "acme") do

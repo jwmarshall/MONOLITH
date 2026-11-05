@@ -1,6 +1,7 @@
 defmodule Lovelace.Integrations.GitHub.TransportTest do
   use ExUnit.Case, async: false
   import ExUnit.CaptureLog
+  alias Lovelace.GitHub.Auth
   alias Lovelace.Integrations.GitHub.Transport
 
   defp request(overrides \\ %{}) do
@@ -39,8 +40,14 @@ defmodule Lovelace.Integrations.GitHub.TransportTest do
   end
 
   defp oauth(
-         path \\ "/login/device/code",
-         params \\ %{client_id: "Iv1.synthetic", scope: "offline_access"}
+         path \\ "/login/oauth/access_token",
+         params \\ %{
+           client_id: "Iv1.synthetic",
+           client_secret: "synthetic_secret",
+           code: "synthetic_code",
+           code_verifier: String.duplicate("v", 43),
+           redirect_uri: Auth.callback_url()
+         }
        ) do
     request(%{
       method: "POST",
@@ -119,24 +126,18 @@ defmodule Lovelace.Integrations.GitHub.TransportTest do
     end
   end
 
-  test "device and refresh routes contain credentials in form bodies without forwarding API authorization" do
-    assert :ok = Transport.validate(oauth())
-
-    device =
-      oauth("/login/oauth/access_token", %{
-        client_id: "Iv1.synthetic",
-        device_code: "synthetic_device",
-        grant_type: "urn:ietf:params:oauth:grant-type:device_code"
-      })
+  test "web exchange and refresh require secret-bearing exact forms without API authorization" do
+    exchange = oauth()
 
     refresh =
       oauth("/login/oauth/access_token", %{
         client_id: "Iv1.synthetic",
+        client_secret: "synthetic_secret",
         refresh_token: "ghr_synthetic",
         grant_type: "refresh_token"
       })
 
-    assert :ok = Transport.validate(device)
+    assert :ok = Transport.validate(exchange)
     assert :ok = Transport.validate(refresh)
 
     assert {:error, :invalid_request} =
@@ -147,13 +148,24 @@ defmodule Lovelace.Integrations.GitHub.TransportTest do
 
     for invalid <- [
           %{oauth() | path: "/login/oauth/authorize"},
-          %{oauth() | path: "/login/device/code?client_id=secret"},
+          %{oauth() | path: "/login/device/code"},
           %{oauth() | host: "github.com.evil.invalid"},
           %{oauth() | body: "client_id=Iv1.synthetic&scope=repo"},
           %{oauth() | body: "client_id=Iv1.synthetic&scope=offline_access&client_secret=secret"},
           %{oauth() | body: "client_id=Iv1.synthetic&scope=repo&scope=offline_access"},
           %{refresh | body: refresh.body <> "&client_secret=secret"},
-          %{device | body: device.body <> "&refresh_token=ghr_other"},
+          %{exchange | body: exchange.body <> "&refresh_token=ghr_other"},
+          %{
+            exchange
+            | body:
+                URI.encode_query(%{
+                  client_id: "Iv1.synthetic",
+                  client_secret: "synthetic_secret",
+                  code: "synthetic_code",
+                  code_verifier: String.duplicate("v", 43),
+                  redirect_uri: "https://evil.invalid/callback"
+                })
+          },
           %{oauth() | headers: [{"content-type", "application/json"}]},
           %{oauth() | method: "GET"}
         ] do
@@ -192,6 +204,7 @@ defmodule Lovelace.Integrations.GitHub.TransportTest do
               oauth(),
               oauth("/login/oauth/access_token", %{
                 client_id: "Iv1.synthetic",
+                client_secret: "synthetic_secret",
                 refresh_token: "ghr_synthetic",
                 grant_type: "refresh_token"
               })

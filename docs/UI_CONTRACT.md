@@ -274,19 +274,23 @@ Use the same hierarchy on static setup/unlock pages and authenticated views.
   Workspace removal is not global disconnect; both services share the Google credential.
   See [CALENDAR.md](CALENDAR.md) for bounds and lifecycle.
 
-- GitHub adds a full-width **Pull requests** section beneath the Gmail/Calendar columns,
-  grouped by personal/organization installation owner with workspace names, never merged with mail or another owner.
-  Show repository/number, escaped title, author, draft/review/check labels and UTC update time.
-  Links open GitHub with an explicit new-tab label and `noopener noreferrer`; no remote images.
-  At most 50 recently updated open PRs per owner, accessible selected-repository counts, explicit
-  partial results, stale/error/expired observations and safe Refresh cooldowns. An incomplete
-  empty page is not “no open pull requests.” Disconnected owners never appear operational.
-  Connections → GitHub owns App installation discovery, session-bound device sign-in and
-  account disconnect; workspace controls attach reusable owners or detach locally.
-  Show only the short user code and fixed GitHub device URL, never device/access/refresh tokens.
-  Sign-in/cancel use ordinary authenticated CSRF-protected POSTs before instrumentation.
-  Failed credential deletion and retained legacy PATs remain reachable for explicit cleanup.
-  See [GitHub setup](DEVELOPMENT.md#github) for permissions and bounds.
+- GitHub adds a full-width **GitHub activity** section beneath Gmail/Calendar, grouped by
+  personal/organization installation owner, never merged with mail or another owner.
+  Show bounded open pull requests, open issues and recent Actions runs with repository,
+  escaped title, author, explicit review/check/run state, safe new-tab links and UTC update times.
+  No remote images, repository contents, workflow logs or artifacts. Preserve partial,
+  stale/error/expired observations; incomplete results never imply an empty success.
+  Connections → GitHub owns the inline registration/permissions/callback guide, native
+  client ID/secret/slug POST form, session-bound OAuth browser sign-in and account disconnect.
+  Saving settings is local-only, never provider verification. Secrets are never prefilled
+  or returned. Hide sign-in while settings are missing, checking or unavailable; failed
+  sign-in remains a usable recovery page. OAuth uses single-use state and PKCE.
+  Workspaces attach whole owners or independent immutable repository selections, with
+  matching PR/issue/Actions readouts. Filtered owner snapshots are labeled as subsets,
+  not selected-repository totals. Removing membership is not global disconnect.
+  Credential POSTs/callbacks are consumed before instrumentation; account token bundles
+  and app settings stay in the dedicated keychain. Failed deletion and retained legacy
+  PATs remain reachable for explicit cleanup. See [GitHub setup](DEVELOPMENT.md#github).
 
 - Workspaces represent areas of life. **Quiet sea-glass cards supersede the earlier
   typographic/no-card directory**. Use generous native link surfaces and separate native
@@ -530,13 +534,14 @@ historical results do not certify a new change.
   and refusal of late callbacks across disconnect/reconnect.
 - `test/lovelace/github_test.exs`, `test/lovelace/github_auth_test.exs`,
   `test/lovelace/integrations/github_test.exs` and `test/lovelace_web/live/github_live_test.exs`:
-  account/owner isolation, immutable installation/repository identity including empty results,
-  authorization cancellation/revocation/disconnect fencing, one-shot refresh reservations,
-  legacy credential retention/cleanup, reconnect/detach/disconnect, cooldown/expiry,
-  honest partial/error readouts, credential-deletion retry and provider/workspace navigation.
-  `test/lovelace_web/controllers/github_credentials_test.exs` covers the early intent POST
-  boundary, CSRF/revoked sessions and secret scrubbing; transport tests enforce fixed destinations
-  and read-only bounded payloads. Synthetic keychain tests cover service isolation.
+  account/owner/repository isolation across PR/issues/Actions, immutable identity including
+  empty results, editable independent workspace selections, single-use PKCE authorization,
+  cancellation/revocation/disconnect/client-generation fencing, one-shot refresh reservations,
+  legacy credential cleanup, cooldown/expiry, honest optional-permission/partial/error readouts,
+  failed-auth recovery, credential-deletion retry and provider/workspace navigation.
+  `test/lovelace_web/controllers/github_credentials_test.exs` covers early client-settings/intent
+  POSTs and callbacks, CSRF/revoked sessions and secret scrubbing; transport tests enforce
+  fixed destinations and bounded read-only payloads. Synthetic keychain tests cover service isolation.
 - `test/js/home_readouts_test.mjs`: local greeting/date, timestamp aging, patched failure
   metadata, resume updates and timer/listener teardown.
 - `test/js/mail_reader_test.mjs`: async reader focus/latest-reply handoff, exact return

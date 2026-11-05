@@ -1,5 +1,5 @@
 defmodule Lovelace.GitHub.Organization do
-  @moduledoc "Immutable GitHub installation owner and bounded, expiring open-PR snapshot."
+  @moduledoc "Immutable GitHub installation owner and bounded, expiring read-only snapshots."
   use Ash.Resource,
     domain: Lovelace.GitHub,
     primary_read_warning?: false,
@@ -34,6 +34,12 @@ defmodule Lovelace.GitHub.Organization do
         :login,
         :generation,
         :pull_requests,
+        :repositories,
+        :issues,
+        :workflow_runs,
+        :issue_count,
+        :issues_truncated,
+        :actions_truncated,
         :fetched_at,
         :truncated,
         :total_count,
@@ -58,6 +64,12 @@ defmodule Lovelace.GitHub.Organization do
         :generation,
         :status,
         :pull_requests,
+        :repositories,
+        :issues,
+        :workflow_runs,
+        :issue_count,
+        :issues_truncated,
+        :actions_truncated,
         :fetched_at,
         :last_error,
         :truncated,
@@ -110,6 +122,28 @@ defmodule Lovelace.GitHub.Organization do
       allow_nil?: false,
       public?: true,
       sensitive?: true
+
+    attribute :repositories, {:array, :map},
+      default: [],
+      allow_nil?: false,
+      public?: true,
+      sensitive?: true
+
+    attribute :issues, {:array, :map},
+      default: [],
+      allow_nil?: false,
+      public?: true,
+      sensitive?: true
+
+    attribute :workflow_runs, {:array, :map},
+      default: [],
+      allow_nil?: false,
+      public?: true,
+      sensitive?: true
+
+    attribute :issue_count, :integer, public?: true
+    attribute :issues_truncated, :boolean, default: false, allow_nil?: false, public?: true
+    attribute :actions_truncated, :boolean, default: false, allow_nil?: false, public?: true
 
     attribute :fetched_at, :utc_datetime_usec, public?: true
 

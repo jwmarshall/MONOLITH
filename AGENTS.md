@@ -24,13 +24,15 @@ Stack: Phoenix LiveView, Ash/AshSqlite over Ecto/SQLite, and Tailwind.
   Organizing mail, drafting, sending and projects
   are outside current scope, not an implicit roadmap. Revisit only on a fresh user request;
   any future project must belong to one account with explicit/manual thread membership.
-- Read-only GitHub.com personal/organization installations can belong to several
-  workspaces. Home shows separate, bounded open-PR readouts per installation owner,
-  not a cross-owner inbox. GitHub App access/refresh bundles live under connection UUIDs
-  in the dedicated keychain; immutable owner identities and connection generations
-  fence caches/jobs. Rotating-token refresh is one-shot after a durable reservation;
-  unknown outcomes require sign-in again. No repository writes. See the GitHub section
-  in docs/DEVELOPMENT.md before changing credentials or polling.
+- Read-only GitHub.com personal/organization installations and repository selections can
+  belong to several workspaces. Home keeps bounded PR, issue and recent Actions readouts
+  separate by installation owner; workspace selections filter those snapshots, never a
+  cross-owner inbox. GitHub App OAuth client settings entered through Connections and
+  connection-UUID access/refresh bundles live in the dedicated keychain. Immutable identities
+  and client/connection generations fence caches/jobs. Refresh is one-shot after a durable
+  reservation; unknown outcomes require sign-in again. No repository writes, contents,
+  workflow logs or artifacts. See the GitHub section in docs/DEVELOPMENT.md before changing
+  credentials or polling.
 - Gmail owns mail state; LOVELACE owns workspace/project data. Use bounded on-demand caching
   and Gmail search, not a full offline mirror or local mail index. Poll while the app runs;
   do not promise instant updates or execution while the computer is asleep/off.

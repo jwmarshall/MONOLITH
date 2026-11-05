@@ -7,7 +7,9 @@ defmodule Lovelace.OwnerTest do
   @service [actor: %{role: :owner_auth_service}]
 
   setup do
-    if is_nil(Process.whereis(Owner.Throttle)), do: start_supervised!(Owner.Throttle)
+    # Owner authentication must not inherit another test's node-wide login budget.
+    :ok = Supervisor.terminate_child(Lovelace.Supervisor, Owner.Throttle)
+    {:ok, _} = Supervisor.restart_child(Lovelace.Supervisor, Owner.Throttle)
     :ok
   end
 

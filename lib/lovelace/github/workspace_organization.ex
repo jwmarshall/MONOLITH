@@ -21,10 +21,10 @@ defmodule Lovelace.GitHub.WorkspaceOrganization do
     end
 
     create :attach do
-      accept [:workspace_id, :organization_id]
+      accept [:workspace_id, :organization_id, :repository_ids]
       upsert? true
       upsert_identity :membership
-      upsert_fields []
+      upsert_fields [:repository_ids]
     end
 
     destroy :detach
@@ -45,6 +45,13 @@ defmodule Lovelace.GitHub.WorkspaceOrganization do
 
   attributes do
     uuid_primary_key :id
+
+    attribute :repository_ids, {:array, :string},
+      default: [],
+      allow_nil?: false,
+      public?: true,
+      constraints: [max_length: 100, items: [max_length: 255]]
+
     create_timestamp :created_at
   end
 

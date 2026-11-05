@@ -1,7 +1,7 @@
 defmodule LovelaceWeb.HomeGitHub do
   @moduledoc "Installation-owner readouts; authorization and provider work belong to the GitHub domain."
   import Phoenix.Component, only: [assign: 2]
-  import Phoenix.LiveView, only: [connected?: 1, put_flash: 3]
+  import Phoenix.LiveView, only: [connected?: 1, put_flash: 3, start_async: 3]
   alias Lovelace.GitHub.Auth
   alias Lovelace.Owner.Actions
 
@@ -19,13 +19,44 @@ defmodule LovelaceWeb.HomeGitHub do
       github_connections: [],
       github_auth: %{status: :idle},
       github_auth_key: Actions.digest(session["owner_session_token"]),
-      github_configured: Auth.configured?(),
-      github_installation_url: Auth.installation_url(),
+      github_configured: false,
+      github_configuration_status: :unknown,
+      github_installation_url: nil,
+      github_callback_url: Auth.callback_url(),
       github_memberships: [],
       github_subscriptions: [],
       github_error: false,
       github_now: DateTime.utc_now()
     )
+  end
+
+  def open(socket) do
+    socket
+    |> assign(
+      github_configuration_status: :loading,
+      github_configured: false,
+      github_installation_url: nil
+    )
+    |> start_async(:github_client_status, fn -> Lovelace.GitHub.client_status(actor: @owner) end)
+  end
+
+  def handle_async({:ok, {:ok, %{configured?: configured, app_slug: slug}}}, socket) do
+    {:noreply,
+     assign(socket,
+       github_configured: configured,
+       github_configuration_status: if(configured, do: :stored, else: :not_connected),
+       github_installation_url:
+         if(configured, do: "https://github.com/apps/#{slug}/installations/new")
+     )}
+  end
+
+  def handle_async(_, socket) do
+    {:noreply,
+     assign(socket,
+       github_configured: false,
+       github_configuration_status: :unavailable,
+       github_installation_url: nil
+     )}
   end
 
   def reload(socket) do
@@ -78,7 +109,7 @@ defmodule LovelaceWeb.HomeGitHub do
         do: Auth.status(socket.assigns.github_auth_key),
         else: socket.assigns.github_auth
 
-    delay = if active && auth.status in [:starting, :pending], do: 1_000, else: 5_000
+    delay = if active && auth.status in [:pending, :exchanging], do: 1_000, else: 5_000
     Process.send_after(self(), :github_auth_tick, delay)
     changed = socket.assigns.github_auth != auth
     socket = assign(socket, github_auth: auth)
@@ -130,10 +161,15 @@ defmodule LovelaceWeb.HomeGitHub do
   end
 
   @result_messages %{
-    "pending" => {:info, "Enter the displayed code on GitHub to authorize LOVELACE."},
+    "pending" => {:info, "Complete GitHub authorization in the browser to connect your account."},
     "authorized" =>
+      {:info, "GitHub sign-in complete. Add an owner or selected repositories to a workspace."},
+    "settings_saved" =>
       {:info,
-       "GitHub sign-in completed before cancellation. Use Disconnect account if you want to remove it."},
+       "GitHub app settings saved in the dedicated keychain. No provider access was requested."},
+    "settings_failed" =>
+      {:error,
+       "GitHub app settings could not be saved. Check the values and dedicated keychain access."},
     "cancelled" => {:info, "GitHub sign-in cancelled locally."},
     "discovered" =>
       {:info, "GitHub installations refreshed. Choose an owner to add to a workspace."},
@@ -146,7 +182,7 @@ defmodule LovelaceWeb.HomeGitHub do
        "GitHub account disconnected locally. Revoke app authorization separately in GitHub if no longer needed."},
     "configuration" =>
       {:error,
-       "Configure the public GitHub App client ID and app slug, and enable device flow. See docs/DEVELOPMENT.md."},
+       "Save the GitHub App Client ID, client secret and app slug here, and check its exact callback URL."},
     "keychain_failed" =>
       {:error,
        "GitHub credential storage failed. The token could not be read, saved or removed in the dedicated LOVELACE keychain. Check native helper access; do not reset the vault."},

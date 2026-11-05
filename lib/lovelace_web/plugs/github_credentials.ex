@@ -4,6 +4,7 @@ defmodule LovelaceWeb.Plugs.GitHubCredentials do
 
   alias Lovelace.GitHub
   alias Lovelace.GitHub.{Auth, Error}
+  alias Lovelace.Security.Vault
   alias LovelaceWeb.Plugs.SensitivePath
   alias Plug.Conn.{Query, Utils}
 
@@ -29,14 +30,7 @@ defmodule LovelaceWeb.Plugs.GitHubCredentials do
       conn = scrub(conn, Map.take(params, ["_csrf_token"]))
       conn = Plug.CSRFProtection.call(conn, Plug.CSRFProtection.init(with: :exception))
 
-      case Lovelace.Owner.verify_session(get_session(conn, :owner_session_token)) do
-        {:ok, _session} ->
-          result = perform(params, get_session(conn, :owner_session_token))
-          redirect(conn, destination(params, result))
-
-        _ ->
-          redirect(conn, "/unlock")
-      end
+      perform_verified(conn, params)
     else
       _ -> reject(conn, 400)
     end
@@ -48,12 +42,42 @@ defmodule LovelaceWeb.Plugs.GitHubCredentials do
     _, _ -> reject(conn, 400)
   end
 
-  defp perform(%{"operation" => "sign_in"}, session) do
-    case Auth.begin(session) do
-      :ok -> "pending"
-      error -> result(error, "pending")
+  defp perform_verified(conn, params) do
+    session = get_session(conn, :owner_session_token)
+
+    case Lovelace.Owner.verify_session(session) do
+      {:ok, _session} -> redirect_operation(conn, params, perform(params, session))
+      _ -> redirect(conn, "/unlock")
     end
   end
+
+  defp redirect_operation(conn, _params, {:authorization_url, url}), do: redirect(conn, url)
+  defp redirect_operation(conn, params, notice), do: redirect(conn, destination(params, notice))
+
+  defp perform(%{"operation" => "sign_in"}, session) do
+    case Auth.begin(session) do
+      {:ok, url} -> {:authorization_url, url}
+      error -> result(error, "failed")
+    end
+  end
+
+  defp perform(
+         %{
+           "operation" => "save_client",
+           "client_id" => id,
+           "client_secret" => secret,
+           "app_slug" => slug
+         },
+         session
+       )
+       when is_binary(id) and is_binary(secret) and is_binary(slug) do
+    case Vault.with_access(fn -> save_client(session, id, secret, slug) end) do
+      :saved -> "settings_saved"
+      _ -> "settings_failed"
+    end
+  end
+
+  defp perform(%{"operation" => "save_client"}, _), do: "settings_failed"
 
   defp perform(%{"operation" => "cancel_sign_in"}, session) do
     case Auth.cancel(session) do
@@ -78,6 +102,20 @@ defmodule LovelaceWeb.Plugs.GitHubCredentials do
        do: result(GitHub.attach(workspace, id, actor: @owner), "attached")
 
   defp perform(
+         %{
+           "operation" => "attach_repositories",
+           "workspace_id" => workspace,
+           "organization_id" => id,
+           "repository_ids" => [_ | _] = ids
+         },
+         _
+       )
+       when is_binary(workspace) and is_binary(id),
+       do: result(GitHub.attach_repositories(workspace, id, ids, actor: @owner), "attached")
+
+  defp perform(%{"operation" => "attach_repositories"}, _), do: "invalid_input"
+
+  defp perform(
          %{"operation" => "detach", "workspace_id" => workspace, "organization_id" => id},
          _
        )
@@ -88,6 +126,13 @@ defmodule LovelaceWeb.Plugs.GitHubCredentials do
     do: result(GitHub.disconnect(id, actor: @owner), "disconnected")
 
   defp perform(_, _), do: "failed"
+
+  defp save_client(session, id, secret, slug) do
+    with {:ok, _} <- Lovelace.Owner.verify_session(session),
+         {:ok, true} <- GitHub.save_client_credentials(id, secret, slug, actor: @owner) do
+      :saved
+    end
+  end
 
   defp result({:ok, _}, success), do: success
 
@@ -118,7 +163,7 @@ defmodule LovelaceWeb.Plugs.GitHubCredentials do
   defp failure_category(_), do: nil
 
   defp destination(%{"operation" => operation, "workspace_id" => id}, result)
-       when operation in ["attach", "detach"] do
+       when operation in ["attach", "attach_repositories", "detach"] do
     case Ecto.UUID.cast(id) do
       {:ok, id} -> "/workspaces/" <> id <> "?github=" <> result
       _ -> "/connections/github?github=" <> result

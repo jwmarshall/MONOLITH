@@ -1,10 +1,10 @@
 defmodule Lovelace.Integrations.GitHub do
-  @moduledoc "Read-only GitHub App device authorization and installation-scoped PR snapshots."
+  @moduledoc "Read-only GitHub App web authorization and installation-scoped snapshots."
+  alias Lovelace.GitHub.Auth
 
-  @callback device_code(binary()) :: {:ok, map()} | {:error, atom()}
-  @callback exchange_device(binary(), binary()) ::
-              {:ok, map()} | {:error, atom()} | {:slow_down, pos_integer()}
-  @callback refresh_token(binary(), binary()) :: {:ok, map()} | {:error, atom()}
+  @callback exchange_code(binary(), binary(), binary(), binary(), binary()) ::
+              {:ok, map()} | {:error, atom()}
+  @callback refresh_token(binary(), binary(), binary()) :: {:ok, map()} | {:error, atom()}
   @callback user(binary()) :: {:ok, map()} | {:error, atom()}
   @callback installations(binary()) :: {:ok, [map()]} | {:error, atom()}
   @callback pull_requests(binary(), map()) :: {:ok, map()} | {:error, atom()}
@@ -15,50 +15,36 @@ defmodule Lovelace.Integrations.GitHub do
   @max_installations 500
   @max_repositories 100
   @batch_size 20
+  @actions_repositories 10
 
-  def device_code(client_id) do
-    with {:ok, body} <- oauth("/login/device/code", client_id, %{scope: "offline_access"}),
-         %{
-           "device_code" => device,
-           "user_code" => code,
-           "expires_in" => expires,
-           "interval" => interval
-         } <- body,
-         true <- valid_secret?(device),
-         true <- is_binary(code) and Regex.match?(~r/\A[A-Z0-9]{4}-[A-Z0-9]{4}\z/, code),
-         true <- positive_seconds?(expires, 900) and positive_seconds?(interval, 900) do
-      {:ok, %{device_code: device, user_code: code, expires_in: expires, interval: interval}}
-    else
-      {:error, reason} -> {:error, reason}
-      _ -> {:error, :provider}
-    end
-  end
-
-  def exchange_device(client_id, device) do
-    if valid_secret?(device) do
+  def exchange_code(client_id, client_secret, code, verifier, redirect_uri) do
+    if valid_secret?(client_secret) and valid_secret?(code) and
+         is_binary(verifier) and Regex.match?(~r/\A[A-Za-z0-9_-]{43}\z/, verifier) and
+         redirect_uri == Auth.callback_url() do
       case oauth("/login/oauth/access_token", client_id, %{
-             device_code: device,
-             grant_type: "urn:ietf:params:oauth:grant-type:device_code"
+             client_secret: client_secret,
+             code: code,
+             code_verifier: verifier,
+             redirect_uri: redirect_uri
            }) do
         {:ok, body} -> bundle(body)
         other -> other
       end
     else
-      {:error, :provider}
+      {:error, :configuration}
     end
   end
 
-  # Device-issued refresh tokens deliberately need no client secret. The caller
-  # must fence the old pair durably before this one-shot rotation request.
-  def refresh_token(client_id, refresh) do
-    if valid_secret?(refresh) and byte_size(refresh) > 4 and String.starts_with?(refresh, "ghr_") do
+  # The caller durably reserves the old pair before this one-shot rotation request.
+  def refresh_token(client_id, client_secret, refresh) do
+    if valid_secret?(client_secret) and valid_secret?(refresh) and
+         byte_size(refresh) > 4 and String.starts_with?(refresh, "ghr_") do
       case oauth("/login/oauth/access_token", client_id, %{
+             client_secret: client_secret,
              refresh_token: refresh,
              grant_type: "refresh_token"
            }) do
         {:ok, body} -> bundle(body)
-        {:slow_down, _} -> {:error, :rate_limited}
-        {:error, :authorization_pending} -> {:error, :provider}
         other -> other
       end
     else
@@ -163,8 +149,23 @@ defmodule Lovelace.Integrations.GitHub do
          true <- Enum.any?(accessible, &same_owner?(&1, owner)),
          {:ok, repositories} <- repositories(token, owner, deadline),
          {:ok, snapshot} <- repository_batches(token, owner, repositories, deadline),
+         actions = workflow_runs(token, owner, repositories, deadline - 10_000),
          :ok <- verify_scope(token, owner, repositories, deadline) do
-      {:ok, snapshot}
+      repository_list =
+        repositories
+        |> Enum.map(
+          &%{"id" => &1.id, "name" => &1.name, "full_name" => owner.login <> "/" <> &1.name}
+        )
+        |> Enum.sort_by(& &1["full_name"])
+
+      {:ok,
+       snapshot
+       |> Map.merge(actions)
+       |> Map.put(:repositories, repository_list)
+       |> Map.put(
+         :partial_reasons,
+         Enum.uniq(snapshot.partial_reasons ++ actions.partial_reasons)
+       )}
     else
       {:error, reason} -> {:error, reason}
       false -> {:error, :reconnect}
@@ -242,7 +243,7 @@ defmodule Lovelace.Integrations.GitHub do
     repositories
     |> Enum.chunk_every(@batch_size)
     |> Enum.reduce_while(
-      {:ok, %{pull_requests: [], total_count: 0, partial_reasons: []}},
+      {:ok, empty_batch()},
       fn repos, {:ok, acc} ->
         {query, variables} = query(repos)
 
@@ -263,7 +264,10 @@ defmodule Lovelace.Integrations.GitHub do
            {:ok,
             %{
               pull_requests: rows,
+              issues: newest(acc.issues ++ batch.issues),
               total_count: acc.total_count + batch.total_count,
+              issue_count: add_counts(acc.issue_count, batch.issue_count),
+              issues_truncated: acc.issues_truncated or batch.issues_truncated,
               partial_reasons: reasons ++ batch.partial_reasons ++ acc.partial_reasons
             }}}
         else
@@ -279,13 +283,43 @@ defmodule Lovelace.Integrations.GitHub do
             do: ["first_50" | data.partial_reasons],
             else: data.partial_reasons
 
+        issues_more = issues_partial?(data, reasons)
+
+        reasons =
+          if data.issue_count && data.issue_count > 50,
+            do: ["issues_first_50" | reasons],
+            else: reasons
+
         reasons = Enum.uniq(reasons)
-        {:ok, %{data | partial_reasons: reasons} |> Map.put(:truncated, reasons != [])}
+
+        {:ok,
+         %{data | partial_reasons: reasons, issues_truncated: issues_more}
+         |> Map.put(:truncated, Enum.any?(reasons, &(not String.starts_with?(&1, "issues_"))))}
 
       error ->
         error
     end
   end
+
+  defp issues_partial?(data, reasons) do
+    data.issues_truncated or is_nil(data.issue_count) or data.issue_count > 50 or
+      "issues_unavailable" in reasons
+  end
+
+  defp empty_batch do
+    %{
+      pull_requests: [],
+      issues: [],
+      total_count: 0,
+      issue_count: 0,
+      issues_truncated: false,
+      partial_reasons: []
+    }
+  end
+
+  defp add_counts(nil, _), do: nil
+  defp add_counts(_, nil), do: nil
+  defp add_counts(left, right), do: left + right
 
   defp newest(rows),
     do:
@@ -304,14 +338,14 @@ defmodule Lovelace.Integrations.GitHub do
         else: ""
 
     fields =
-      "number title isDraft reviewDecision updatedAt createdAt author { login } repository { name owner { id login __typename } } #{checks}"
+      "number title isDraft reviewDecision updatedAt createdAt author { login } repository { id name owner { id login __typename } } #{checks}"
 
     indexed = Enum.with_index(repos)
     declarations = Enum.map_join(indexed, ", ", fn {_, i} -> "$id#{i}: ID!" end)
 
     selections =
       Enum.map_join(indexed, "\n", fn {_, i} ->
-        "r#{i}: node(id: $id#{i}) { ... on Repository { id name owner { id login __typename } pullRequests(first: 50, states: OPEN, orderBy: {field: UPDATED_AT, direction: DESC}) { totalCount pageInfo { hasNextPage } nodes { #{fields} } } } }"
+        "r#{i}: node(id: $id#{i}) { ... on Repository { id name owner { id login __typename } pullRequests(first: 50, states: OPEN, orderBy: {field: UPDATED_AT, direction: DESC}) { totalCount pageInfo { hasNextPage } nodes { #{fields} } } issues(first: 50, states: OPEN, orderBy: {field: UPDATED_AT, direction: DESC}) { totalCount pageInfo { hasNextPage } nodes { number title updatedAt author { login } repository { id name owner { id login __typename } } } } } }"
       end)
 
     {"query(#{declarations}) { #{selections} }",
@@ -322,7 +356,7 @@ defmodule Lovelace.Integrations.GitHub do
     repos
     |> Enum.with_index()
     |> Enum.reduce_while(
-      {:ok, %{pull_requests: [], total_count: 0, partial_reasons: []}},
+      {:ok, empty_batch()},
       fn {repo, i}, {:ok, acc} ->
         accumulate_batch_repository(data["r#{i}"], repo, owner, acc)
       end
@@ -343,13 +377,18 @@ defmodule Lovelace.Integrations.GitHub do
          true <- id == repo.id and name == repo.name and graphql_owner?(account, owner),
          true <- valid_batch_nodes?(count, nodes),
          true <- is_boolean(more),
-         {:ok, rows} <- rows(nodes, owner, repo.name) do
+         {:ok, rows} <- rows(nodes, owner, repo),
+         {:ok, issues} <- issue_rows(result["issues"], owner, repo) do
       {:cont,
        {:ok,
         %{
           pull_requests: newest(rows ++ acc.pull_requests),
+          issues: newest(issues.rows ++ acc.issues),
           total_count: acc.total_count + count,
-          partial_reasons: incomplete_reasons(more, count, rows) ++ acc.partial_reasons
+          issue_count: add_counts(acc.issue_count, issues.count),
+          issues_truncated: acc.issues_truncated or issues.truncated,
+          partial_reasons:
+            issues.reasons ++ incomplete_reasons(more, count, rows) ++ acc.partial_reasons
         }}}
     else
       _ -> {:halt, {:error, :provider}}
@@ -375,6 +414,9 @@ defmodule Lovelace.Integrations.GitHub do
         {:error, :rate_limited}
 
       Enum.all?(errors, fn
+        %{"path" => [key, "issues" | _]} ->
+          key in aliases
+
         %{"path" => [key, "pullRequests", "nodes", index, field | _]}
         when is_integer(index) and index in 0..49 ->
           key in aliases and field in ["commits", "reviewDecision"]
@@ -382,7 +424,10 @@ defmodule Lovelace.Integrations.GitHub do
         _ ->
           false
       end) ->
-        {:ok, ["optional_fields_unavailable"]}
+        {:ok,
+         Enum.map(errors, fn %{"path" => [_, field | _]} ->
+           if field == "issues", do: "issues_unavailable", else: "optional_fields_unavailable"
+         end)}
 
       true ->
         {:error, :provider}
@@ -424,12 +469,14 @@ defmodule Lovelace.Integrations.GitHub do
            "isDraft" => draft,
            "updatedAt" => updated,
            "createdAt" => created,
-           "repository" => %{"name" => name, "owner" => account}
+           "repository" => %{"id" => repository_id, "name" => name, "owner" => account}
          } = node,
          owner,
          repository
        ) do
-    with true <- name == repository and graphql_owner?(account, owner),
+    with true <-
+           repository_id == repository.id and name == repository.name and
+             graphql_owner?(account, owner),
          true <- is_integer(number) and number in 1..2_147_483_647,
          true <- valid_repository?(name),
          true <- is_binary(title) and byte_size(title) <= 4096 and is_boolean(draft),
@@ -444,6 +491,7 @@ defmodule Lovelace.Integrations.GitHub do
          "title" => title,
          "url" => "https://github.com/#{owner.login}/#{name}/pull/#{number}",
          "repository" => owner.login <> "/" <> name,
+         "repository_id" => repository.id,
          "author" => if(valid_login?(author), do: author),
          "is_draft" => draft,
          "review_decision" =>
@@ -458,6 +506,186 @@ defmodule Lovelace.Integrations.GitHub do
   end
 
   defp row(_, _, _), do: {:error, :provider}
+
+  defp issue_rows(nil, _owner, _repo),
+    do: {:ok, %{rows: [], count: nil, truncated: true, reasons: ["issues_unavailable"]}}
+
+  defp issue_rows(
+         %{"totalCount" => count, "nodes" => nodes, "pageInfo" => %{"hasNextPage" => more}},
+         owner,
+         repo
+       ) do
+    with true <- valid_batch_nodes?(count, nodes) and is_boolean(more),
+         {:ok, rows} <- parse_issue_nodes(nodes, owner, repo) do
+      incomplete = more or count > length(rows)
+
+      {:ok,
+       %{
+         rows: rows,
+         count: count,
+         truncated: incomplete,
+         reasons: if(incomplete, do: ["issues_incomplete"], else: [])
+       }}
+    else
+      _ -> {:error, :provider}
+    end
+  end
+
+  defp issue_rows(_, _, _), do: {:error, :provider}
+
+  defp parse_issue_nodes(nodes, owner, repo) do
+    Enum.reduce_while(nodes, {:ok, []}, fn node, {:ok, acc} ->
+      with %{
+             "number" => number,
+             "title" => title,
+             "updatedAt" => updated,
+             "repository" => %{"id" => id, "name" => name, "owner" => account}
+           } <- node,
+           true <- id == repo.id and name == repo.name and graphql_owner?(account, owner),
+           true <- is_integer(number) and number in 1..2_147_483_647,
+           true <- is_binary(title) and byte_size(title) <= 4096,
+           {:ok, _, _} <- DateTime.from_iso8601(updated),
+           false <- Enum.any?(acc, &(&1["number"] == number)) do
+        author = get_in(node, ["author", "login"])
+
+        row = %{
+          "number" => number,
+          "title" => title,
+          "url" => "https://github.com/#{owner.login}/#{repo.name}/issues/#{number}",
+          "repository" => owner.login <> "/" <> repo.name,
+          "repository_id" => repo.id,
+          "author" => if(valid_login?(author), do: author),
+          "updated_at" => updated
+        }
+
+        {:cont, {:ok, [row | acc]}}
+      else
+        _ -> {:halt, {:error, :provider}}
+      end
+    end)
+  end
+
+  # Actions are optional and explicitly partial: at most ten repositories and
+  # ten recent runs per repository, without logs, artifacts or job detail calls.
+  defp workflow_runs(token, owner, repositories, deadline) do
+    reasons =
+      if length(repositories) > @actions_repositories, do: ["actions_repository_limit"], else: []
+
+    initial = %{workflow_runs: [], actions_truncated: reasons != [], partial_reasons: reasons}
+
+    repositories
+    |> Enum.sort_by(& &1.id)
+    |> Enum.take(@actions_repositories)
+    |> Enum.reduce_while(initial, fn repo, acc ->
+      if now() >= deadline do
+        {:halt, actions_partial(acc, "actions_deadline")}
+      else
+        accumulate_repository_runs(token, owner, repo, deadline, acc)
+      end
+    end)
+  end
+
+  defp accumulate_repository_runs(token, owner, repo, deadline, acc) do
+    case repository_runs(token, owner, repo, deadline) do
+      {:ok, rows, more} ->
+        all = acc.workflow_runs ++ rows
+        rows = all |> Enum.sort_by(&{&1["updated_at"], &1["id"]}, :desc) |> Enum.take(50)
+        acc = %{acc | workflow_runs: rows}
+        acc = if more, do: actions_partial(acc, "actions_recent_only"), else: acc
+        {:cont, if(length(all) > 50, do: actions_partial(acc, "actions_first_50"), else: acc)}
+
+      {:error, :rate_limited} ->
+        {:halt, actions_partial(acc, "actions_rate_limited")}
+
+      {:error, _} ->
+        {:cont, actions_partial(acc, "actions_unavailable")}
+    end
+  end
+
+  defp actions_partial(acc, reason),
+    do: %{
+      acc
+      | actions_truncated: true,
+        partial_reasons: Enum.uniq([reason | acc.partial_reasons])
+    }
+
+  defp repository_runs(token, owner, repo, deadline) do
+    with {:ok, %{"total_count" => count, "workflow_runs" => runs}} <-
+           api(
+             "GET",
+             "/repos/#{owner.login}/#{repo.name}/actions/runs?per_page=10&page=1",
+             token,
+             "",
+             deadline
+           ),
+         true <- is_integer(count) and count >= 0 and is_list(runs) and length(runs) <= 10,
+         true <- length(runs) == min(count, 10),
+         {:ok, rows} <- parse_runs(runs, owner, repo) do
+      {:ok, rows, count > length(rows)}
+    else
+      {:error, reason} -> {:error, reason}
+      _ -> {:error, :provider}
+    end
+  end
+
+  defp parse_runs(runs, owner, repo) do
+    Enum.reduce_while(runs, {:ok, []}, fn run, {:ok, acc} ->
+      with %{
+             "id" => id,
+             "name" => name,
+             "status" => status,
+             "conclusion" => conclusion,
+             "updated_at" => updated,
+             "repository" => %{
+               "node_id" => repository_id,
+               "name" => repository_name,
+               "owner" => account
+             }
+           } <- run,
+           true <- positive_id?(id) and is_binary(name) and byte_size(name) <= 4096,
+           true <-
+             status in ["queued", "in_progress", "completed", "waiting", "requested", "pending"],
+           true <-
+             conclusion in [
+               nil,
+               "success",
+               "failure",
+               "neutral",
+               "cancelled",
+               "skipped",
+               "timed_out",
+               "action_required",
+               "stale",
+               "startup_failure"
+             ],
+           true <- status == "completed" == not is_nil(conclusion),
+           true <- repository_id == repo.id and repository_name == repo.name,
+           {:ok, identity} <- identity(account),
+           true <-
+             identity.github_id == owner.github_id and identity.owner_type == owner.owner_type and
+               same_login?(identity.login, owner.login),
+           {:ok, _, _} <- DateTime.from_iso8601(updated),
+           false <- Enum.any?(acc, &(&1["id"] == id)) do
+        actor = get_in(run, ["actor", "login"])
+
+        row = %{
+          "id" => id,
+          "name" => name,
+          "status" => status,
+          "conclusion" => conclusion,
+          "repository" => owner.login <> "/" <> repo.name,
+          "repository_id" => repo.id,
+          "url" => "https://github.com/#{owner.login}/#{repo.name}/actions/runs/#{id}",
+          "author" => if(valid_login?(actor), do: actor),
+          "updated_at" => updated
+        }
+
+        {:cont, {:ok, [row | acc]}}
+      else
+        _ -> {:halt, {:error, :provider}}
+      end
+    end)
+  end
 
   defp checks(node) do
     case get_in(node, ["commits", "nodes"]) do
@@ -492,12 +720,6 @@ defmodule Lovelace.Integrations.GitHub do
     end
   end
 
-  defp oauth_result(%{"error" => "authorization_pending"}), do: {:error, :authorization_pending}
-
-  defp oauth_result(%{"error" => "slow_down", "interval" => interval})
-       when is_integer(interval) and interval > 0,
-       do: {:slow_down, interval}
-
   defp oauth_result(%{"error" => error}) do
     reason =
       case error do
@@ -508,7 +730,6 @@ defmodule Lovelace.Integrations.GitHub do
         when value in [
                "expired_token",
                "token_expired",
-               "incorrect_device_code",
                "bad_verification_code"
              ] ->
           :expired
@@ -516,7 +737,7 @@ defmodule Lovelace.Integrations.GitHub do
         value
         when value in [
                "incorrect_client_credentials",
-               "device_flow_disabled",
+               "redirect_uri_mismatch",
                "unsupported_grant_type"
              ] ->
           :configuration

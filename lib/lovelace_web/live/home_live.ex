@@ -122,6 +122,9 @@ defmodule LovelaceWeb.HomeLive do
 
   def handle_async(:google_status, result, socket), do: HomeGoogle.handle_async(result, socket)
 
+  def handle_async(:github_client_status, result, socket),
+    do: HomeGitHub.handle_async(result, socket)
+
   def handle_async(name, result, socket),
     do: reconcile_mail_navigation(socket, HomeMail.handle_async(name, result, socket))
 
@@ -281,7 +284,7 @@ defmodule LovelaceWeb.HomeLive do
         case view do
           view when view in [:google, :gmail, :calendar] -> HomeGoogle.open(socket)
           :gemini -> HomeGemini.open(socket)
-          _ -> socket
+          :github -> HomeGitHub.open(socket)
         end
 
       {:noreply, socket}
@@ -1134,6 +1137,8 @@ defmodule LovelaceWeb.HomeLive do
             auth={@github_auth}
             configured={@github_configured}
             installation_url={@github_installation_url}
+            callback_url={@github_callback_url}
+            configuration_status={@github_configuration_status}
             memberships={@github_memberships}
             workspace_options={@workspace_options}
             error={@github_error}
@@ -1161,6 +1166,7 @@ defmodule LovelaceWeb.HomeLive do
               workspace={@selected}
               error={@github_error}
               adding={@mail.adding}
+              now={@github_now}
             />
           </div>
         </section>

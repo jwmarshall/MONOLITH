@@ -7,11 +7,24 @@ defmodule Lovelace.GitHub do
     resource Lovelace.GitHub.Organization
     resource Lovelace.GitHub.WorkspaceOrganization
 
+    resource Lovelace.GitHub.ClientOperation do
+      define :client_status, action: :client_status
+
+      define :save_client_credentials,
+        action: :save_client_credentials,
+        args: [:client_id, :client_secret, :app_slug]
+    end
+
     resource Lovelace.GitHub.Operation do
       define :directory, action: :directory
       define :discover, action: :discover, args: [:connection_id]
       define :disconnect_account, action: :disconnect_account, args: [:connection_id]
       define :attach, action: :attach, args: [:workspace_id, :organization_id]
+
+      define :attach_repositories,
+        action: :attach_repositories,
+        args: [:workspace_id, :organization_id, :repository_ids]
+
       define :detach, action: :detach, args: [:workspace_id, :organization_id]
       define :disconnect, action: :disconnect, args: [:organization_id]
       define :refresh, action: :refresh, args: [:organization_id]
