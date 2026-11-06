@@ -2,6 +2,7 @@ defmodule LovelaceWeb.CoverageStatesLiveTest do
   use LovelaceWeb.ConnCase, async: false
   use Oban.Testing, repo: Lovelace.Repo, engine: Oban.Engines.Lite
   import Phoenix.LiveViewTest
+  import Lovelace.TestSupport.BackgroundWork, only: [complete: 1]
 
   alias Lovelace.{Calendar, Mail, Repo, StageDesigner, Workspaces}
   alias Lovelace.Integrations.Google.ClientCredentials
@@ -12,9 +13,11 @@ defmodule LovelaceWeb.CoverageStatesLiveTest do
   @service %{role: :stage_designer}
 
   defmodule CalendarIO do
+    @behaviour Lovelace.Calendar.Provider
     def get(id), do: {:ok, "synthetic:" <> id}
     def refresh(token), do: {:ok, %{access_token: token}}
 
+    @impl true
     def calendars(_token) do
       {:ok,
        %{
@@ -26,6 +29,7 @@ defmodule LovelaceWeb.CoverageStatesLiveTest do
        }}
     end
 
+    @impl true
     def events(_token, calendar, _from, _to) do
       day = Date.utc_today()
 
@@ -83,13 +87,13 @@ defmodule LovelaceWeb.CoverageStatesLiveTest do
       })
 
     {:ok, view, _} = live(conn, "/scenes")
-    render_async(view)
+    complete(view)
     assert has_element?(view, "#scene-generate[disabled]")
     assert has_element?(view, "#scene-current-check-#{original.id}:not([disabled])")
     assert has_element?(view, "#scene-current-signal-#{original.id} .status-label")
 
     view |> element("#scene-current-check-#{original.id}") |> render_click()
-    render_async(view)
+    complete(view)
 
     resumed = SceneGeneration.current()
     assert resumed.id == original.id
@@ -120,11 +124,11 @@ defmodule LovelaceWeb.CoverageStatesLiveTest do
     refute_enqueued(worker: GenerationWorker)
 
     {:ok, view, _} = live(conn, "/scenes")
-    render_async(view)
+    complete(view)
     assert has_element?(view, "#scene-history-#{completed.id}", "Synthetic deletion unavailable")
     assert has_element?(view, "#workspace-background img[src='#{background.url}']")
     view |> element("#scene-current-cleanup-#{completed.id}") |> render_click()
-    render_async(view)
+    complete(view)
 
     assert_enqueued(worker: GenerationWorker, args: %{id: completed.id, operation: "cleanup"})
     refute_enqueued(worker: GenerationWorker, args: %{operation: "submit"})
@@ -137,7 +141,7 @@ defmodule LovelaceWeb.CoverageStatesLiveTest do
 
     :ok = GeminiVault.delete("unused")
     view |> element("#scenes-refresh") |> render_click()
-    render_async(view)
+    complete(view)
     assert has_element?(view, "#scene-setup-generation-status .connection-warning")
     refute has_element?(view, "#scene-current-cleanup-#{completed.id}")
     assert StageDesigner.background!().url == background.url
@@ -156,10 +160,10 @@ defmodule LovelaceWeb.CoverageStatesLiveTest do
     StageDesigner.fail_state!(state, %{}, actor: @service)
 
     {:ok, view, _} = live(conn, "/scenes")
-    render_async(view)
+    complete(view)
     assert has_element?(view, "#scene-global-activity")
     view |> element("#scene-current-acknowledge-#{failed.id}") |> render_click()
-    render_async(view)
+    complete(view)
 
     acknowledged = SceneGeneration.current()
     assert acknowledged.status == :failed
@@ -172,7 +176,7 @@ defmodule LovelaceWeb.CoverageStatesLiveTest do
     assert {:ok, [_]} = Attempt.page(1)
 
     {:ok, reloaded, _} = live(conn, "/scenes")
-    render_async(reloaded)
+    complete(reloaded)
     refute has_element?(reloaded, "#scene-global-activity")
     assert has_element?(reloaded, "#scene-history-#{failed.id}")
   end
@@ -182,9 +186,9 @@ defmodule LovelaceWeb.CoverageStatesLiveTest do
          conn: conn
        } do
     {:ok, view, _} = live(conn, "/scenes")
-    render_async(view)
+    complete(view)
     view |> form("#scene-generation-settings") |> render_submit()
-    render_async(view)
+    complete(view)
     assert has_element?(view, "#scene-generation-modal")
 
     render_change(view, "scenes:settings-change", %{
@@ -217,9 +221,9 @@ defmodule LovelaceWeb.CoverageStatesLiveTest do
     assert {:ok, []} = Attempt.page(1)
 
     view |> form("#scene-generation-settings") |> render_submit()
-    render_async(view)
+    complete(view)
     view |> element("#scene-generation-confirm") |> render_click()
-    render_async(view)
+    complete(view)
     assert Map.take(SceneGeneration.current(), Map.keys(choices)) == choices
   end
 
@@ -234,7 +238,7 @@ defmodule LovelaceWeb.CoverageStatesLiveTest do
       )
 
     {:ok, view, _} = live(conn, "/scenes")
-    render_async(view)
+    complete(view)
     view |> element("#scene-current-acknowledge-legacy") |> render_click()
 
     assert has_element?(
@@ -249,7 +253,7 @@ defmodule LovelaceWeb.CoverageStatesLiveTest do
 
     view |> element("#scene-current-acknowledge-legacy") |> render_click()
     view |> element("#scene-acknowledgement-confirm") |> render_click()
-    render_async(view)
+    complete(view)
     assert {:ok, [attempt]} = Attempt.page(1)
     assert attempt.source == :legacy
     assert attempt.status == :abandoned
@@ -272,7 +276,7 @@ defmodule LovelaceWeb.CoverageStatesLiveTest do
     poll(account, window)
     {:ok, view, _} = live(conn, "/connections/calendar")
     render_hook(view, "calendar:day", window)
-    render_async(view)
+    complete(view)
     selection = "#calendar-connections-select-#{account.id}"
     assert has_element?(view, "#{selection} input[value=primary][checked]")
     refute has_element?(view, "#{selection} input[value=shared][checked]")
@@ -301,7 +305,7 @@ defmodule LovelaceWeb.CoverageStatesLiveTest do
 
     {:ok, reloaded, _} = live(conn, "/connections/calendar")
     render_hook(reloaded, "calendar:day", window)
-    render_async(reloaded)
+    complete(reloaded)
     assert has_element?(reloaded, "#{selection} input[value=shared][checked]")
     assert {:ok, persisted} = snapshot(account, window)
     assert persisted.selected_ids == ["shared"]
@@ -317,7 +321,7 @@ defmodule LovelaceWeb.CoverageStatesLiveTest do
     poll(account, window)
     {:ok, view, _} = live(conn, "/connections/calendar")
     render_hook(view, "calendar:day", window)
-    render_async(view)
+    complete(view)
 
     view
     |> form("#calendar-connections-select-#{account.id}", calendar_ids: [""])
@@ -332,7 +336,7 @@ defmodule LovelaceWeb.CoverageStatesLiveTest do
     refute has_element?(view, "#{agenda} .calendar-message", "No events today")
     view |> element("#{agenda} a[href='/connections/calendar']") |> render_click()
     assert_patch(view, "/connections/calendar")
-    render_async(view)
+    complete(view)
     refute has_element?(view, "#calendar-connections-select-#{account.id} input[checked]")
     assert {:ok, selected} = snapshot(account, window)
     assert selected.explicit_selection

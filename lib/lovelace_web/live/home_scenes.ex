@@ -1,7 +1,6 @@
 defmodule LovelaceWeb.HomeScenes do
   @moduledoc false
   import Phoenix.Component, only: [assign: 2, assign: 3, to_form: 2]
-  import Phoenix.LiveView, only: [start_async: 3, cancel_async: 2]
   alias Lovelace.StageDesigner
   alias Lovelace.StageDesigner.{DirectionOptions, Models}
 
@@ -9,7 +8,6 @@ defmodule LovelaceWeb.HomeScenes do
 
   def init(socket) do
     assign(socket,
-      scenes: false,
       scene_data: nil,
       scene_page: 1,
       scene_attempt_page: 1,
@@ -30,7 +28,6 @@ defmodule LovelaceWeb.HomeScenes do
   def open(socket) do
     socket
     |> assign(
-      scenes: true,
       scene_page: 1,
       scene_attempt_page: 1,
       scene_notice: "",
@@ -44,11 +41,11 @@ defmodule LovelaceWeb.HomeScenes do
   def leave(socket) do
     socket
     |> clear_confirmation()
-    |> assign(scenes: false, scene_acknowledgement: nil)
+    |> assign(scene_acknowledgement: nil)
   end
 
   defp load_direction(socket) do
-    start_async(socket, :scene_direction, fn -> StageDesigner.scene_direction(actor: @owner) end)
+    apply_result(socket, :scene_direction, StageDesigner.scene_direction(actor: @owner))
   end
 
   def refresh(socket) do
@@ -57,9 +54,10 @@ defmodule LovelaceWeb.HomeScenes do
 
     socket
     |> assign(scene_loading: true, scene_error: false)
-    |> start_async(:scene_gallery, fn ->
+    |> apply_result(
+      :scene_gallery,
       StageDesigner.list_scenes(%{page: page, attempt_page: attempt_page}, actor: @owner)
-    end)
+    )
   end
 
   def handle_event("scenes:refresh", _params, %{assigns: %{scene_loading: true}} = socket),
@@ -76,14 +74,10 @@ defmodule LovelaceWeb.HomeScenes do
     socket =
       if socket.assigns.scene_direction.status == :error, do: load_direction(socket), else: socket
 
-    # Keep the editor mounted, but do not treat the last successful check as authorization.
-    status = if socket.assigns.gemini_status == :stored, do: :rechecking, else: :loading
-
     {:noreply,
      socket
      |> clear_confirmation()
      |> LovelaceWeb.HomeGemini.open()
-     |> assign(:gemini_status, status)
      |> refresh()}
   end
 
@@ -202,9 +196,10 @@ defmodule LovelaceWeb.HomeScenes do
        socket
        |> clear_confirmation()
        |> assign(scene_preparing: true, scene_notice: "Preparing confirmation…")
-       |> start_async(:scene_prepare, fn ->
+       |> apply_result(
+         :scene_prepare,
          StageDesigner.prepare_scene_generation(settings, actor: @owner)
-       end)}
+       )}
     else
       {:noreply, socket}
     end
@@ -222,9 +217,10 @@ defmodule LovelaceWeb.HomeScenes do
      socket
      |> clear_confirmation()
      |> assign(scene_request_pending: true, scene_notice: "Requesting generation…")
-     |> start_async(:scene_request, fn ->
+     |> apply_result(
+       :scene_request,
        StageDesigner.request_scene_generation(%{confirmation: token}, actor: @owner)
-     end)}
+     )}
   end
 
   def handle_event("scenes:check", %{"id" => id}, socket) do
@@ -289,30 +285,30 @@ defmodule LovelaceWeb.HomeScenes do
 
   def handle_event(_event, _params, socket), do: {:noreply, socket}
 
-  def handle_async(:scene_direction, {:ok, {:ok, data}}, %{assigns: %{scenes: true}} = socket) do
+  defp handle_result(:scene_direction, {:ok, data}, %{assigns: %{scenes: true}} = socket) do
     {:noreply, assign(socket, :scene_direction, direction_state(data))}
   end
 
-  def handle_async(:scene_direction, _result, %{assigns: %{scenes: true}} = socket) do
+  defp handle_result(:scene_direction, _result, %{assigns: %{scenes: true}} = socket) do
     {:noreply, assign(socket, :scene_direction, %{status: :error})}
   end
 
-  def handle_async(:scene_direction, _result, socket), do: {:noreply, socket}
+  defp handle_result(:scene_direction, _result, socket), do: {:noreply, socket}
 
-  def handle_async(:scene_gallery, {:ok, {:ok, data}}, socket) do
+  defp handle_result(:scene_gallery, {:ok, data}, socket) do
     {:noreply, assign(socket, scene_data: data, scene_loading: false, scene_error: false)}
   end
 
-  def handle_async(:scene_gallery, _result, socket) do
+  defp handle_result(:scene_gallery, _result, socket) do
     {:noreply, assign(socket, scene_loading: false, scene_error: true)}
   end
 
-  def handle_async(
-        :scene_prepare,
-        {:ok, {:ok, %{confirmation: token, prompt: prompt} = prepared}},
-        %{assigns: %{scenes: true, scene_preparing: true}} = socket
-      )
-      when is_binary(token) and is_binary(prompt) do
+  defp handle_result(
+         :scene_prepare,
+         {:ok, %{confirmation: token, prompt: prompt} = prepared},
+         %{assigns: %{scenes: true, scene_preparing: true}} = socket
+       )
+       when is_binary(token) and is_binary(prompt) do
     {:noreply,
      assign(socket,
        scene_preparing: false,
@@ -323,7 +319,7 @@ defmodule LovelaceWeb.HomeScenes do
      )}
   end
 
-  def handle_async(:scene_prepare, _result, %{assigns: %{scene_preparing: true}} = socket) do
+  defp handle_result(:scene_prepare, _result, %{assigns: %{scene_preparing: true}} = socket) do
     {:noreply,
      assign(socket,
        scene_preparing: false,
@@ -332,21 +328,21 @@ defmodule LovelaceWeb.HomeScenes do
      )}
   end
 
-  def handle_async(:scene_prepare, _result, socket), do: {:noreply, socket}
+  defp handle_result(:scene_prepare, _result, socket), do: {:noreply, socket}
 
-  def handle_async(:scene_request, result, socket) do
+  defp handle_result(:scene_request, result, socket) do
     notice =
       case result do
-        {:ok, {:ok, :started}} ->
+        {:ok, :started} ->
           "Generation requested. You can leave this view; no automatic retries."
 
-        {:ok, {:ok, :direction_changed}} ->
+        {:ok, :direction_changed} ->
           "The saved direction changed in another view. Review your direction before generating. No request was made."
 
-        {:ok, {:ok, :invalid_confirmation}} ->
+        {:ok, :invalid_confirmation} ->
           "This confirmation is invalid or expired. Review your settings and confirm again. No new request was made."
 
-        {:ok, {:ok, status}} when status in [:cached, :busy] ->
+        {:ok, status} when status in [:cached, :busy] ->
           "Another attempt is already reserved or unconfirmed. No new request was made."
 
         _ ->
@@ -358,6 +354,11 @@ defmodule LovelaceWeb.HomeScenes do
     socket = handle_direction_changed(socket, result)
 
     {:noreply, if(socket.assigns.scenes, do: refresh(socket), else: socket)}
+  end
+
+  defp apply_result(socket, operation, result) do
+    {:noreply, socket} = handle_result(operation, result, socket)
+    socket
   end
 
   defp request_ready?(%{
@@ -375,7 +376,7 @@ defmodule LovelaceWeb.HomeScenes do
 
   defp handle_direction_changed(
          %{assigns: %{scenes: true}} = socket,
-         {:ok, {:ok, :direction_changed}}
+         {:ok, :direction_changed}
        ) do
     if direction_ready?(socket.assigns.scene_direction),
       do: socket |> assign(:scene_direction, %{status: :loading}) |> load_direction(),
@@ -402,7 +403,6 @@ defmodule LovelaceWeb.HomeScenes do
 
   defp clear_confirmation(socket) do
     socket
-    |> cancel_async(:scene_prepare)
     |> assign(
       scene_preparing: false,
       scene_prepared: nil,

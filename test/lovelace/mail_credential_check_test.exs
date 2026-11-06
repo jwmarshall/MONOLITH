@@ -3,8 +3,9 @@ defmodule Lovelace.MailCredentialCheckTest do
 
   alias Ash.Resource.Info
   alias Ecto.Adapters.SQL.Sandbox
+  alias Lovelace.Google.Access
   alias Lovelace.Mail
-  alias Lovelace.Mail.{CacheEntry, Connections}
+  alias Lovelace.Mail.CacheEntry
 
   @owner %{role: :local_owner}
   @private "synthetic-private-credential-diagnostic"
@@ -205,7 +206,7 @@ defmodule Lovelace.MailCredentialCheckTest do
        %{a: a} do
     FakeIO.result(a.id, {:ok, @private})
 
-    Connections.serial(a.id, fn ->
+    Access.serial(a.id, fn ->
       task = async_check(a)
       assert {:ok, {:ok, %{status: :accessible}}} = Task.yield(task, 2_000)
     end)

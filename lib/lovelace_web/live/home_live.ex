@@ -2,7 +2,6 @@ defmodule LovelaceWeb.HomeLive do
   @moduledoc "The local owner's daily orientation, workspaces and separate Gmail accounts."
   use LovelaceWeb, :live_view
 
-  alias Lovelace.Mail
   alias Lovelace.Mail.ConnectionDiagnostics
   alias Lovelace.Workspaces
   alias Lovelace.Workspaces.Workspace
@@ -42,9 +41,7 @@ defmodule LovelaceWeb.HomeLive do
       socket
       |> assign(
         page_title: "Home",
-        home: true,
         enter_on_return: session["workspace_return"] == true,
-        settings: false,
         navigation_ready: false,
         navigation_path: nil,
         home_accounts: [],
@@ -52,8 +49,6 @@ defmodule LovelaceWeb.HomeLive do
         onboarding_pending: Lovelace.Onboarding.pending?(),
         background: background,
         selected: nil,
-        connections: false,
-        connection_view: :index,
         workspace_options: [],
         workspace_health: %{},
         directory_subscriptions: [],
@@ -65,6 +60,7 @@ defmodule LovelaceWeb.HomeLive do
         save_status: ""
       )
       |> stream(:workspaces, [])
+      |> HomeNavigation.put(:index)
       |> HomeMail.init()
       |> HomeCalendar.init()
       |> HomeGemini.init()
@@ -112,26 +108,27 @@ defmodule LovelaceWeb.HomeLive do
   def handle_info({:github_changed, _id} = message, socket),
     do: github_changed(message, socket)
 
+  def handle_info({:mail_operation, _id} = message, socket),
+    do: reconcile_mail_navigation(socket, HomeMail.handle_info(message, socket))
+
+  def handle_info({:mail_observe, _id, _attempt} = message, socket),
+    do: reconcile_mail_navigation(socket, HomeMail.handle_info(message, socket))
+
+  def handle_info({:connection_diagnostic, :google, _id} = message, socket),
+    do: HomeGoogle.handle_info(message, socket)
+
+  def handle_info({:connection_diagnostic, :gemini, _id} = message, socket),
+    do: HomeGemini.handle_info(message, socket)
+
+  def handle_info({:connection_diagnostic, :github, _id} = message, socket),
+    do: HomeGitHub.handle_info(message, socket)
+
   def handle_info(_message, socket), do: {:noreply, socket}
-
-  @impl true
-  def handle_async(name, result, socket)
-      when name in [:scene_gallery, :scene_request, :scene_direction, :scene_prepare],
-      do: HomeScenes.handle_async(name, result, socket)
-
-  def handle_async(:gemini_status, result, socket), do: HomeGemini.handle_async(result, socket)
-
-  def handle_async(:google_status, result, socket), do: HomeGoogle.handle_async(result, socket)
-
-  def handle_async(:github_client_status, result, socket),
-    do: HomeGitHub.handle_async(result, socket)
-
-  def handle_async(name, result, socket),
-    do: reconcile_mail_navigation(socket, HomeMail.handle_async(name, result, socket))
 
   @impl true
   def handle_event(name, params, socket) do
     {:noreply, socket} = event(name, params, socket)
+    socket = accept_event_destination(socket, name)
     path = HomeNavigation.current(socket)
 
     {:noreply,
@@ -147,6 +144,14 @@ defmodule LovelaceWeb.HomeLive do
   defp event("mail:accounts", _params, %{assigns: %{mail: %{scope: :home}}} = socket),
     do: event("show_home", %{}, socket)
 
+  defp event("mail:search", %{"mail_search" => %{"query" => query}} = params, socket)
+       when is_binary(query) do
+    case HomeNavigation.destination(:inbox, %{"q" => String.trim(query)}) do
+      {:ok, _} -> HomeMail.handle_event("mail:search", params, socket)
+      _ -> {:noreply, put_flash(socket, :error, "This search is invalid. Try a shorter search.")}
+    end
+  end
+
   defp event("mail:" <> _ = event, params, socket),
     do: HomeMail.handle_event(event, params, socket)
 
@@ -158,13 +163,11 @@ defmodule LovelaceWeb.HomeLive do
   defp event("show_scenes", _params, socket) do
     {:noreply,
      socket
+     |> HomeNavigation.put(:scenes)
      |> HomeMail.leave_workspace()
      |> directory_subscriptions([])
      |> assign(
-       home: false,
-       settings: false,
        selected: nil,
-       connections: false,
        editor: nil,
        form: nil,
        page_title: "Scenes"
@@ -176,14 +179,12 @@ defmodule LovelaceWeb.HomeLive do
   defp event("show_settings", _params, socket) do
     {:noreply,
      socket
+     |> HomeNavigation.put(:settings)
      |> HomeScenes.leave()
      |> HomeMail.leave_workspace()
      |> directory_subscriptions([])
      |> assign(
-       home: false,
-       settings: true,
        selected: nil,
-       connections: false,
        editor: nil,
        form: nil,
        page_title: "Settings"
@@ -194,15 +195,12 @@ defmodule LovelaceWeb.HomeLive do
   defp event("show_home", _params, socket) do
     {:noreply,
      socket
+     |> HomeNavigation.put(:index)
      |> HomeScenes.leave()
      |> HomeMail.leave_workspace()
      |> assign(
-       home: true,
-       settings: false,
-       scenes: false,
        scene_confirmation: false,
        selected: nil,
-       connections: false,
        editor: nil,
        form: nil,
        page_title: "Home"
@@ -218,14 +216,11 @@ defmodule LovelaceWeb.HomeLive do
       {:noreply,
        socket
        |> HomeScenes.leave()
+       |> HomeNavigation.put(:inbox, %{"account_id" => id})
        |> directory_subscriptions([])
        |> assign(
-         home: false,
-         settings: false,
-         scenes: false,
          scene_confirmation: false,
          selected: nil,
-         connections: false,
          editor: nil,
          form: nil,
          page_title: "Inbox"
@@ -279,7 +274,10 @@ defmodule LovelaceWeb.HomeLive do
       socket =
         if socket.assigns.connection_view == :index, do: focus_heading(socket), else: socket
 
-      socket = socket |> HomeMail.close_connection() |> assign(:connection_view, view)
+      socket =
+        socket
+        |> HomeMail.close_connection()
+        |> HomeNavigation.put(:connection, %{"provider" => provider})
 
       socket =
         case view do
@@ -304,16 +302,12 @@ defmodule LovelaceWeb.HomeLive do
   defp event("show_connections", _params, socket) do
     {:noreply,
      socket
+     |> HomeNavigation.put(:connections)
      |> HomeScenes.leave()
      |> directory_subscriptions([])
      |> assign(
-       home: false,
-       settings: false,
-       connections: true,
        selected: nil,
-       scenes: false,
        scene_confirmation: false,
-       connection_view: :index,
        editor: nil,
        form: nil,
        page_title: "Connections"
@@ -377,15 +371,12 @@ defmodule LovelaceWeb.HomeLive do
       {:ok, %Workspace{} = workspace} ->
         {:noreply,
          socket
+         |> HomeNavigation.put(:workspace, %{"workspace_id" => workspace.id})
          |> HomeScenes.leave()
          |> directory_subscriptions([])
          |> assign(
-           home: false,
-           settings: false,
            selected: workspace,
-           scenes: false,
            scene_confirmation: false,
-           connections: false,
            editor: nil,
            form: nil,
            page_title: workspace.name
@@ -401,15 +392,12 @@ defmodule LovelaceWeb.HomeLive do
   defp event("show_workspaces", _params, socket) do
     {:noreply,
      socket
+     |> HomeNavigation.put(:workspaces)
      |> HomeScenes.leave()
      |> HomeMail.leave_workspace()
      |> assign(
-       home: false,
-       settings: false,
-       scenes: false,
        scene_confirmation: false,
        selected: nil,
-       connections: false,
        editor: nil,
        form: nil,
        page_title: "Workspaces"
@@ -478,15 +466,21 @@ defmodule LovelaceWeb.HomeLive do
     transition(socket, "select_connection", %{"provider" => to_string(provider)})
   end
 
-  defp visit_destination(socket, %{action: :scenes, page: page, attempt_page: attempt_page}) do
+  defp visit_destination(
+         socket,
+         %{action: :scenes, page: page, attempt_page: attempt_page} = destination
+       ) do
     socket = if socket.assigns.scenes, do: socket, else: transition(socket, "show_scenes")
 
-    if socket.assigns.scene_page == page && socket.assigns.scene_attempt_page == attempt_page,
-      do: socket,
-      else:
-        socket
-        |> assign(scene_page: page, scene_attempt_page: attempt_page)
-        |> HomeScenes.refresh()
+    socket =
+      if socket.assigns.scene_page == page && socket.assigns.scene_attempt_page == attempt_page,
+        do: socket,
+        else:
+          socket
+          |> assign(scene_page: page, scene_attempt_page: attempt_page)
+          |> HomeScenes.refresh()
+
+    HomeNavigation.put(socket, destination)
   end
 
   defp visit_destination(socket, %{action: action} = destination)
@@ -508,12 +502,10 @@ defmodule LovelaceWeb.HomeLive do
       else
         socket
         |> HomeScenes.leave()
+        |> HomeNavigation.put(destination)
         |> directory_subscriptions([])
         |> assign(
-          home: false,
-          settings: false,
           selected: nil,
-          connections: false,
           editor: nil,
           form: nil,
           page_title: "Inbox"
@@ -544,7 +536,7 @@ defmodule LovelaceWeb.HomeLive do
     socket = HomeMail.navigate(socket, destination)
 
     if socket.assigns.mail.account_id == destination.account_id,
-      do: socket,
+      do: HomeNavigation.put(socket, destination),
       else:
         unavailable_destination(
           socket,
@@ -564,8 +556,40 @@ defmodule LovelaceWeb.HomeLive do
 
   defp transition(socket, name, params \\ %{}) do
     {:noreply, socket} = event(name, params, socket)
-    socket
+    accept_event_destination(socket, name)
   end
+
+  defp accept_event_destination(socket, "mail:" <> _) do
+    if socket.assigns.destination.action in [:inbox, :thread, :workspace_inbox, :workspace_thread] &&
+         is_nil(socket.assigns.mail.account_id) do
+      unavailable_destination(
+        socket,
+        "This account is no longer available in this view. Check Connections."
+      )
+    else
+      case HomeNavigation.from_mail(socket) do
+        {:ok, socket} ->
+          socket
+
+        :error ->
+          unavailable_destination(socket, "This link is invalid. Choose a view from navigation.")
+      end
+    end
+  end
+
+  defp accept_event_destination(socket, name)
+       when name in ["scenes:page", "scenes:attempt-page"] do
+    if socket.assigns.destination.action == :scenes do
+      HomeNavigation.put(socket, :scenes, %{
+        "page" => to_string(socket.assigns.scene_page),
+        "attempt_page" => to_string(socket.assigns.scene_attempt_page)
+      })
+    else
+      socket
+    end
+  end
+
+  defp accept_event_destination(socket, _name), do: socket
 
   defp save_workspace(socket, params) do
     case AshPhoenix.Form.submit(socket.assigns.form, params: params) do
@@ -592,104 +616,44 @@ defmodule LovelaceWeb.HomeLive do
   defp github_changed(message, socket) do
     {:noreply, socket} = HomeGitHub.handle_info(message, socket)
 
-    directory? =
-      !socket.assigns.home && !socket.assigns.settings && !socket.assigns.scenes &&
-        !socket.assigns.connections && is_nil(socket.assigns.selected) &&
-        socket.assigns.mail.scope != :home
+    directory? = HomeNavigation.directory?(socket.assigns.destination)
 
     {:noreply, if(directory?, do: load_workspaces(socket), else: socket)}
   end
 
   defp load_workspaces(socket) do
-    case Workspaces.list_workspaces(actor: @owner) do
-      {:ok, workspaces} ->
+    case Lovelace.Home.summary(actor: @owner) do
+      {:ok, summary} ->
+        workspaces = summary.workspaces
+
+        ids =
+          if HomeNavigation.directory?(socket.assigns.destination),
+            do: summary.subscription_ids,
+            else: []
+
         socket
         |> assign(
           workspaces_error: false,
           loading: false,
-          workspace_options: Enum.map(workspaces, &{&1.name, &1.id})
+          workspace_options: Enum.map(workspaces, &{&1.name, &1.id}),
+          workspace_health: summary.workspace_health,
+          home_accounts: summary.accounts,
+          home_error: summary.accounts_error?
         )
         |> HomeGitHub.reload()
-        |> load_workspace_health(workspaces)
         |> HomeCalendar.reload()
+        |> directory_subscriptions(ids)
         |> stream(:workspaces, workspaces, reset: true)
 
       _ ->
-        assign(socket, workspaces_error: true, home_error: true, loading: false)
-    end
-  end
-
-  # Read persisted metadata only. Rendering never fetches mail or provider counts.
-  defp load_workspace_health(socket, workspaces) do
-    with {:ok, accounts} <- Mail.list_accounts(actor: @owner),
-         {:ok, memberships} <- Mail.list_workspace_accounts(actor: @owner) do
-      by_id = Map.new(accounts, &{&1.id, &1})
-      grouped = Enum.group_by(memberships, & &1.workspace_id, & &1.account_id)
-      github = HomeGitHub.workspace_connections(socket)
-
-      health =
-        Map.new(workspaces, fn workspace ->
-          attached =
-            grouped
-            |> Map.get(workspace.id, [])
-            |> Enum.map(&Map.get(by_id, &1))
-            |> Enum.reject(&is_nil/1)
-            |> Kernel.++(Map.get(github, workspace.id, []))
-
-          problems =
-            attached
-            |> Enum.filter(&(&1.status != :ready || not is_nil(&1.last_error)))
-            |> Enum.map(&Map.take(&1, [:id, :email, :status, :last_error]))
-
-          {workspace.id,
-           if(socket.assigns.github_error,
-             do: nil,
-             else: %{total: length(attached), problems: problems}
-           )}
-        end)
-
-      names = Map.new(workspaces, &{&1.id, &1.name})
-
-      summaries =
-        accounts
-        |> Enum.reject(&(&1.status == :disconnected))
-        |> Enum.map(fn account ->
-          labels =
-            memberships
-            |> Enum.filter(&(&1.account_id == account.id))
-            |> Enum.map(&Map.get(names, &1.workspace_id))
-            |> Enum.reject(&is_nil/1)
-            |> Enum.sort()
-
-          account
-          |> Map.take([
-            :id,
-            :email,
-            :status,
-            :last_error,
-            :inbox_unread_count,
-            :inbox_unread_recent_count,
-            :inbox_unread_at,
-            :inbox_unread_error
-          ])
-          |> Map.put(:workspaces, labels)
-        end)
-
-      ids = Enum.map(accounts, & &1.id)
-
-      browsing =
-        socket.assigns.settings || socket.assigns.scenes || socket.assigns.selected ||
-          socket.assigns.connections || socket.assigns.mail.scope == :home
-
-      ids = if browsing, do: [], else: ids
-
-      socket
-      |> assign(workspace_health: health, home_accounts: summaries, home_error: false)
-      |> directory_subscriptions(ids)
-    else
-      _ ->
         socket
-        |> assign(workspace_health: %{}, home_accounts: [], home_error: true)
+        |> assign(
+          workspaces_error: true,
+          home_error: true,
+          workspace_health: %{},
+          home_accounts: [],
+          loading: false
+        )
         |> directory_subscriptions([])
     end
   end

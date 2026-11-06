@@ -1,9 +1,10 @@
 defmodule Lovelace.Integrations.Gemini.CredentialsTest do
-  use ExUnit.Case, async: false
+  use Lovelace.DataCase, async: false
 
   import ExUnit.CaptureLog
 
   alias Ash.Resource.Info
+  alias Lovelace.ConnectionDiagnostics.State
   alias Lovelace.Integrations.Gemini.{Credentials, Keychain}
   alias Lovelace.StageDesigner
   alias Lovelace.StageDesigner.Designer
@@ -112,7 +113,13 @@ defmodule Lovelace.Integrations.Gemini.CredentialsTest do
     end
   end
 
-  test "save/remove use only the Gemini singleton and report success only on safe success" do
+  test "first save/remove initializes an absent Gemini diagnostic slot and reports safe success" do
+    assert {:ok, nil} =
+             Ash.get(State, :gemini,
+               actor: %{role: :connection_diagnostics},
+               not_found_error?: false
+             )
+
     account = Keychain.account()
     Process.put({Vault, :put}, :ok)
     Process.put({Vault, :delete}, :ok)

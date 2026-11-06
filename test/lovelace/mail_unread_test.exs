@@ -2,8 +2,9 @@ defmodule Lovelace.MailUnreadTest do
   use Lovelace.DataCase, async: false
 
   alias Ecto.Adapters.SQL.Sandbox
+  alias Lovelace.Google.Access
   alias Lovelace.Mail
-  alias Lovelace.Mail.{Connections, PollWorker}
+  alias Lovelace.Mail.PollWorker
 
   @owner %{role: :local_owner}
 
@@ -27,7 +28,7 @@ defmodule Lovelace.MailUnreadTest do
     accounts =
       for name <- ["a", "b"] do
         {:ok, account} =
-          Connections.accept(
+          Access.accept(
             workspace.id,
             %{subject: "unread-#{name}", email: "#{name}@example.invalid"},
             "token-#{name}"
@@ -224,7 +225,7 @@ defmodule Lovelace.MailUnreadTest do
 
     # Holding the token coordination lock makes access_token/1 block if reached.
     # A denied poll must complete without waiting for credentials or provider work.
-    Connections.serial(a.id, fn ->
+    Access.serial(a.id, fn ->
       task = async_poll(a)
       assert {:ok, %{error: :rate_limited}} = Task.yield(task, 2000)
     end)
@@ -266,7 +267,7 @@ defmodule Lovelace.MailUnreadTest do
     assert Lovelace.TestMail.calls() == calls
 
     {:ok, connected} =
-      Connections.accept(workspace.id, %{subject: a.subject, email: a.email}, "new")
+      Access.accept(workspace.id, %{subject: a.subject, email: a.email}, "new")
 
     refute connected.generation == a.generation
 
@@ -294,7 +295,7 @@ defmodule Lovelace.MailUnreadTest do
       {task, provider} = waiting_poll(account, response)
 
       {:ok, reconnected} =
-        Connections.accept(workspace.id, %{subject: a.subject, email: a.email}, "replacement")
+        Access.accept(workspace.id, %{subject: a.subject, email: a.email}, "replacement")
 
       send(provider, :continue)
       assert %{error: :unavailable} = Task.await(task)

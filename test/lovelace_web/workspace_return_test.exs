@@ -4,10 +4,44 @@ defmodule LovelaceWeb.WorkspaceReturnTest do
 
   alias Lovelace.Mail.OAuth
   alias Lovelace.Owner
+  alias Lovelace.TestSupport.OAuthJobs
   alias LovelaceWeb.WorkspaceReturn
 
   @destination "/connections/gemini?gemini=removed"
   @token "synthetic-existing-owner-session"
+
+  test "private return context is encrypted in the browser cookie and survives reload", %{
+    conn: conn
+  } do
+    Owner.configure!("synthetic cookie owner password", actor: %{role: :owner_setup})
+
+    destination =
+      "/accounts/#{Ecto.UUID.generate()}/mail?" <>
+        URI.encode_query(%{
+          q: "distinctive-private-search@example.invalid",
+          page_token: "private-continuation"
+        })
+
+    response = get(conn, destination)
+    assert redirected_to(response) == "/unlock"
+    assert get_session(response, :owner_return_to) == destination
+    cookie = response.resp_cookies["_lovelace_key"].value
+    # A signed-only Plug cookie exposes a base64 serialized payload after the first dot.
+    decoded_segments =
+      cookie
+      |> String.split(".")
+      |> Enum.flat_map(fn segment ->
+        case Base.url_decode64(segment, padding: false) do
+          {:ok, bytes} -> [bytes]
+          :error -> []
+        end
+      end)
+
+    refute Enum.any?(decoded_segments, &String.contains?(&1, "distinctive-private-search"))
+    refute Enum.any?(decoded_segments, &String.contains?(&1, "private-continuation"))
+    reloaded = response |> recycle() |> get("/unlock")
+    assert get_session(reloaded, :owner_return_to) == destination
+  end
 
   test "local 302 and 303 returns preserve the exact query and activate only once" do
     for status <- [302, 303] do
@@ -182,7 +216,7 @@ defmodule LovelaceWeb.WorkspaceReturnTest do
     {:ok, state, _} = OAuth.begin(workspace.id, get_session(conn, :owner_session_token))
 
     response =
-      get(
+      OAuthJobs.get(
         conn,
         "/oauth/google/callback?" <> URI.encode_query(%{state: state, error: "access_denied"})
       )

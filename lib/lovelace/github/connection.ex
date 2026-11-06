@@ -23,7 +23,20 @@ defmodule Lovelace.GitHub.Connection do
 
     update :transition do
       require_atomic? false
-      accept [:login, :generation, :status, :last_error]
+
+      accept [
+        :login,
+        :generation,
+        :status,
+        :last_error,
+        :discovery_id,
+        :discovery_generation,
+        :discovery_client_generation,
+        :discovery_owner_fence,
+        :discovery_status,
+        :discovery_job_id,
+        :discovery_error
+      ]
     end
   end
 
@@ -52,6 +65,31 @@ defmodule Lovelace.GitHub.Connection do
       constraints: [one_of: [:ready, :refreshing, :reauthorization, :disconnected]]
 
     attribute :last_error, :atom,
+      public?: true,
+      constraints: [
+        one_of: [
+          :unavailable,
+          :provider,
+          :rate_limited,
+          :reconnect,
+          :keychain,
+          :configuration,
+          :denied,
+          :expired
+        ]
+      ]
+
+    attribute :discovery_id, :uuid, public?: true
+    attribute :discovery_generation, :uuid
+    attribute :discovery_client_generation, :uuid
+    attribute :discovery_owner_fence, :map, allow_nil?: false, default: %{}
+    attribute :discovery_job_id, :integer, public?: true
+
+    attribute :discovery_status, :atom,
+      public?: true,
+      constraints: [one_of: [:pending, :running, :succeeded, :failed, :superseded]]
+
+    attribute :discovery_error, :atom,
       public?: true,
       constraints: [
         one_of: [

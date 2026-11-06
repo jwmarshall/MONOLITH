@@ -21,28 +21,103 @@ defmodule LovelaceWeb.HomeNavigation do
     query(base, q: mail.query, page_token: mail.page_token)
   end
 
-  def current(%{assigns: %{settings: true}}), do: "/settings"
+  def current(%{assigns: %{destination: destination}}), do: path(destination)
 
-  def current(%{assigns: %{connections: true} = a}),
-    do: connections_path(a.connection_view)
+  def path(%{action: :index}), do: "/"
+  def path(%{action: :workspaces}), do: "/workspaces"
+  def path(%{action: :settings}), do: "/settings"
+  def path(%{action: :connections}), do: connections_path()
+  def path(%{action: :connection, provider: provider}), do: connections_path(provider)
 
-  def current(%{assigns: %{scenes: true, scene_page: page} = assigns}),
-    do:
-      query("/scenes",
-        page: if(page > 1, do: page),
-        attempt_page:
-          if(Map.get(assigns, :scene_attempt_page, 1) > 1, do: assigns.scene_attempt_page)
-      )
+  def path(%{action: :scenes, page: page, attempt_page: attempt_page}) do
+    query("/scenes",
+      page: if(page > 1, do: page),
+      attempt_page: if(attempt_page > 1, do: attempt_page)
+    )
+  end
 
-  def current(%{assigns: %{mail: %{account_id: id} = mail}}) when not is_nil(id),
-    do: mail_path(mail)
+  def path(%{action: :workspace, workspace_id: id}), do: workspace_path(id)
 
-  def current(%{assigns: %{selected: %{id: id}, mail: %{adding: true}}}),
+  def path(%{action: :integration_add, workspace_id: id}),
     do: workspace_path(id) <> "/integrations"
 
-  def current(%{assigns: %{selected: %{id: id}}}), do: workspace_path(id)
-  def current(%{assigns: %{home: true}}), do: "/"
-  def current(_socket), do: "/workspaces"
+  def path(%{action: action} = destination)
+      when action in [:inbox, :thread, :workspace_inbox, :workspace_thread] do
+    destination
+    |> Map.put(:scope, if(action in [:inbox, :thread], do: :home, else: :workspace))
+    |> mail_path()
+  end
+
+  @doc "Projects compatibility flags from the one authoritative parsed destination."
+  def put(socket, action, params) when is_atom(action) do
+    {:ok, destination} = destination(action, params)
+    put(socket, destination)
+  end
+
+  def put(socket, action) when is_atom(action), do: put(socket, action, %{})
+
+  def put(socket, %{action: action} = destination) do
+    Phoenix.Component.assign(socket,
+      destination: destination,
+      home: action == :index,
+      settings: action == :settings,
+      scenes: action == :scenes,
+      connections: action in [:connections, :connection],
+      connection_view: if(action == :connection, do: destination.provider, else: :index)
+    )
+  end
+
+  def directory?(%{action: action}), do: action in [:index, :workspaces]
+
+  @doc "Parses accepted mail navigation context; invalid context fails without changing destination."
+  def from_mail(socket) do
+    mail = socket.assigns.mail
+
+    action = mail_action(mail, socket.assigns.destination.action)
+
+    if action in [
+         :workspace,
+         :integration_add,
+         :inbox,
+         :thread,
+         :workspace_inbox,
+         :workspace_thread
+       ] do
+      params = %{
+        "workspace_id" => mail.workspace_id,
+        "account_id" => mail.account_id,
+        "thread_id" => mail.thread_id,
+        "q" => mail.query,
+        "page_token" => mail.page_token
+      }
+
+      case destination(action, params) do
+        {:ok, destination} -> {:ok, put(socket, destination)}
+        _ -> :error
+      end
+    else
+      {:ok, socket}
+    end
+  end
+
+  defp mail_action(%{account_id: id, scope: :home, thread_id: nil}, _fallback)
+       when not is_nil(id),
+       do: :inbox
+
+  defp mail_action(%{account_id: id, scope: :home}, _fallback) when not is_nil(id),
+    do: :thread
+
+  defp mail_action(%{account_id: id, thread_id: nil}, _fallback) when not is_nil(id),
+    do: :workspace_inbox
+
+  defp mail_action(%{account_id: id}, _fallback) when not is_nil(id),
+    do: :workspace_thread
+
+  defp mail_action(%{adding: true, workspace_id: id}, _fallback) when not is_nil(id),
+    do: :integration_add
+
+  defp mail_action(%{workspace_id: id}, _fallback) when not is_nil(id), do: :workspace
+  defp mail_action(_mail, fallback), do: fallback
 
   # Accept old bookmarks, but never generate query-string navigation again.
   def destination(:index, %{"connections" => provider})

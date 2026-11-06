@@ -1,10 +1,23 @@
 defmodule Lovelace.GitHubTest do
   use Lovelace.DataCase, async: false
   use Oban.Testing, repo: Lovelace.Repo, engine: Oban.Engines.Lite
+  alias Ecto.Adapters.SQL
   alias Lovelace.GitHub
-  alias Lovelace.GitHub.{Connection, Operations, Organization, PollWorker, WorkspaceOrganization}
+
+  alias Lovelace.GitHub.{
+    Connection,
+    Credentials,
+    DiscoveryWorker,
+    Operations,
+    Organization,
+    Polling,
+    PollWorker,
+    WorkspaceOrganization
+  }
+
   alias Lovelace.Owner.Actions
   alias Lovelace.TestGitHub
+  alias Lovelace.TestSupport.GitHubDiscovery
   @owner %{role: :local_owner}
   @service %{role: :github_service}
 
@@ -98,6 +111,249 @@ defmodule Lovelace.GitHubTest do
          partial_reasons: []
        }}
 
+  test "accepted discovery survives requester death, coalesces and rejects duplicate delivery",
+       c do
+    {_org, connection} = connect(c)
+    calls = TestGitHub.state().calls
+    parent = self()
+
+    {requester, monitor} =
+      spawn_monitor(fn ->
+        send(parent, {:admitted, GitHub.discover(connection.id, actor: @owner)})
+
+        receive do
+          :stop -> :ok
+        end
+      end)
+
+    assert_receive {:admitted, {:ok, operation}}
+    assert operation.status == :pending
+    assert operation.job_id
+    assert TestGitHub.state().calls == calls
+    assert {:ok, ^operation} = GitHub.discover(connection.id, actor: @owner)
+    assert [%Oban.Job{args: args}] = all_enqueued(worker: DiscoveryWorker)
+    assert args == %{"connection_id" => connection.id, "discovery_id" => operation.id}
+    Process.exit(requester, :kill)
+    assert_receive {:DOWN, ^monitor, :process, ^requester, :killed}
+
+    assert {:ok, finished} = GitHubDiscovery.finish(connection.id)
+    assert finished.discovery_status == :succeeded
+    assert finished.discovery_job_id == operation.job_id
+    assert finished.discovery_id == operation.id
+
+    assert TestGitHub.state().calls ==
+             calls ++
+               [
+                 {:user, "github_access_fake"},
+                 {:installations, "github_access_fake"}
+               ]
+
+    calls = TestGitHub.state().calls
+    assert :ok = DiscoveryWorker.perform(Repo.get!(Oban.Job, operation.job_id))
+    assert TestGitHub.state().calls == calls
+    # No PubSub subscription was needed to recover the completed status.
+    assert account(connection.id).discovery_status == :succeeded
+  end
+
+  test "queued discovery cannot use a reauthorized connection or changed app client", c do
+    {_org, connection} = connect(c)
+    assert {:ok, _} = GitHub.discover(connection.id, actor: @owner)
+    replacement = authorize(c, "replacement")
+    calls = TestGitHub.state().calls
+    assert {:error, :reconnect} = GitHubDiscovery.finish(connection.id)
+    assert TestGitHub.state().calls == calls
+    assert account(connection.id).generation == replacement.connection.generation
+    assert account(connection.id).discovery_status == :superseded
+
+    assert {:ok, _} = GitHub.discover(connection.id, actor: @owner)
+
+    client_id = "Iv1.replacement"
+    client_secret = "replacement_client_secret"
+    GitHub.save_client_credentials!(client_id, client_secret, "replacement-client", actor: @owner)
+
+    assert {:error, :reconnect} = GitHubDiscovery.finish(connection.id)
+    assert TestGitHub.state().calls == calls
+    assert account(connection.id).status == :reauthorization
+  end
+
+  test "queued discovery cannot reattach an owner removed before execution", c do
+    {org, connection} = connect(c)
+    assert {:ok, _} = GitHub.discover(connection.id, actor: @owner)
+    GitHub.disconnect!(org.id, actor: @owner)
+    calls = TestGitHub.state().calls
+    assert {:error, :reconnect} = GitHubDiscovery.finish(connection.id)
+    assert TestGitHub.state().calls == calls
+    assert current(org.id).status == :disconnected
+    assert directory().memberships == []
+  end
+
+  test "discovery owns its one-shot credential rotation without losing its generation fence", c do
+    {_org, connection} = connect(c)
+    expire_token(connection.id)
+    assert {:ok, operation} = GitHub.discover(connection.id, actor: @owner)
+    refute Enum.any?(TestGitHub.state().calls, &match?({:refresh_token, _, _, _}, &1))
+    assert {:ok, finished} = GitHubDiscovery.finish(connection.id)
+    assert finished.generation != connection.generation
+    assert finished.discovery_generation == finished.generation
+    assert finished.discovery_status == :succeeded
+    assert :ok = DiscoveryWorker.perform(Repo.get!(Oban.Job, operation.job_id))
+    assert Enum.count(TestGitHub.state().calls, &match?({:refresh_token, _, _, _}, &1)) == 1
+  end
+
+  test "owner keyset fencing follows UUID order even when login order hides a low UUID after page one",
+       c do
+    {_org, connection} = connect(c)
+
+    original_owners =
+      Enum.map(
+        directory().organizations,
+        &Map.take(&1, [:github_id, :login, :owner_type, :installation_id])
+      )
+
+    retained =
+      Enum.map(0..128, fn number ->
+        {id, login} =
+          if number == 0 do
+            {"00000000-0000-4000-8000-000000000001", "zz-last-login"}
+          else
+            {"ffffffff-ffff-4fff-8fff-" <> String.pad_leading(to_string(number), 12, "0"),
+             "aa" <> String.pad_leading(to_string(number), 3, "0")}
+          end
+
+        attributes = %{
+          id: id,
+          login: login,
+          github_id: "ORDER_OWNER_#{number}",
+          owner_type: :organization,
+          installation_id: number + 5_000,
+          connection_id: connection.id,
+          next_poll_at: DateTime.utc_now(),
+          generation: Ash.UUID.generate()
+        }
+
+        Organization
+        |> Ash.Changeset.for_create(:connect, attributes, actor: @service)
+        |> Ash.create!()
+      end)
+
+    target = Enum.find(retained, &(&1.login == "zz-last-login"))
+
+    provider_owners =
+      original_owners ++
+        Enum.map(
+          retained,
+          &Map.take(&1, [:github_id, :login, :owner_type, :installation_id])
+        )
+
+    TestGitHub.configure(installation_response: {:ok, provider_owners})
+    assert {:ok, _} = GitHub.discover(connection.id, actor: @owner)
+    GitHub.disconnect!(target.id, actor: @owner)
+    calls = TestGitHub.state().calls
+
+    assert {:error, :reconnect} = GitHubDiscovery.finish(connection.id)
+    assert TestGitHub.state().calls == calls
+    assert current(target.id).status == :disconnected
+    assert account(connection.id).discovery_status == :superseded
+  end
+
+  test "current installation limit does not become a lifetime owner limit, including removal fences",
+       c do
+    {_org, connection} = connect(c)
+
+    owners = [
+      TestGitHub.owner()
+      | Enum.map(1..499, fn number ->
+          TestGitHub.owner(%{
+            github_id: "CHURN_OWNER_#{number}",
+            login: "churn-#{number}",
+            installation_id: number + 10
+          })
+        end)
+    ]
+
+    TestGitHub.configure(installation_response: {:ok, owners})
+    authorize(c)
+    assert length(directory().organizations) == 501
+    historical = Enum.find(directory().organizations, &(&1.github_id == "USER_SYNTHETIC"))
+    assert historical.status == :reauthorization
+
+    calls = TestGitHub.state().calls
+    assert {:ok, _} = GitHub.discover(connection.id, actor: @owner)
+    assert TestGitHub.state().calls == calls
+    assert {:ok, _} = GitHubDiscovery.finish(connection.id)
+    assert Enum.count(directory().organizations, &(&1.status == :ready)) == 500
+    assert current(historical.id).status == :reauthorization
+
+    assert {:ok, _} = GitHub.discover(connection.id, actor: @owner)
+    GitHub.disconnect!(historical.id, actor: @owner)
+    calls = TestGitHub.state().calls
+    assert {:error, :reconnect} = GitHubDiscovery.finish(connection.id)
+    assert TestGitHub.state().calls == calls
+    assert current(historical.id).status == :disconnected
+  end
+
+  test "enqueue failure rolls back the discovery slot instead of accepting detached intent", c do
+    {_org, connection} = connect(c)
+
+    SQL.query!(Repo, """
+    CREATE TEMP TRIGGER reject_synthetic_github_discovery
+    BEFORE INSERT ON oban_jobs
+    WHEN NEW.worker = 'Lovelace.GitHub.DiscoveryWorker'
+    BEGIN SELECT RAISE(ABORT, 'synthetic discovery enqueue failure'); END
+    """)
+
+    calls = TestGitHub.state().calls
+    assert {:error, _} = GitHub.discover(connection.id, actor: @owner)
+    assert account(connection.id).discovery_id == nil
+    assert all_enqueued(worker: DiscoveryWorker) == []
+    assert TestGitHub.state().calls == calls
+  end
+
+  test "an interrupted durable claim becomes unavailable rather than replaying provider work",
+       c do
+    {_org, connection} = connect(c)
+    assert {:ok, operation} = GitHub.discover(connection.id, actor: @owner)
+    update_account(account(connection.id), %{discovery_status: :running})
+
+    job =
+      Repo.get!(Oban.Job, operation.job_id)
+      |> change(state: "executing", attempted_at: DateTime.add(DateTime.utc_now(), -181))
+      |> Repo.update!()
+
+    calls = TestGitHub.state().calls
+
+    assert account(connection.id).discovery_status == :failed
+    assert account(connection.id).discovery_error == :unavailable
+    assert :ok = DiscoveryWorker.perform(job)
+    assert TestGitHub.state().calls == calls
+  end
+
+  test "Home summary is authorized, provider-free and keeps shared owner health scoped", c do
+    {org, _account} = connect(c)
+    GitHub.attach!(c.b.id, org.id, actor: @owner)
+    calls = TestGitHub.state().calls
+
+    assert {:error, _} = GitHub.home_summary()
+    assert {:ok, %{workspace_health: health}} = GitHub.home_summary(actor: @owner)
+    assert health[c.a.id] == %{total: 1, problems: []}
+    assert health[c.b.id] == %{total: 1, problems: []}
+
+    update_org(org, %{last_error: :rate_limited})
+    assert {:ok, %{workspace_health: health}} = GitHub.home_summary(actor: @owner)
+
+    assert [%{id: id, email: "GitHub · acme", last_error: :rate_limited}] =
+             health[c.a.id].problems
+
+    assert id == org.id
+    refute Map.has_key?(hd(health[c.a.id].problems), :pull_requests)
+
+    GitHub.detach!(c.a.id, org.id, actor: @owner)
+    assert {:ok, %{workspace_health: health}} = GitHub.home_summary(actor: @owner)
+    refute Map.has_key?(health, c.a.id)
+    assert health[c.b.id].total == 1
+    assert TestGitHub.state().calls == calls
+  end
+
   test "one account discovers personal and organization installations, reusable across workspaces",
        c do
     result = authorize(c)
@@ -139,7 +395,7 @@ defmodule Lovelace.GitHubTest do
     assert [%{organization_id: personal_id}] = directory().memberships
     assert personal_id == personal.id
     assert {:ok, _} = Lovelace.TestGitHubKeychain.get(connection.id)
-    assert {:ok, "github_access_fake"} = Operations.access_token(connection.id)
+    assert {:ok, "github_access_fake"} = Credentials.access_token(connection.id)
     assert {:error, _} = GitHub.attach(c.a.id, org.id, actor: @owner)
   end
 
@@ -213,7 +469,7 @@ defmodule Lovelace.GitHubTest do
     GitHub.attach!(c.b.id, org.id, actor: @owner)
     assert length(directory().memberships) == 2
     assert Map.keys(tokens()) == [connection.id]
-    assert {:ok, "replacement"} = Operations.access_token(connection.id)
+    assert {:ok, "replacement"} = Credentials.access_token(connection.id)
   end
 
   test "another GitHub user cannot silently take an existing installation owner", c do
@@ -227,7 +483,7 @@ defmodule Lovelace.GitHubTest do
     assert current(org.id).connection_id == connection.id
     assert length(directory().connections) == 1
     assert length(directory().memberships) == 1
-    assert {:ok, "github_access_fake"} = Operations.access_token(connection.id)
+    assert {:ok, "github_access_fake"} = Credentials.access_token(connection.id)
   end
 
   test "separate GitHub users retain separate UUID credentials and owner caches", c do
@@ -248,7 +504,7 @@ defmodule Lovelace.GitHubTest do
     GitHub.disconnect_account!(first_account.id, actor: @owner)
     assert current(first.id).status == :disconnected
     assert current(other.id).total_count == 1
-    assert {:ok, "other_access"} = Operations.access_token(second.connection.id)
+    assert {:ok, "other_access"} = Credentials.access_token(second.connection.id)
   end
 
   test "discovery preserves memberships and fences removed installations without false zero", c do
@@ -267,7 +523,7 @@ defmodule Lovelace.GitHubTest do
       }
     )
 
-    assert {:ok, _} = GitHub.discover(connection.id, actor: @owner)
+    assert {:ok, _} = GitHubDiscovery.discover(connection.id)
     removed = current(org.id)
     assert removed.status == :reauthorization
     assert removed.last_error == :reconnect
@@ -282,7 +538,7 @@ defmodule Lovelace.GitHubTest do
   test "discovery provider failure is not an empty successful installation list", c do
     {org, connection} = connect(c)
     TestGitHub.configure(installation_response: {:error, :provider})
-    assert {:error, _} = GitHub.discover(connection.id, actor: @owner)
+    assert {:error, _} = GitHubDiscovery.discover(connection.id)
     assert current(org.id).generation == org.generation
     assert current(org.id).total_count == 1
     assert length(directory().memberships) == 1
@@ -393,7 +649,7 @@ defmodule Lovelace.GitHubTest do
   test "delayed discovery cannot reattach an owner disconnected during HTTP", c do
     {org, connection} = connect(c)
     TestGitHub.configure(installation_response: {:wait, self(), {:ok, [TestGitHub.owner()]}})
-    task = Task.async(fn -> GitHub.discover(connection.id, actor: @owner) end)
+    task = Task.async(fn -> GitHubDiscovery.discover(connection.id) end)
     assert_receive {:github_waiting, worker}
     GitHub.disconnect!(org.id, actor: @owner)
     send(worker, :continue)
@@ -443,11 +699,11 @@ defmodule Lovelace.GitHubTest do
     {_, connection} = connect(c)
     expire_token(connection.id)
     TestGitHub.configure(refresh_response: {:wait, self(), {:ok, TestGitHub.bundle("rotated")}})
-    first = Task.async(fn -> Operations.access_token(connection.id) end)
+    first = Task.async(fn -> Credentials.access_token(connection.id) end)
     assert_receive {:github_waiting, worker}
     assert account(connection.id).status == :refreshing
     assert account(connection.id).generation != connection.generation
-    second = Task.async(fn -> Operations.access_token(connection.id) end)
+    second = Task.async(fn -> Credentials.access_token(connection.id) end)
     send(worker, :continue)
     assert {:ok, "rotated"} = Task.await(first)
     assert {:ok, "rotated"} = Task.await(second)
@@ -461,11 +717,11 @@ defmodule Lovelace.GitHubTest do
     {org, connection} = connect(c)
     expire_token(connection.id)
     TestGitHub.configure(refresh_response: {:error, :provider})
-    assert {:error, :provider} = Operations.access_token(connection.id)
+    assert {:error, :provider} = Credentials.access_token(connection.id)
     assert account(connection.id).status == :reauthorization
     assert current(org.id).total_count == nil
     assert length(directory().memberships) == 1
-    assert {:error, :reconnect} = Operations.access_token(connection.id)
+    assert {:error, :reconnect} = Credentials.access_token(connection.id)
     assert Enum.count(TestGitHub.state().calls, &(elem(&1, 0) == :refresh_token)) == 1
     assert {:ok, _} = Lovelace.TestGitHubKeychain.get(connection.id)
   end
@@ -474,7 +730,7 @@ defmodule Lovelace.GitHubTest do
     {_, connection} = connect(c)
     update_account(connection, %{status: :refreshing, generation: Ash.UUID.generate()})
     calls = TestGitHub.state().calls
-    assert {:error, :reconnect} = Operations.access_token(connection.id)
+    assert {:error, :reconnect} = Credentials.access_token(connection.id)
     assert TestGitHub.state().calls == calls
     assert account(connection.id).status == :reauthorization
   end
@@ -483,9 +739,9 @@ defmodule Lovelace.GitHubTest do
     {_, connection} = connect(c)
     expire_token(connection.id)
     TestGitHub.configure(keychain_put_error: :unavailable)
-    assert {:error, :keychain} = Operations.access_token(connection.id)
+    assert {:error, :keychain} = Credentials.access_token(connection.id)
     TestGitHub.configure(keychain_put_error: nil)
-    assert {:error, :reconnect} = Operations.access_token(connection.id)
+    assert {:error, :reconnect} = Credentials.access_token(connection.id)
     assert account(connection.id).status == :reauthorization
     assert Enum.count(TestGitHub.state().calls, &(elem(&1, 0) == :refresh_token)) == 1
   end
@@ -494,7 +750,7 @@ defmodule Lovelace.GitHubTest do
     {org, connection} = connect(c)
     expire_token(connection.id)
     TestGitHub.configure(refresh_response: {:wait, self(), {:ok, TestGitHub.bundle("late")}})
-    task = Task.async(fn -> Operations.access_token(connection.id) end)
+    task = Task.async(fn -> Credentials.access_token(connection.id) end)
     assert_receive {:github_waiting, worker}
     GitHub.disconnect_account!(connection.id, actor: @owner)
     send(worker, :continue)
@@ -642,13 +898,15 @@ defmodule Lovelace.GitHubTest do
     assert current(org.id).generation != org.generation
     assert current(org.id).fetched_at == nil
     assert current(org.id).total_count == nil
-    assert {:ok, "replacement"} = Operations.access_token(replacement.connection.id)
+
+    assert {:ok, "replacement"} =
+             Credentials.access_token(replacement.connection.id)
   end
 
   test "late discovery failure cannot fence a newly authorized account", c do
     {org, connection} = connect(c)
     TestGitHub.configure(installation_response: {:wait, self(), {:error, :reconnect}})
-    task = Task.async(fn -> GitHub.discover(connection.id, actor: @owner) end)
+    task = Task.async(fn -> GitHubDiscovery.discover(connection.id) end)
     assert_receive {:github_waiting, worker}
     TestGitHub.configure(installation_response: :ok)
     replacement = authorize(c, "replacement")
@@ -657,7 +915,7 @@ defmodule Lovelace.GitHubTest do
     assert account(connection.id).generation == replacement.connection.generation
     assert account(connection.id).status == :ready
     assert current(org.id).status == :ready
-    assert {:ok, "replacement"} = Operations.access_token(connection.id)
+    assert {:ok, "replacement"} = Credentials.access_token(connection.id)
   end
 
   test "keychain authorization failure remains visible without enabling an old credential", c do
@@ -669,7 +927,7 @@ defmodule Lovelace.GitHubTest do
     assert account(connection.id).last_error == :keychain
     assert current(org.id).total_count == nil
     assert length(directory().memberships) == 1
-    assert {:error, :reconnect} = Operations.access_token(connection.id)
+    assert {:error, :reconnect} = Credentials.access_token(connection.id)
   end
 
   test "invalid duplicate or oversized discovery cannot persist installation identities", c do
@@ -688,7 +946,7 @@ defmodule Lovelace.GitHubTest do
   test "minute sweep discovers due owners and stale jobs never perform provider work", c do
     {org, _} = connect(c)
     due(org)
-    assert :ok = Operations.sweep()
+    assert :ok = Polling.sweep()
 
     assert_enqueued(
       worker: PollWorker,

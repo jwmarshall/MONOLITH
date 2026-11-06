@@ -164,6 +164,7 @@ defmodule Lovelace.MixProject do
       check: [
         "format --check-formatted",
         "lint",
+        "lovelace.architecture.check",
         "security",
         "ash.codegen --check",
         "test --cover",

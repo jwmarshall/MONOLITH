@@ -1,22 +1,23 @@
 defmodule Lovelace.GitHub.Operations do
-  @moduledoc false
+  @moduledoc "Ash-facing installation discovery, account authorization and workspace membership."
   use Ash.Resource.Actions.Implementation
-  require Ash.Query
+  import Lovelace.GitHub.Store
+  import Lovelace.GitHub.Coordination, only: [state: 1]
 
   alias Lovelace.GitHub.{
     ClientCredentials,
     Connection,
+    Credentials,
+    Discovery,
     Error,
     Organization,
-    PollWorker,
+    Polling,
     WorkspaceOrganization
   }
 
   alias Lovelace.Security.Vault
   @owner %{role: :local_owner}
   @service %{role: :github_service}
-  @resources [Connection, Organization, WorkspaceOrganization]
-
   @impl true
   def run(input, _, _context) do
     case safely(fn ->
@@ -31,16 +32,6 @@ defmodule Lovelace.GitHub.Operations do
     Vault.with_access(fn -> state(fn -> generations() end) end)
   end
 
-  # Called only while the configuration writer holds this module's state lock.
-  def client_changed do
-    Enum.each(connections(), fn account ->
-      if account.status != :disconnected,
-        do: fence_connection(account.id, :reauthorization, :reconnect)
-    end)
-
-    :ok
-  end
-
   # Auth supplies a synchronous callback that fences cancellation immediately before writes.
   # Never hold the domain lock while calling back into the protected Auth server.
   def authorize(session, bundle, commit \\ fn fun -> fun.() end, before \\ nil) do
@@ -52,7 +43,7 @@ defmodule Lovelace.GitHub.Operations do
          {:ok, client} <- ClientCredentials.current(),
          bundle = Map.put_new(bundle, :client_generation, client.generation),
          true <- bundle.client_generation == client.generation,
-         {:ok, stored} <- encode_bundle(bundle),
+         {:ok, stored} <- Credentials.encode_bundle(bundle),
          before = before || authorization_fence(),
          {:ok, identity} <- provider().user(bundle.access_token),
          {:ok, owners} <- provider().installations(bundle.access_token),
@@ -72,46 +63,39 @@ defmodule Lovelace.GitHub.Operations do
 
   defp authorize_unchanged(session, identity, owners, stored, before) do
     with :ok <- verify_session(session),
-         :ok <- current_client_bundle(stored),
+         :ok <- Credentials.current_client_bundle(stored),
          :ok <- unchanged(before, identity.github_id, owners),
          :ok <- compatible_owners(identity.github_id, owners) do
       authorize_current(session, identity, owners, stored)
     end
   end
 
-  def access_token(connection_id) do
-    case access_credential(connection_id) do
-      {:ok, token, _account} -> {:ok, token}
-      error -> error
-    end
-  end
-
-  defp access_credential(connection_id) do
-    safely(fn ->
-      Vault.with_access(fn ->
-        serialized_credential(connection_id)
-      end)
-    end)
-  end
-
-  defp serialized_credential(connection_id) do
-    serial({:refresh, connection_id}, fn ->
-      intent = state(fn -> token_intent(connection_id) end)
-
-      case intent do
-        {:ok, token, account} -> {:ok, token, account}
-        {:rotate, connection, refresh} -> rotate(connection, refresh)
-        {:error, reason} -> {:error, reason}
-      end
-    end)
-  end
-
   defp execute(:directory, _) do
     state(fn ->
-      organizations = Enum.map(organizations(), &expire/1)
+      organizations = Enum.map(organizations(), &Polling.expire/1)
 
       {:ok,
-       %{organizations: organizations, memberships: memberships(), connections: connections()}}
+       %{
+         organizations: organizations,
+         memberships: memberships(),
+         connections: Enum.map(connections(), &Discovery.observe/1)
+       }}
+    end)
+  end
+
+  defp execute(:home_summary, _) do
+    state(fn ->
+      with {:ok, organizations} <-
+             summary_records(Organization, 1_000, [
+               :login,
+               :status,
+               :last_error,
+               :legacy_credential
+             ]),
+           {:ok, memberships} <-
+             summary_records(WorkspaceOrganization, 10_000, [:workspace_id, :organization_id]) do
+        {:ok, %{workspace_health: workspace_health(organizations, memberships)}}
+      end
     end)
   end
 
@@ -124,7 +108,7 @@ defmodule Lovelace.GitHub.Operations do
            %Organization{status: :ready, connection_id: connection_id} = org <-
              get(args.organization_id),
            %Connection{status: :ready} <- connection(connection_id),
-           true <- valid_selection?(expire(org), selected),
+           true <- valid_selection?(Polling.expire(org), selected),
            {:ok, _} <- attach(args.workspace_id, args.organization_id, Enum.uniq(selected)) do
         broadcast(args.organization_id)
         {:ok, true}
@@ -147,26 +131,22 @@ defmodule Lovelace.GitHub.Operations do
   end
 
   defp execute(:disconnect_account, args) do
-    state(fn -> disconnect_account(args.connection_id) end)
+    state(fn -> Credentials.disconnect_account(args.connection_id) end)
   end
 
   defp execute(:refresh, args) do
-    state(fn -> refresh_organization(args.organization_id) end)
+    state(fn -> Polling.refresh(args.organization_id) end)
   end
 
-  defp execute(:discover, args) do
-    before = state(fn -> generations() end)
+  defp execute(:poll, args), do: Polling.poll(args)
 
-    with {:ok, token, account} <- access_credential(args.connection_id) do
+  defp execute(:discover, args), do: Discovery.admit(args.connection_id)
+
+  defp execute(:run_discovery, args) do
+    Discovery.run(args.connection_id, args.discovery_id, fn token, account ->
+      before = state(fn -> generations() end)
       discover_current(before, token, account)
-    end
-  end
-
-  defp execute(:poll, args) do
-    case state(fn -> admit(args) end) do
-      {:ok, claimed} -> poll_claim(claimed)
-      _ -> {:ok, %{skipped: true}}
-    end
+    end)
   end
 
   defp disconnect_organization(id) do
@@ -187,39 +167,6 @@ defmodule Lovelace.GitHub.Operations do
     end
   end
 
-  defp disconnect_account(id) do
-    case connection(id) do
-      nil ->
-        {:error, :unavailable}
-
-      account ->
-        {:ok, disconnected} = transact(fn -> disconnect_account_records(account) end)
-        finish_delete(disconnected, vault().delete(account.id))
-    end
-  end
-
-  defp disconnect_account_records(account) do
-    current = transition!(account, %{status: :disconnected, generation: uuid(), last_error: nil})
-
-    for org <- account_owners(account.id) do
-      update!(org, cleared(:disconnected, nil))
-      remove_memberships(org.id)
-    end
-
-    current
-  end
-
-  defp refresh_organization(id) do
-    case get(id) do
-      %Organization{status: :ready} = org ->
-        org = expire(org)
-        if future?(org.cooldown_until), do: {:ok, metadata(org)}, else: enqueue_refresh(org)
-
-      _ ->
-        {:error, :unavailable}
-    end
-  end
-
   defp discover_current(before, token, account) do
     with {:ok, identity} <- provider().user(token),
          true <- identity.github_id == account.github_id,
@@ -236,7 +183,8 @@ defmodule Lovelace.GitHub.Operations do
     # A legitimate rotation may have changed only this connection's generation.
     expected = put_in(before, [:connections, account.github_id], stamp(account))
 
-    with :ok <- unchanged(expected, account.github_id, owners),
+    with true <- Discovery.current?(account),
+         :ok <- unchanged(expected, account.github_id, owners),
          %Connection{status: :ready, generation: generation} <- connection(account.id),
          true <- generation == account.generation,
          :ok <- compatible_owners(account.github_id, owners),
@@ -245,18 +193,6 @@ defmodule Lovelace.GitHub.Operations do
       {:ok, %{connection: metadata(account), organizations: Enum.map(result, &metadata/1)}}
     else
       _ -> {:error, :unavailable}
-    end
-  end
-
-  defp poll_claim(claimed) do
-    with {:ok, token, credential_account} <- access_credential(claimed.connection_id),
-         {:ok, org, account} <- state(fn -> poll_identity(claimed) end),
-         true <- account.generation == credential_account.generation do
-      result = provider().pull_requests(token, owner_map(org))
-      state(fn -> publish(org, account, result) end)
-    else
-      {:error, reason} -> state(fn -> fail_claim(claimed, reason) end)
-      _ -> {:ok, %{skipped: true}}
     end
   end
 
@@ -345,379 +281,15 @@ defmodule Lovelace.GitHub.Operations do
     end)
   end
 
-  defp token_intent(id) do
-    case connection(id) do
-      %Connection{status: :ready} = account ->
-        ready_token_intent(account)
-
-      %Connection{status: :refreshing} ->
-        fence_connection(id, :reauthorization, :reconnect)
-        {:error, :reconnect}
-
-      _ ->
-        {:error, :reconnect}
-    end
-  end
-
-  defp ready_token_intent(account) do
-    case read_bundle(account.id) do
-      {:ok, bundle} ->
-        token_bundle_intent(account, bundle)
-
-      {:error, :missing_credentials} ->
-        fence_connection(account.id, :reauthorization, :keychain)
-        {:error, :keychain}
-
-      _ ->
-        {:error, :keychain}
-    end
-  end
-
-  defp token_bundle_intent(account, bundle) do
-    cond do
-      not current_client_generation?(bundle["client_generation"]) ->
-        fence_connection(account.id, :reauthorization, :reconnect)
-        {:error, :reconnect}
-
-      bundle["refresh_expires_at"] <= unix() ->
-        fence_connection(account.id, :reauthorization, :expired)
-        {:error, :expired}
-
-      bundle["expires_at"] > unix() + 60 ->
-        {:ok, bundle["access_token"], account}
-
-      true ->
-        # Durable one-shot intent is committed BEFORE rotating HTTP, including crash paths.
-        reserved =
-          transition!(account, %{
-            status: :refreshing,
-            generation: uuid(),
-            last_error: :reconnect
-          })
-
-        {:rotate, reserved, {bundle["refresh_token"], bundle["client_generation"]}}
-    end
-  end
-
-  defp rotate(expected, {refresh, generation}) do
-    result =
-      safely(fn ->
-        with {:ok, client} <- ClientCredentials.current(),
-             true <- client.generation == generation,
-             {:ok, bundle} <-
-               provider().refresh_token(client.client_id, client.client_secret, refresh),
-             {:ok, stored} <- encode_bundle(Map.put(bundle, :client_generation, generation)) do
-          {:ok, bundle.access_token, stored}
-        else
-          {:error, reason} -> {:error, safe_error(reason)}
-          _ -> {:error, :provider}
-        end
-      end)
-
-    state(fn -> finish_rotation(expected, result) end)
-  end
-
-  defp finish_rotation(expected, result) do
-    case connection(expected.id) do
-      %Connection{status: :refreshing, generation: generation} = account
-      when generation == expected.generation ->
-        commit_rotation(account, result)
-
-      _ ->
-        {:error, :reconnect}
-    end
-  end
-
-  defp commit_rotation(account, result) do
-    with {:ok, token, stored} <- result,
-         :ok <- current_client_bundle(stored),
-         :ok <- put_token(account.id, stored) do
-      current = transition!(account, %{status: :ready, last_error: nil})
-      {:ok, token, current}
-    else
-      {:error, reason} ->
-        fence_connection(account.id, :reauthorization, safe_error(reason))
-        {:error, safe_error(reason)}
-    end
-  end
-
   defp discovery_failure(expected, reason) do
     error = safe_error(reason)
 
     state(fn ->
-      case connection(expected.id) do
-        %Connection{status: :ready, generation: generation}
-        when generation == expected.generation and error in [:reconnect, :denied, :expired] ->
-          fence_connection(expected.id, :reauthorization, error)
-
-        _ ->
-          :ok
+      if error in [:reconnect, :denied, :expired] and Discovery.current?(expected) do
+        fence_connection(expected.id, :reauthorization, error)
       end
 
       {:error, error}
-    end)
-  end
-
-  defp admit(args) do
-    case get(args.organization_id) do
-      %Organization{status: :ready, generation: generation} = org
-      when generation == args.generation ->
-        if future?(org.next_poll_at) or future?(org.cooldown_until) or future?(org.claimed_until) do
-          {:error, :changed}
-        else
-          {:ok, update!(expire(org), %{claim_id: uuid(), claimed_until: later(120)})}
-        end
-
-      _ ->
-        {:error, :changed}
-    end
-  end
-
-  defp poll_identity(expected) do
-    with %Organization{status: :ready} = org <- get(expected.id),
-         true <- org.generation == expected.generation and org.claim_id == expected.claim_id,
-         %Connection{status: :ready} = account <- connection(org.connection_id) do
-      {:ok, org, account}
-    else
-      _ -> {:error, :changed}
-    end
-  end
-
-  defp publish(expected, expected_account, result) do
-    with {:ok, org, account} <- poll_identity(expected),
-         true <- account.generation == expected_account.generation do
-      attrs =
-        case result do
-          {:error, reason} when reason in [:reconnect, :denied, :expired] ->
-            cleared(:reauthorization, reason)
-
-          _ ->
-            Map.merge(snapshot(result, org), %{claimed_until: nil, claim_id: nil})
-        end
-
-      current = update!(org, attrs)
-      broadcast(org.id)
-      {:ok, metadata(current)}
-    else
-      _ -> {:ok, %{skipped: true}}
-    end
-  end
-
-  defp fail_claim(expected, reason) do
-    case get(expected.id) do
-      %Organization{status: :ready, generation: generation, claim_id: claim} = org
-      when generation == expected.generation and claim == expected.claim_id and reason != :changed ->
-        current =
-          update!(
-            org,
-            Map.merge(snapshot({:error, reason}, org), %{claim_id: nil, claimed_until: nil})
-          )
-
-        broadcast(org.id)
-        {:ok, metadata(current)}
-
-      _ ->
-        {:ok, %{skipped: true}}
-    end
-  end
-
-  defp fence_connection(id, status, reason) do
-    case connection(id) do
-      nil ->
-        :ok
-
-      account ->
-        transact(fn ->
-          transition!(account, %{status: status, generation: uuid(), last_error: reason})
-          fence_owners(id, :reauthorization, reason)
-        end)
-
-        notify(id)
-    end
-  end
-
-  defp fence_owners(id, status, reason),
-    do: Enum.each(account_owners(id), &update!(&1, cleared(status, reason)))
-
-  defp cleared(status, error) do
-    %{
-      generation: uuid(),
-      status: status,
-      pull_requests: [],
-      repositories: [],
-      issues: [],
-      workflow_runs: [],
-      issue_count: nil,
-      issues_truncated: false,
-      actions_truncated: false,
-      fetched_at: nil,
-      total_count: nil,
-      last_error: error,
-      truncated: false,
-      partial_reasons: [],
-      claim_id: nil,
-      claimed_until: nil,
-      cooldown_until: nil,
-      next_poll_at: later(300)
-    }
-  end
-
-  defp finish_delete(record, result) when result in [:ok, {:error, :not_found}] do
-    record =
-      case record do
-        %Organization{} -> update!(record, %{legacy_credential: false, last_error: nil})
-        %Connection{} -> transition!(record, %{last_error: nil})
-      end
-
-    notify_record(record)
-    {:ok, metadata(record)}
-  end
-
-  defp finish_delete(record, _) do
-    case record do
-      %Connection{} -> transition!(record, %{last_error: :keychain})
-      %Organization{} -> update!(record, %{last_error: :keychain})
-    end
-
-    notify_record(record)
-    {:error, :keychain}
-  end
-
-  defp enqueue_refresh(org) do
-    current = update!(org, %{next_poll_at: now()})
-
-    case PollWorker.enqueue(current) do
-      {:ok, _} -> {:ok, metadata(current)}
-      _ -> {:error, :unavailable}
-    end
-  end
-
-  defp snapshot({:ok, data}, _) do
-    missing =
-      []
-      |> missing_snapshot_reason(data, :issues, "issues_unavailable")
-      |> missing_snapshot_reason(data, :workflow_runs, "actions_unavailable")
-
-    data =
-      Map.merge(
-        %{
-          repositories: [],
-          issues: [],
-          workflow_runs: [],
-          issue_count: nil,
-          issues_truncated: true,
-          actions_truncated: true
-        },
-        data
-      )
-
-    Map.take(data, [
-      :pull_requests,
-      :repositories,
-      :issues,
-      :workflow_runs,
-      :issue_count,
-      :issues_truncated,
-      :actions_truncated,
-      :truncated,
-      :total_count,
-      :partial_reasons
-    ])
-    |> Map.put(:partial_reasons, Enum.uniq(Map.get(data, :partial_reasons, []) ++ missing))
-    |> Map.merge(%{
-      fetched_at: now(),
-      last_error: nil,
-      next_poll_at: later(300),
-      cooldown_until: nil
-    })
-  end
-
-  defp snapshot({:error, reason}, previous) do
-    error = safe_error(reason)
-
-    previous
-    |> cached_snapshot()
-    |> Map.merge(%{
-      fetched_at: if(previous, do: previous.fetched_at),
-      last_error: error,
-      next_poll_at: later(if(error == :rate_limited, do: 900, else: 300)),
-      cooldown_until: if(error == :rate_limited, do: later(900))
-    })
-  end
-
-  defp snapshot(_, previous), do: snapshot({:error, :provider}, previous)
-
-  defp cached_snapshot(previous) do
-    if previous && recent?(previous.fetched_at) do
-      Map.take(previous, [
-        :pull_requests,
-        :repositories,
-        :issues,
-        :workflow_runs,
-        :issue_count,
-        :issues_truncated,
-        :actions_truncated,
-        :total_count,
-        :truncated,
-        :partial_reasons
-      ])
-    else
-      %{
-        pull_requests: [],
-        repositories: [],
-        issues: [],
-        workflow_runs: [],
-        issue_count: nil,
-        issues_truncated: false,
-        actions_truncated: false,
-        total_count: nil,
-        truncated: false,
-        partial_reasons: []
-      }
-    end
-  end
-
-  defp missing_snapshot_reason(reasons, data, key, reason),
-    do: if(Map.has_key?(data, key), do: reasons, else: [reason | reasons])
-
-  defp expire(%Organization{fetched_at: nil} = org), do: org
-
-  defp expire(org) do
-    if not recent?(org.fetched_at) and
-         (org.repositories != [] or org.pull_requests != [] or org.issues != [] or
-            org.workflow_runs != [] or not is_nil(org.total_count) or not is_nil(org.issue_count)) do
-      current =
-        update!(org, %{
-          pull_requests: [],
-          repositories: [],
-          issues: [],
-          workflow_runs: [],
-          issue_count: nil,
-          issues_truncated: false,
-          actions_truncated: false,
-          total_count: nil,
-          truncated: false,
-          partial_reasons: [],
-          last_error: org.last_error || :provider
-        })
-
-      broadcast(org.id)
-      current
-    else
-      org
-    end
-  end
-
-  def sweep do
-    safely(fn ->
-      Vault.with_access(fn ->
-        Organization
-        |> Ash.Query.for_read(:due, %{}, actor: @service)
-        |> Ash.read!()
-        |> Enum.each(&PollWorker.enqueue/1)
-
-        :ok
-      end)
     end)
   end
 
@@ -786,42 +358,6 @@ defmodule Lovelace.GitHub.Operations do
 
   defp valid_identity?(_), do: false
 
-  defp encode_bundle(bundle) when is_map(bundle) do
-    if valid_token?(bundle[:access_token]) and valid_token?(bundle[:refresh_token]) and
-         is_integer(bundle[:expires_in]) and bundle.expires_in > 0 and
-         is_integer(bundle[:refresh_token_expires_in]) and bundle.refresh_token_expires_in > 0 and
-         is_binary(bundle[:client_generation]) do
-      {:ok,
-       Jason.encode!(%{
-         access_token: bundle.access_token,
-         refresh_token: bundle.refresh_token,
-         client_generation: bundle.client_generation,
-         expires_at: unix() + bundle.expires_in,
-         refresh_expires_at: unix() + bundle.refresh_token_expires_in
-       })}
-    else
-      {:error, :provider}
-    end
-  end
-
-  defp read_bundle(id) do
-    with {:ok, value} when is_binary(value) and byte_size(value) <= 16_384 <- vault().get(id),
-         {:ok, bundle} when is_map(bundle) <- Jason.decode(value),
-         true <- valid_token?(bundle["access_token"]) and valid_token?(bundle["refresh_token"]),
-         true <- is_integer(bundle["expires_at"]) and is_integer(bundle["refresh_expires_at"]) do
-      {:ok, bundle}
-    else
-      {:error, :not_found} -> {:error, :missing_credentials}
-      {:error, reason} when is_atom(reason) -> {:error, :keychain}
-      _ -> {:error, :missing_credentials}
-    end
-  end
-
-  defp valid_token?(token),
-    do:
-      is_binary(token) and byte_size(token) in 1..4096 and
-        Regex.match?(~r/\A[A-Za-z0-9_\-.]+\z/, token)
-
   defp verify_session(session) do
     case Lovelace.Owner.verify_session(session) do
       {:ok, _} -> :ok
@@ -829,66 +365,24 @@ defmodule Lovelace.GitHub.Operations do
     end
   end
 
-  defp current_client_bundle(stored) do
-    with {:ok, bundle} <- Jason.decode(stored),
-         true <- current_client_generation?(bundle["client_generation"]) do
-      :ok
-    else
-      _ -> {:error, :reconnect}
-    end
+  defp summary_records(resource, bound, fields) do
+    records =
+      resource
+      |> Ash.Query.for_read(:read, %{}, actor: @service)
+      |> Ash.Query.select(fields)
+      |> Ash.Query.limit(bound + 1)
+      |> Ash.read!()
+
+    if length(records) <= bound, do: {:ok, records}, else: {:error, :unavailable}
   end
 
-  defp current_client_generation?(generation) when is_binary(generation) do
-    case ClientCredentials.current() do
-      {:ok, %{generation: ^generation}} -> true
-      _ -> false
-    end
-  end
+  defp summary_health(organization) do
+    problems =
+      if organization.status == :ready and is_nil(organization.last_error),
+        do: [],
+        else: [organization]
 
-  defp current_client_generation?(_), do: false
-
-  defp organizations, do: read(Organization)
-  defp connections, do: read(Connection)
-  defp memberships, do: read(WorkspaceOrganization)
-
-  defp read(resource),
-    do: resource |> Ash.Query.for_read(:read, %{}, actor: @service) |> Ash.read!()
-
-  defp get(nil), do: nil
-  defp get(id), do: one(Organization, :id, id)
-  defp connection(nil), do: nil
-  defp connection(id), do: one(Connection, :id, id)
-  defp find_identity(id), do: one(Organization, :github_id, id)
-  defp find_connection(id), do: one(Connection, :github_id, id)
-
-  defp one(resource, field, value) do
-    resource
-    |> Ash.Query.filter(^%{field => value})
-    |> Ash.Query.for_read(:read, %{}, actor: @service)
-    |> Ash.read_one!()
-  end
-
-  defp account_owners(id) do
-    Organization
-    |> Ash.Query.filter(connection_id == ^id)
-    |> Ash.Query.for_read(:read, %{}, actor: @service)
-    |> Ash.read!()
-  end
-
-  defp update!(org, attrs),
-    do: org |> Ash.Changeset.for_update(:publish, attrs, actor: @service) |> Ash.update!()
-
-  defp transition!(account, attrs),
-    do: account |> Ash.Changeset.for_update(:transition, attrs, actor: @service) |> Ash.update!()
-
-  defp attach(workspace, org, repository_ids) do
-    WorkspaceOrganization
-    |> Ash.Changeset.for_create(
-      :attach,
-      %{workspace_id: workspace, organization_id: org, repository_ids: repository_ids},
-      actor: @service
-    )
-    |> Ash.create()
+    %{total: 1, problems: problems}
   end
 
   defp valid_selection?(_org, []), do: true
@@ -898,89 +392,39 @@ defmodule Lovelace.GitHub.Operations do
       Enum.all?(selected, fn id -> Enum.any?(org.repositories, &(&1["id"] == id)) end)
   end
 
-  defp remove_memberships(org, workspace \\ nil) do
-    query = WorkspaceOrganization |> Ash.Query.filter(organization_id == ^org)
-    query = if workspace, do: Ash.Query.filter(query, workspace_id == ^workspace), else: query
+  defp workspace_health(organizations, memberships) do
+    by_id =
+      organizations
+      |> Enum.reject(
+        &(&1.status == :disconnected and &1.last_error != :keychain and
+            not &1.legacy_credential)
+      )
+      |> Map.new(
+        &{&1.id,
+         %{
+           id: &1.id,
+           email: "GitHub · " <> &1.login,
+           status: &1.status,
+           last_error: &1.last_error
+         }}
+      )
 
-    query
-    |> Ash.Query.for_read(:read, %{}, actor: @service)
-    |> Ash.read!()
-    |> Enum.each(fn membership ->
-      membership |> Ash.Changeset.for_destroy(:detach, %{}, actor: @service) |> Ash.destroy!()
+    Enum.reduce(memberships, %{}, fn membership, grouped ->
+      add_workspace_health(
+        grouped,
+        membership.workspace_id,
+        Map.get(by_id, membership.organization_id)
+      )
     end)
   end
 
-  defp transact(fun), do: Ash.transact(@resources, fun)
+  defp add_workspace_health(grouped, _workspace_id, nil), do: grouped
 
-  defp put_token(id, value),
-    do: if(vault().put(id, value) == :ok, do: :ok, else: {:error, :keychain})
+  defp add_workspace_health(grouped, workspace_id, organization) do
+    current = summary_health(organization)
 
-  defp vault,
-    do: Application.get_env(:lovelace, :github_keychain, Lovelace.Integrations.GitHub.Keychain)
-
-  defp provider,
-    do: Application.get_env(:lovelace, :github_provider, Lovelace.Integrations.GitHub)
-
-  defp state(fun), do: serial(:state, fun)
-  defp serial(id, fun), do: :global.trans({{__MODULE__, id}, self()}, fun, [node()])
-  defp owner_map(org), do: Map.take(org, [:installation_id, :github_id, :login, :owner_type])
-
-  defp broadcast(id),
-    do: Phoenix.PubSub.broadcast(Lovelace.PubSub, "github:" <> id, {:github_changed, id})
-
-  defp notify(id) do
-    Enum.each(account_owners(id), &broadcast(&1.id))
-    Phoenix.PubSub.broadcast(Lovelace.PubSub, "github:directory", :github_directory_changed)
-  end
-
-  defp notify_record(%Connection{id: id}), do: notify(id)
-  defp notify_record(%Organization{id: id}), do: broadcast(id)
-
-  defp metadata(record),
-    do:
-      Map.take(record, [
-        :id,
-        :github_id,
-        :login,
-        :generation,
-        :status,
-        :last_error,
-        :fetched_at,
-        :next_poll_at,
-        :connection_id,
-        :owner_type,
-        :installation_id
-      ])
-
-  defp uuid, do: Ash.UUID.generate()
-  defp now, do: DateTime.utc_now()
-  defp unix, do: System.system_time(:second)
-  defp later(seconds), do: DateTime.add(now(), seconds, :second)
-  defp future?(nil), do: false
-  defp future?(time), do: DateTime.compare(time, now()) == :gt
-  defp recent?(nil), do: false
-  defp recent?(time), do: DateTime.diff(now(), time, :second) < 86_400
-
-  defp safe_error(reason)
-       when reason in [
-              :unavailable,
-              :provider,
-              :rate_limited,
-              :reconnect,
-              :keychain,
-              :configuration,
-              :denied,
-              :expired
-            ],
-       do: reason
-
-  defp safe_error(_), do: :provider
-
-  defp safely(fun) do
-    fun.()
-  rescue
-    _ -> {:error, :unavailable}
-  catch
-    _, _ -> {:error, :unavailable}
+    Map.update(grouped, workspace_id, current, fn previous ->
+      %{total: previous.total + 1, problems: current.problems ++ previous.problems}
+    end)
   end
 end

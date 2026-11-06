@@ -1,7 +1,7 @@
 defmodule Lovelace.Integrations.GitHub.TransportTest do
   use ExUnit.Case, async: false
   import ExUnit.CaptureLog
-  alias Lovelace.GitHub.Auth
+  @callback_uri "http://localhost:4321/auth/github/callback"
   alias Lovelace.Integrations.GitHub.Transport
 
   defp request(overrides \\ %{}) do
@@ -46,7 +46,7 @@ defmodule Lovelace.Integrations.GitHub.TransportTest do
            client_secret: "synthetic_secret",
            code: "synthetic_code",
            code_verifier: String.duplicate("v", 43),
-           redirect_uri: Auth.callback_url()
+           redirect_uri: @callback_uri
          }
        ) do
     request(%{

@@ -1,4 +1,6 @@
 defmodule Lovelace.CalendarTest.Provider do
+  @behaviour Lovelace.Calendar.Provider
+  @impl true
   def calendars(token) do
     Lovelace.TestMail.record({:calendars, token})
 
@@ -8,6 +10,7 @@ defmodule Lovelace.CalendarTest.Provider do
     end
   end
 
+  @impl true
   def events(token, id, from, to) do
     Lovelace.TestMail.record({:events, token, id, from, to})
 
@@ -38,10 +41,11 @@ defmodule Lovelace.CalendarTest do
   alias Ash.Resource.Info
   alias Ecto.Adapters.SQL.Sandbox
   alias Lovelace.Calendar
-  alias Lovelace.Calendar.{PollWorker, State}
+  alias Lovelace.Calendar.{PollWorker, State, SweepWorker}
   alias Lovelace.CalendarTest.Provider
+  alias Lovelace.Google.Access
   alias Lovelace.Mail
-  alias Lovelace.Mail.Connections
+  alias Lovelace.Mail.PollWorker, as: MailPollWorker
   @owner %{role: :local_owner}
 
   setup do
@@ -63,7 +67,7 @@ defmodule Lovelace.CalendarTest do
     workspace = Lovelace.Workspaces.create_workspace!("Calendar fixture", actor: @owner)
 
     {:ok, a} =
-      Connections.accept(
+      Access.accept(
         workspace.id,
         %{subject: "calendar-a", email: "a@example.invalid"},
         "token-a",
@@ -71,7 +75,7 @@ defmodule Lovelace.CalendarTest do
       )
 
     {:ok, b} =
-      Connections.accept(
+      Access.accept(
         workspace.id,
         %{subject: "calendar-b", email: "b@example.invalid"},
         "token-b",
@@ -152,6 +156,12 @@ defmodule Lovelace.CalendarTest do
   test "owner-only, no HTTP during prepare/snapshot, opaque jobs and mutation returns", c do
     assert {:error, _} = Calendar.prepare(c.a.id, c.from, c.to, c.date, "UTC")
     assert {:error, _} = Calendar.snapshot(c.a.id, c.from, c.to, c.date)
+    assert {:error, _} = Calendar.catalog(c.a.id)
+
+    assert {:error, _} =
+             Calendar.catalog(c.a.id, actor: %{role: :mail_service, account_id: c.a.id})
+
+    assert {:error, _} = Calendar.sweep()
     result = prepare(c, c.a)
     assert result.loading and result.enabled and is_binary(result.revision)
     refute Map.has_key?(result, :events)
@@ -164,6 +174,185 @@ defmodule Lovelace.CalendarTest do
     )
 
     assert {:error, _} = State |> Ash.Query.for_read(:read, %{account_id: c.a.id}) |> Ash.read()
+  end
+
+  test "authorized catalog is day-independent metadata and never exposes cached events", c do
+    prepared = prepare(c, c.a)
+    poll(c.a, prepared.revision)
+    before = Lovelace.TestMail.calls()
+    catalog = Calendar.catalog!(c.a.id, actor: @owner)
+    assert catalog.account_id == c.a.id
+    assert catalog.generation == c.a.generation
+    assert catalog.selection_limit == 20
+    assert catalog.available? and catalog.catalog_fresh?
+
+    assert catalog.calendars == [
+             %{id: "primary", name: "Primary"},
+             %{id: "shared", name: "Shared"}
+           ]
+
+    assert catalog.selected_ids == ["primary"]
+    refute Map.has_key?(catalog, :events)
+    refute Map.has_key?(catalog, :fetched_at)
+    refute Map.has_key?(catalog, :from_at)
+    assert Lovelace.TestMail.calls() == before
+
+    update_state(c.a, %{catalog_at: DateTime.add(DateTime.utc_now(), -86_401)})
+    stale = Calendar.catalog!(c.a.id, actor: @owner)
+    refute stale.available?
+    refute stale.catalog_fresh?
+    assert stale.calendars == []
+    assert stale.selected_ids == []
+    assert snapshot(c, c.a).events != []
+  end
+
+  test "shared grant reset completes before replacement jobs and rejects old consent", c do
+    prepared = prepare(c, c.a)
+    poll(c.a, prepared.revision)
+    assert state(c.a).events != []
+
+    {:ok, replacement} =
+      Access.accept(
+        c.workspace.id,
+        %{subject: c.a.subject, email: c.a.email},
+        :reuse_existing,
+        :calendar,
+        c.a.generation
+      )
+
+    assert replacement.generation != c.a.generation
+    assert state(replacement) == nil
+    refute Access.current?(c.a.id, c.a.generation)
+    assert Access.current?(replacement.id, replacement.generation)
+    assert poll(c.a, prepared.revision).skipped
+    assert {:ok, "token-a"} = Access.vault().get(replacement.id)
+
+    assert_enqueued(
+      worker: MailPollWorker,
+      args: %{account_id: replacement.id, generation: replacement.generation}
+    )
+
+    assert {:error, :reconnect} =
+             Access.accept(
+               c.workspace.id,
+               %{subject: c.a.subject, email: c.a.email},
+               "obsolete-callback-token",
+               :calendar,
+               c.a.generation
+             )
+
+    assert {:ok, "token-a"} = Access.vault().get(replacement.id)
+    assert Mail.get_account!(replacement.id, actor: @owner).generation == replacement.generation
+  end
+
+  test "shared Gmail grant publication fences stale callbacks but admits a deliberate reconnect",
+       c do
+    prepared = prepare(c, c.a)
+    poll(c.a, prepared.revision)
+
+    assert {:error, :reconnect} =
+             Access.accept(
+               c.workspace.id,
+               %{subject: c.a.subject, email: c.a.email},
+               "obsolete-gmail-token",
+               :gmail,
+               Ash.UUID.generate()
+             )
+
+    assert {:ok, "token-a"} = Access.vault().get(c.a.id)
+    assert state(c.a).revision == prepared.revision
+
+    disconnected =
+      Access.serial(c.a.id, fn ->
+        Mail.update_account!(
+          c.a,
+          %{expected_generation: c.a.generation, status: :disconnected},
+          actor: @owner
+        )
+      end)
+
+    {:ok, reconnected} =
+      Access.accept(
+        c.workspace.id,
+        %{subject: c.a.subject, email: c.a.email},
+        "deliberate-reconnect-token",
+        :gmail,
+        disconnected.generation
+      )
+
+    assert reconnected.status == :ready
+    refute reconnected.calendar_enabled
+    assert reconnected.generation != disconnected.generation
+    assert state(reconnected) == nil
+    assert {:ok, "deliberate-reconnect-token"} = Access.vault().get(reconnected.id)
+  end
+
+  test "unbound Gmail publication cannot claim a subject that appeared after admission", c do
+    identity = %{subject: c.a.subject, email: c.a.email}
+
+    assert {:error, :reconnect} =
+             Access.accept(c.workspace.id, identity, "obsolete-add-token", :gmail, nil, :absent)
+
+    assert {:ok, "token-a"} = Access.vault().get(c.a.id)
+    new_identity = %{subject: "new-unbound-subject", email: "new-unbound@example.invalid"}
+
+    assert {:ok, added} =
+             Access.accept(c.workspace.id, new_identity, "new-add-token", :gmail, nil, :absent)
+
+    assert {:error, :reconnect} =
+             Access.accept(
+               c.workspace.id,
+               new_identity,
+               "duplicate-add-token",
+               :gmail,
+               nil,
+               :absent
+             )
+
+    assert {:ok, "new-add-token"} = Access.vault().get(added.id)
+    assert Mail.get_account!(added.id, actor: @owner).generation == added.generation
+  end
+
+  test "captured subject identity fences disconnect but permits a freshly admitted reconnect",
+       c do
+    identity = %{subject: c.a.subject, email: c.a.email}
+    captured = %{id: c.a.id, generation: c.a.generation}
+
+    assert {:error, :reconnect} =
+             Access.accept(
+               c.workspace.id,
+               identity,
+               "wrong-identity-token",
+               :gmail,
+               nil,
+               %{captured | id: c.b.id}
+             )
+
+    disconnected =
+      Access.serial(c.a.id, fn ->
+        Mail.update_account!(
+          c.a,
+          %{
+            expected_generation: c.a.generation,
+            generation: Ash.UUID.generate(),
+            status: :disconnected
+          },
+          actor: @owner
+        )
+      end)
+
+    assert {:error, :reconnect} =
+             Access.accept(c.workspace.id, identity, "old-add-token", :gmail, nil, captured)
+
+    assert {:ok, "token-a"} = Access.vault().get(c.a.id)
+    current = %{id: disconnected.id, generation: disconnected.generation}
+
+    assert {:ok, reconnected} =
+             Access.accept(c.workspace.id, identity, "fresh-add-token", :gmail, nil, current)
+
+    assert reconnected.status == :ready
+    assert reconnected.generation != disconnected.generation
+    assert {:ok, "fresh-add-token"} = Access.vault().get(reconnected.id)
   end
 
   test "per-account selected defaults, shared overrides and explicit empty selection", c do
@@ -292,8 +481,8 @@ defmodule Lovelace.CalendarTest do
     assert Calendar.poll!(c.a.id, Ash.UUID.generate(), prepared.revision, actor: @owner).skipped
     assert Calendar.poll!(c.a.id, c.a.generation, Ash.UUID.generate(), actor: @owner).skipped
     assert Lovelace.TestMail.calls() == []
-    assert :ok = Connections.serial(c.a.id, fn -> Calendar.clear(c.a.id) end)
-    assert :ok = Connections.serial(c.a.id, fn -> Calendar.clear(c.a.id) end)
+    assert :ok = Access.serial(c.a.id, fn -> Calendar.clear(c.a.id) end)
+    assert :ok = Access.serial(c.a.id, fn -> Calendar.clear(c.a.id) end)
     assert poll(c.a, prepared.revision).skipped
   end
 
@@ -362,7 +551,7 @@ defmodule Lovelace.CalendarTest do
     assert_receive {:calendar_waiting, pid}, 2000
 
     {:ok, current} =
-      Connections.accept(
+      Access.accept(
         c.workspace.id,
         %{subject: c.a.subject, email: c.a.email},
         "new-generation-refresh",
@@ -378,19 +567,23 @@ defmodule Lovelace.CalendarTest do
   end
 
   test "sweep enqueues due contexts and prunes expired private payloads", c do
+    assert Ecto.Changeset.get_field(SweepWorker.new(%{}), :queue) == "calendar"
+    assert Ecto.Changeset.get_field(PollWorker.new(%{}), :queue) == "calendar"
     prepared = prepare(c, c.a)
     poll(c.a, prepared.revision)
     update_state(c.a, %{next_poll_at: DateTime.add(DateTime.utc_now(), -1)})
-    assert :ok = Calendar.sweep()
+    before = Lovelace.TestMail.calls()
+    assert :ok = SweepWorker.perform(%Oban.Job{})
     assert state(c.a).loading
     assert DateTime.compare(state(c.a).next_poll_at, DateTime.utc_now()) == :gt
+    assert Lovelace.TestMail.calls() == before
 
     update_state(c.a, %{
       fetched_at: DateTime.add(DateTime.utc_now(), -86_401),
       catalog_at: DateTime.add(DateTime.utc_now(), -86_401)
     })
 
-    assert :ok = Calendar.sweep()
+    assert :ok = SweepWorker.perform(%Oban.Job{})
     assert state(c.a).events == []
     assert state(c.a).calendars == []
     assert state(c.a).fetched_at == nil
@@ -406,7 +599,7 @@ defmodule Lovelace.CalendarTest do
     Sandbox.allow(Lovelace.Repo, self(), task.pid)
     assert_receive {:calendar_waiting, pid}, 2000
 
-    Connections.serial(c.a.id, fn ->
+    Access.serial(c.a.id, fn ->
       Mail.update_account!(c.a, %{expected_generation: c.a.generation, calendar_enabled: false},
         actor: @owner
       )

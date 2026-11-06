@@ -3,8 +3,9 @@ defmodule Lovelace.MailWorkersTest do
   use Oban.Testing, repo: Lovelace.Repo, engine: Oban.Engines.Lite
 
   alias Ecto.Adapters.SQL.Sandbox
+  alias Lovelace.Google.Access
   alias Lovelace.Mail
-  alias Lovelace.Mail.{CacheEntry, Connections, PollWorker, SweepWorker}
+  alias Lovelace.Mail.{CacheEntry, PollWorker, SweepWorker}
 
   @owner %{role: :local_owner}
 
@@ -168,7 +169,7 @@ defmodule Lovelace.MailWorkersTest do
   test "token admission refusal is distinct from a new provider rate limit", %{a: a} do
     deadline = DateTime.add(DateTime.utc_now(), 300)
     limited = set_status(a, %{last_error: :rate_limited, next_poll_at: deadline})
-    assert {:error, :cooldown} = Connections.access_token(limited)
+    assert {:error, :cooldown} = Access.access_token(limited)
     assert Lovelace.TestMail.calls() == []
     assert Mail.get_account!(a.id, actor: @owner).next_poll_at == deadline
   end
@@ -256,7 +257,7 @@ defmodule Lovelace.MailWorkersTest do
 
   defp connect(workspace, subject) do
     {:ok, account} =
-      Connections.accept(
+      Access.accept(
         workspace.id,
         %{subject: subject, email: "#{subject}@example.invalid"},
         "token-#{subject}"

@@ -1,7 +1,7 @@
 defmodule Lovelace.Calendar.PollWorker do
   @moduledoc "Durable agenda polling carrying account/generation/revision identifiers only."
   use Oban.Worker,
-    queue: :gmail,
+    queue: :calendar,
     max_attempts: 1,
     unique: [
       period: 180,

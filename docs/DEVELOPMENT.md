@@ -60,6 +60,19 @@ onboarding progress. It reports local settings availability, never verified prov
 Save there, then connect accounts in **Connections → Gmail** and explicitly authorize Calendar
 in **Connections → Calendar**. Gemini remains a separate API-key integration.
 
+Connections keychain checks for Google, Gemini and GitHub are admitted by the
+`Lovelace.ConnectionDiagnostics` Ash domain and executed on the protected
+single-concurrency `:diagnostics` Oban queue. They inspect local credential storage,
+never provider health. Three fixed SQL slots retain only an opaque request/job
+reference, finite status, timestamps and GitHub's public app slug; credentials and
+native errors never enter SQL or jobs. Requests coalesce while pending, expire
+after two minutes and are spaced at least five seconds apart. Credential mutations
+invalidate the slot under the same provider exclusion used by diagnostics; stale
+jobs cannot publish over a newer request. Browser timers only observe local Ash
+status, including after missed updates; closing a browser does not cancel work.
+Scene direction/gallery reads and confirmation/request admission are synchronous
+bounded Ash calls; paid generation remains on its existing `:gemini` jobs.
+
 Interrupted setup retains private markers and resumes at `/setup` with a new terminal
 pairing code and the **original password**, without replacing an owner or initialized
 database key. Never delete markers to force a reset. Creation publishes the final keychain
@@ -211,6 +224,65 @@ than renaming compiled BEAM files. Stop the server and restart after namespace c
 hot reload is not an application-identity migration. Git hosting metadata and the
 checkout folder name are separate from application identifiers and were not changed.
 
+## Application boundaries and background ownership
+
+Ash domains/actions are inbound application APIs. Domain-owned provider contracts describe
+mail reads, Calendar pages, GitHub `installation_snapshot/2`, Google authorization and paid
+render submit/track/delete; concrete HTTP/native adapters implement those contracts. Keep
+authorization, safe outcomes and workflow decisions in the application, not in adapters or
+LiveView callbacks. Do not add parallel Ecto contexts or generic workflow/task platforms.
+`Google.Access` owns shared Google credentials, serialization and grant/reset coordination;
+Calendar owns its catalog/day/selection health. GitHub `Coordination` owns exclusion across
+`Credentials`, discovery/membership `Operations` and snapshot `Polling`; callers must not
+borrow private lock identities or persistence.
+
+`Home.summary` and owning-domain metadata projections compose bounded workspace health and
+membership without provider calls or private payloads. The parsed destination is authoritative;
+page flags are derived render projections, not independently mutable navigation state.
+Meaningful URLs, reload/history/unlock returns and request-token fencing remain required.
+
+Application background work executes in protected Oban queues, each with concurrency one:
+`:gmail` reads/polls/disconnection, independent `:calendar` poll/sweep, `:github` snapshots,
+`:gemini` authorized generation/recovery, `:oauth` one-use exchanges and `:diagnostics` local
+keychain checks. Authorized Ash admission atomically commits intent/job where durable.
+Arguments carry only opaque IDs and safe generations/revisions. Observe safe application
+outcomes correlated to job IDs; Oban completion alone is not provider success. Retain bounded
+sensitive inputs only in protected scoped resources, secrets only in the dedicated keychain
+or approved expiring memory, and bodies only behind view-owned opaque render references.
+Paid/code/rotating-token submissions require durable claims; unknown outcomes never authorize
+replay. See GMAIL, CALENDAR and STAGE_DESIGNER for operation-specific retention/recovery.
+
+Narrow runtime exceptions (not namespace-wide exemptions):
+
+- Bounded synchronous local Ash reads/calculations/admission, including Scenes gallery,
+  confirmation preparation and startup reservation; no provider calls in those paths.
+- Vault/lease guard, owner pairing/throttle and bounded ephemeral OAuth/result/ownership
+  holders are OTP lifetime/security coordination, not business schedulers.
+- `Integrations.Google.run_bounded/2`, `Integrations.Gemini.Interactions.execute_leased/4`
+  and `Security.Keychain.run/4` use linked bounded timeout/isolation helpers within their
+  operation/lease, sanitize failures and cancel before returning. Native setup/unlock/migration
+  must work before the protected Repo/Oban exists; that does not exempt background diagnostics.
+- Vault/session expiry timers enforce security. HomeGitHub local-age/auth status,
+  HomeConnectionDiagnostic and HomeMail operation timers only observe local state; they
+  never initiate provider polling. Expired observation is not cancelled durable cleanup.
+- `Mail.ViewData` expiry timers carry opaque references only and erase idle private results
+  after ten minutes. Eviction/view death cancels their timers; protected teardown clears the
+  store on Lock. This bounded privacy lifetime is not a provider scheduler.
+- Composition permits exactly Application→Endpoint/Web.Telemetry and Bootstrap→Endpoint
+  configuration. GitHub callback URLs are supplied in runtime configuration; adapters
+  validate supplied loopback paths without calling Auth. `StageDesigner.Confirmation`
+  is implemented by composed `LovelaceWeb.SceneConfirmation`; core never discovers signing.
+
+`bin/lovelace check` runs `lovelace.architecture.check`: parsed Elixir syntax resolves
+aliases/imports, local/transitive static calls, captures, delegates and static MFA/apply.
+It rejects core→web, adapter→orchestration, static UI→provider, unsupported cross-domain
+persistence/capabilities and borrowed lock ownership. Exact composition exceptions have
+fixtures. Runtime-selected providers, generated Ash/macro dispatch, message callbacks and
+variable-carried resource/lock identities still require scoped source/runtime review;
+passing the checker is not complete architectural proof. Load the development skills and
+invoke reviewers as routed in [REVIEWERS.md](REVIEWERS.md), including its native activation
+and read-only portable fallback limits.
+
 ## Installed baseline
 
 | Dependency | Role | Scope |
@@ -221,7 +293,7 @@ checkout folder name are separate from application identifiers and were not chan
 | `ash_authentication`, `ash_authentication_phoenix` | Single local owner unlock | AshAuthentication password strategy; terminal-paired initial browser setup |
 | `req` | HTTP request/response contracts; built-in `Req.Test` stubs/expectations | Runtime; test utilities used in tests |
 | `mint` | Private unpooled Gemini and Google transport, avoiding credential-bearing Finch telemetry | Runtime; pinned direct dependency |
-| `oban` | Durable Gmail/Calendar polling and tracked Gemini scenery with bundled SQLite Lite engine | Runtime; 2.24.2, concurrency 1, cron/Lifeline/pruning |
+| `oban` | Application background admission/execution and recovery with bundled SQLite Lite engine | Runtime; 2.24.2, per-queue concurrency 1, cron/Lifeline/pruning |
 | `exqlite` | SQLCipher binding for encrypted storage and private cross-BEAM filesystem exclusion handles | Runtime; explicit direct dependency linked to SQLCipher 4.20.0 |
 | `vix` | Strict JPEG pixel decoding through libvips; original provider bytes retained | Runtime; native dependency |
 | `credo`, `ash_credo` | General and Ash-aware static analysis | Dev/test, not started at runtime |
@@ -316,9 +388,9 @@ with explicit additional consent and independent account-scoped day/selection/ca
 See [CALENDAR.md](CALENDAR.md) before changing its scopes, polling or retention. It adds no
 runtime dependency or external service infrastructure. Calendar's Ash domain owns day
 preparation, selection, reads and jobs; the browser supplies local midnight boundaries and
-renders minimal cached event text without retaining events in socket assigns. The existing
-minute sweep also discovers due Calendar work. Tests must inject fake Calendar providers,
-never real Google responses or private calendar data.
+renders minimal cached event text without retaining events in socket assigns. Its independent
+`:calendar` minute sweep discovers due Calendar work without waiting for Gmail.
+Tests must inject fake Calendar providers, never real Google responses or private calendar data.
 
 ## GitHub
 
@@ -410,6 +482,33 @@ UUID. No private key, PAT or environment-credential fallback is used.
 App settings and token bundles carry a credential generation. Replacing changed settings
 fences pending authorization and old work, clears activity caches, and requires sign-in
 again while preserving immutable owner identities and workspace memberships.
+The application-owned `GitHub.Provider.installation_snapshot/2` contract names its complete
+PR/issue/Actions/repository result. Client lifecycle, discovery/membership and polling share
+one `GitHub.Coordination` exclusion owner rather than borrowing `Operations` lock internals.
+The runtime-composed callback is validated as the canonical localhost callback by adapters;
+it is not discovered by an adapter calling back into Auth.
+
+**Refresh account access** admits durable discovery rather than doing GitHub work in the
+browser POST. Admission atomically records one bounded discovery slot on the connection
+and its `:github` Oban job; job arguments contain only the connection/request UUIDs.
+Repeated requests share the active slot. The protected worker owns credential acquisition,
+any durably reserved one-shot rotation, identity/installation reads and fenced publication.
+Client, connection and installation-owner revisions are checked before work and again
+before publication; only the worker's own successful token rotation may advance its fence.
+
+Connections shows the persisted `pending`, `running`, `succeeded`, `failed` or `superseded`
+discovery state with opaque operation/job correlation. Browser exit does not cancel accepted
+work, and reload/local observation recovers outcomes after missed PubSub events. A failed
+or interrupted job is not successful discovery and does not erase a good snapshot merely
+because its observation failed. Duplicate delivery cannot repeat a claimed discovery or
+credential rotation. After an interrupted claim, request another refresh explicitly;
+uncertain token rotation still requires sign-in, never replay of the old refresh pair.
+Executing discovery older than three minutes is observed as unavailable, not left running
+forever or automatically replayed. Its owner fence hashes every retained local owner
+UUID/generation in ordered pages of 128 rows, including disconnected history: the provider's
+500-current-installation limit is not a lifetime identity cap, and historical removal still
+supersedes obsolete discovery.
+Apply the additive GitHub discovery-slot migration through the normal protected lifecycle.
 
 [Refresh](https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/refreshing-user-access-tokens)
 includes the stored client secret and is one-shot after a durable reservation. Unknown
@@ -614,14 +713,19 @@ those modules are not compiled in dev. Compilation must precede standalone Credo
 
 Sobelow's `--private` disables update-check network requests; `--exit low` fails on
 all reported confidence levels. `--skip` honors narrowly reviewed function annotations
-in scenery storage/coordination and vault filesystem/migration helpers:
-`Traversal.FileModule` cannot distinguish trusted local configuration plus exact
-content-hash/UUID or vault-journal filenames from user-controlled paths. Annotations
+in scenery storage/coordination, vault filesystem/migration helpers and architecture
+tooling. `Traversal.FileModule` cannot distinguish trusted local configuration plus exact
+content-hash/UUID or vault-journal filenames from user-controlled paths. Storage annotations
 cover bounded reads, private/exclusive file creation, validated cutover and explicitly
 confirmed cleanup. Scenery tamper/retention tests and synthetic vault migration fault
-checks exercise those boundaries. No whole-check, module, confidence-level, or
-fingerprint exclusion is configured. Review annotations if
-these functions change; never extend them to arbitrary uploads or user-selected paths.
+checks exercise those boundaries. Architecture tooling reads the fixed local `lib/**/*.ex`
+glob under a developer-controlled root; it is not a symlink-confinement boundary.
+Its `DOS.ModuleConcat`/`DOS.StringToAtom` annotations cover module identities derived from
+trusted repository or synthetic AST only. Parsing and alias expansion allocate atoms;
+the parser must never accept repeatedly submitted untrusted source or runtime inputs.
+No whole-check, module, confidence-level, or fingerprint exclusion is configured.
+Review annotations if these functions or their callers change; never extend them to
+arbitrary uploads, user-selected runtime paths or provider content.
 The browser pipeline retains its explicit CSP; the image endpoint has a restrictive CSP
 and `nosniff`. These are not an email sanitizer or a complete auth/security review.
 
@@ -683,7 +787,9 @@ real URL Back/Forward, copied conversation/search/page links and workspace reloa
 requests/CSP events across navigation. The real browser idle timer uses a shortened
 **disposable DOM setting**; native Node tests retain the actual three-minute deadline.
 Chrome is shut down and disposable data removed on completion. The runner has startup,
-protocol, overall and shutdown deadlines; it is not a cross-browser or screen-reader suite.
+protocol, a 120-second overall deadline and shutdown deadlines; it is not a cross-browser
+or screen-reader suite. Delayed synthetic reads exercise A→B→A navigation on one LiveSocket;
+durable GitHub discovery retains operation/job correlation across a browser reload.
 See [UI_CONTRACT.md](UI_CONTRACT.md#verification-map) for coverage boundaries.
 
 ### UI themes

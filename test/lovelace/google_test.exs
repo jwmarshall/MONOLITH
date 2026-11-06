@@ -1,8 +1,9 @@
 defmodule Lovelace.GoogleTest do
-  use ExUnit.Case, async: false
+  use Lovelace.DataCase, async: false
 
   import ExUnit.CaptureLog
 
+  alias Lovelace.ConnectionDiagnostics.State
   alias Lovelace.Google
   alias Lovelace.Integrations.Google.ClientCredentials
 
@@ -72,11 +73,20 @@ defmodule Lovelace.GoogleTest do
     assert {:ok, %{client_id: @id, client_secret: @secret}} = ClientCredentials.read()
   end
 
-  test "save uses the provider's dedicated namespace without onboarding or other state" do
+  test "first credential save initializes an absent diagnostic slot without changing its namespace" do
+    assert {:ok, nil} =
+             Ash.get(State, :google,
+               actor: %{role: :connection_diagnostics},
+               not_found_error?: false
+             )
+
     assert {:ok, true} = Google.save_client_credentials(@id, @secret, @owner)
     assert_received {:keychain_write, @account, json, @service}
     assert Jason.decode!(json) == %{"client_id" => @id, "client_secret" => @secret}
     refute_received {:keychain_read, _, _}
+
+    assert Ash.get!(State, :google, actor: %{role: :connection_diagnostics}).status ==
+             :unavailable
   end
 
   test "only the local owner can inspect status or save credentials" do

@@ -1,10 +1,11 @@
 defmodule Lovelace.GitHubAuthTest do
   use LovelaceWeb.ConnCase, async: false
-  alias Lovelace.GitHub.{Auth, ClientCredentials, Operations}
+  alias Lovelace.GitHub.{Auth, ClientCredentials, Credentials, Operations}
+  alias Lovelace.OAuth.{Exchange, Worker}
   alias Lovelace.Owner.Actions
-  alias Lovelace.Security.{Secret, Vault}
+  alias Lovelace.Security.Vault
   alias Lovelace.{TestGitHub, TestGitHubKeychain}
-  alias LovelaceWeb.Endpoint
+  alias Lovelace.TestSupport.OAuthJobs
   @owner %{role: :local_owner}
 
   setup %{conn: conn} do
@@ -50,13 +51,22 @@ defmodule Lovelace.GitHubAuthTest do
     )
 
     assert {:error, :expired} =
-             Auth.complete(other, %{"state" => params["state"], "code" => "synthetic_code"})
+             OAuthJobs.complete(other, %{
+               "state" => params["state"],
+               "code" => "synthetic_code"
+             })
 
     assert {:ok, _} =
-             Auth.complete(session, %{"state" => params["state"], "code" => "synthetic_code"})
+             OAuthJobs.complete(session, %{
+               "state" => params["state"],
+               "code" => "synthetic_code"
+             })
 
     assert {:error, :expired} =
-             Auth.complete(session, %{"state" => params["state"], "code" => "synthetic_code"})
+             OAuthJobs.complete(session, %{
+               "state" => params["state"],
+               "code" => "synthetic_code"
+             })
 
     [
       {:exchange_code, "Iv1.synthetic", "synthetic_client_secret", "synthetic_code", verifier, _}
@@ -80,78 +90,69 @@ defmodule Lovelace.GitHubAuthTest do
   } do
     TestGitHub.configure(exchange_response: {:wait, self(), {:ok, TestGitHub.bundle()}})
     params = callback_params(session)
-    task = Task.async(fn -> Auth.complete(session, params) end)
+    task = Task.async(fn -> OAuthJobs.complete(session, params) end)
     assert_receive {:github_waiting, worker}
-    assert {:error, :expired} = Auth.complete(session, params)
+    assert {:error, :expired} = OAuthJobs.complete(session, params)
     assert :ok = Auth.cancel(session)
-    assert {:error, :busy} = Auth.begin(session)
+    assert {:ok, _} = Auth.begin(session)
     send(worker, :continue)
     assert {:error, _} = Task.await(task)
     assert TestGitHub.state().tokens == initial
     assert Enum.count(TestGitHub.state().calls, &match?({:exchange_code, _, _, _, _, _}, &1)) == 1
   end
 
-  for settlement <- [:completed, :crashed] do
-    test "committed authorization rejects queued cancellation after worker #{settlement}", %{
-      session: session
-    } do
-      TestGitHub.configure(exchange_response: {:wait, self(), {:ok, TestGitHub.bundle()}})
-      params = callback_params(session)
-      auth = Process.whereis(Auth)
-      callback_ref = make_ref()
-      callback = {:complete, %Secret{value: {session, params}}}
-      send(auth, {:"$gen_call", {self(), callback_ref}, callback})
-      assert_receive {:github_waiting, worker}
-      monitor = Process.monitor(worker)
-      key = Actions.digest(session)
-      attempt = :sys.get_state(Auth)[key]
-      parent = self()
-      commit = Task.async(fn -> commit_after_signal(auth, attempt.id, session, parent) end)
-      assert_receive :github_commit_waiting
-
-      cancel_ref = make_ref()
-      send(auth, {:"$gen_call", {self(), cancel_ref}, {:cancel, key}})
-      send(auth, :commit)
-
-      assert {:ok, committed} = Task.await(commit)
-      assert_receive {^cancel_ref, {:error, :already_authorized}}
-      assert_receive {^callback_ref, {:ok, ^committed}}
-      assert Auth.status(key) == %{status: :connected}
-      assert {:error, :busy} = Auth.begin(session)
-
-      settle_worker(worker, unquote(settlement))
-      assert_receive {:DOWN, ^monitor, :process, ^worker, _reason}
-      assert :sys.get_state(Auth)[key].worker == nil
-      assert Auth.status(key) == %{status: :connected}
-      assert {:error, :already_authorized} = Auth.cancel(session)
-      refute_receive {^callback_ref, _reply}
-      assert %{connections: [connection]} = Lovelace.GitHub.directory!(actor: @owner)
-      assert connection.id == committed.connection.id
-      assert {:ok, _} = TestGitHubKeychain.get(connection.id)
-    end
-  end
-
-  test "callback URL requires canonical localhost and preserves the configured port", %{
+  test "committed authorization rejects cancellation independently of its observer", %{
     session: session
   } do
-    config = Application.fetch_env!(:lovelace, Endpoint)
-    on_exit(fn -> Endpoint.config_change([{Endpoint, config}], []) end)
-    set_endpoint_url(config, host: "localhost", scheme: "http", port: 4323)
-    assert Auth.callback_url() == "http://localhost:4323/auth/github/callback"
+    params = callback_params(session)
+    assert {:ok, reference} = Auth.admit(session, params)
+    job = Lovelace.Repo.get!(Oban.Job, reference.job_id)
+    assert job.args == %{"attempt_id" => reference.id}
+    assert :ok = Worker.perform(job)
+    assert {:ok, committed} = Auth.result(reference.id)
+    assert {:error, :already_authorized} = Auth.cancel(session)
+    assert Auth.status(Actions.digest(session)) == %{status: :connected}
+    assert %{connections: [connection]} = Lovelace.GitHub.directory!(actor: @owner)
+    assert connection.id == committed.connection.id
+    assert {:ok, _} = TestGitHubKeychain.get(connection.id)
+    assert {:ok, %{status: :completed, outcome: :connected}} = Exchange.get(reference.id)
+  end
 
-    for host <- ["127.0.0.1", "::1", "example.invalid"] do
-      set_endpoint_url(config, host: host, scheme: "http", port: 4323)
-      assert Auth.callback_url() == nil
-      assert {:error, :configuration} = Auth.begin(session)
-    end
+  test "duplicate delivery cannot erase an original exchange that is still publishing", %{
+    session: session
+  } do
+    TestGitHub.configure(exchange_response: {:wait, self(), {:ok, TestGitHub.bundle()}})
+    assert {:ok, reference} = Auth.admit(session, callback_params(session))
+    job = Lovelace.Repo.get!(Oban.Job, reference.job_id)
+    task = Task.async(fn -> Worker.perform(job) end)
+    assert_receive {:github_waiting, worker}
+    assert :ok = Worker.perform(job)
+    assert {:ok, %{status: :claimed}} = Exchange.get(reference.id)
+    send(worker, :continue)
+    assert :ok = Task.await(task)
+    assert {:ok, %{status: :completed, outcome: :connected}} = Exchange.get(reference.id)
+    assert Enum.count(TestGitHub.state().calls, &match?({:exchange_code, _, _, _, _, _}, &1)) == 1
+  end
 
+  test "invalid composed callback configuration refuses authorization", %{session: session} do
+    previous = Application.get_env(:lovelace, :github_callback_url)
+    on_exit(fn -> Application.put_env(:lovelace, :github_callback_url, previous) end)
+
+    Application.put_env(
+      :lovelace,
+      :github_callback_url,
+      "https://example.invalid/auth/github/callback"
+    )
+
+    assert Auth.callback_url() == nil
+    assert {:error, :configuration} = Auth.begin(session)
     assert TestGitHub.state().calls == []
   end
 
   test "revoked sessions refuse exchange commit", %{session: session, initial_tokens: initial} do
     TestGitHub.configure(exchange_response: {:wait, self(), {:ok, TestGitHub.bundle()}})
     params = callback_params(session)
-    task = Task.async(fn -> Auth.complete(session, params) end)
+    task = Task.async(fn -> OAuthJobs.complete(session, params) end)
     assert_receive {:github_waiting, worker}
     Lovelace.Owner.logout(session)
     send(worker, :continue)
@@ -165,7 +166,7 @@ defmodule Lovelace.GitHubAuthTest do
   } do
     TestGitHub.configure(exchange_response: {:wait, self(), {:ok, TestGitHub.bundle()}})
     params = callback_params(session)
-    task = Task.async(fn -> Auth.complete(session, params) end)
+    task = Task.async(fn -> OAuthJobs.complete(session, params) end)
     assert_receive {:github_waiting, worker}
     Vault.lock()
     send(worker, :continue)
@@ -177,7 +178,7 @@ defmodule Lovelace.GitHubAuthTest do
   test "changing client credentials fences in-flight authorization", %{session: session} do
     TestGitHub.configure(exchange_response: {:wait, self(), {:ok, TestGitHub.bundle()}})
     params = callback_params(session)
-    task = Task.async(fn -> Auth.complete(session, params) end)
+    task = Task.async(fn -> OAuthJobs.complete(session, params) end)
     assert_receive {:github_waiting, worker}
 
     assert {:ok, true} =
@@ -204,7 +205,7 @@ defmodule Lovelace.GitHubAuthTest do
       )
 
       params = callback_params(session)
-      task = Task.async(fn -> Auth.complete(session, params) end)
+      task = Task.async(fn -> OAuthJobs.complete(session, params) end)
       assert_receive {:github_waiting, worker}
 
       id =
@@ -226,8 +227,8 @@ defmodule Lovelace.GitHubAuthTest do
   } do
     TestGitHub.configure(exchange_response: {:error, :provider})
     params = callback_params(session)
-    assert {:error, _} = Auth.complete(session, params)
-    assert {:error, :expired} = Auth.complete(session, params)
+    assert {:error, _} = OAuthJobs.complete(session, params)
+    assert {:error, :expired} = OAuthJobs.complete(session, params)
 
     supervisor =
       if Process.whereis(Lovelace.Security.ProtectedSupervisor),
@@ -236,7 +237,7 @@ defmodule Lovelace.GitHubAuthTest do
 
     :ok = Supervisor.terminate_child(supervisor, Auth)
     {:ok, _} = Supervisor.restart_child(supervisor, Auth)
-    assert {:error, :expired} = Auth.complete(session, params)
+    assert {:error, :expired} = OAuthJobs.complete(session, params)
     assert TestGitHub.state().tokens == initial
   end
 
@@ -249,14 +250,16 @@ defmodule Lovelace.GitHubAuthTest do
       end)
     end)
 
-    assert {:error, :expired} = Auth.complete(session, params)
+    assert {:error, :expired} = OAuthJobs.complete(session, params)
     assert TestGitHub.state().calls == []
   end
 
   test "refresh uses the stored client secret and binds the rotated bundle", %{session: session} do
     {:ok, initial} = Operations.authorize(session, TestGitHub.bundle())
     expire(initial.connection.id)
-    assert {:ok, "github_access_rotated"} = Operations.access_token(initial.connection.id)
+
+    assert {:ok, "github_access_rotated"} =
+             Credentials.access_token(initial.connection.id)
 
     assert {:refresh_token, "Iv1.synthetic", "synthetic_client_secret", _} =
              Enum.find(TestGitHub.state().calls, &match?({:refresh_token, _, _, _}, &1))
@@ -277,7 +280,7 @@ defmodule Lovelace.GitHubAuthTest do
                actor: @owner
              )
 
-    assert {:error, :reconnect} = Operations.access_token(initial.connection.id)
+    assert {:error, :reconnect} = Credentials.access_token(initial.connection.id)
     refute Enum.any?(TestGitHub.state().calls, &match?({:refresh_token, _, _, _}, &1))
     assert %{connections: [account]} = Lovelace.GitHub.directory!(actor: @owner)
     assert account.status == :reauthorization
@@ -287,7 +290,7 @@ defmodule Lovelace.GitHubAuthTest do
     {:ok, initial} = Operations.authorize(session, TestGitHub.bundle())
     expire(initial.connection.id)
     TestGitHub.configure(refresh_response: {:wait, self(), {:ok, TestGitHub.bundle("late_pair")}})
-    task = Task.async(fn -> Operations.access_token(initial.connection.id) end)
+    task = Task.async(fn -> Credentials.access_token(initial.connection.id) end)
     assert_receive {:github_waiting, worker}
 
     assert {:ok, true} =
@@ -308,31 +311,9 @@ defmodule Lovelace.GitHubAuthTest do
     {:ok, initial} = Operations.authorize(session, TestGitHub.bundle())
     expire(initial.connection.id)
     TestGitHub.configure(refresh_response: {:error, :provider})
-    assert {:error, _} = Operations.access_token(initial.connection.id)
-    assert {:error, :reconnect} = Operations.access_token(initial.connection.id)
+    assert {:error, _} = Credentials.access_token(initial.connection.id)
+    assert {:error, :reconnect} = Credentials.access_token(initial.connection.id)
     assert Enum.count(TestGitHub.state().calls, &match?({:refresh_token, _, _, _}, &1)) == 1
-  end
-
-  defp commit_after_signal(auth, id, session, parent) do
-    commit = %Secret{value: fn -> await_commit_signal(session, parent) end}
-    GenServer.call(auth, {:commit, id, commit})
-  end
-
-  defp await_commit_signal(session, parent) do
-    send(parent, :github_commit_waiting)
-
-    receive do
-      :commit -> Operations.authorize(session, TestGitHub.bundle())
-    after
-      1_000 -> {:error, :test_timeout}
-    end
-  end
-
-  defp settle_worker(worker, :completed), do: send(worker, :continue)
-  defp settle_worker(worker, :crashed), do: Process.exit(worker, :kill)
-
-  defp set_endpoint_url(config, url) do
-    Endpoint.config_change([{Endpoint, Keyword.put(config, :url, url)}], [])
   end
 
   defp expire(id) do

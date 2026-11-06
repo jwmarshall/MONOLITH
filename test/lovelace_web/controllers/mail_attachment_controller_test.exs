@@ -1,8 +1,8 @@
 defmodule LovelaceWeb.MailAttachmentControllerTest do
   use LovelaceWeb.ConnCase, async: false
 
+  alias Lovelace.Google.Access
   alias Lovelace.Mail
-  alias Lovelace.Mail.Connections
 
   @owner %{role: :local_owner}
 
@@ -26,7 +26,7 @@ defmodule LovelaceWeb.MailAttachmentControllerTest do
     workspace = Lovelace.Workspaces.create_workspace!("Attachment controller", actor: @owner)
 
     {:ok, account} =
-      Connections.accept(
+      Access.accept(
         workspace.id,
         %{subject: "attachment-subject", email: "attachment@example.invalid"},
         "attachment-token"

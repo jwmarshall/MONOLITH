@@ -1,6 +1,7 @@
 defmodule LovelaceWeb.CalendarLiveTest do
   use LovelaceWeb.ConnCase, async: false
   import Phoenix.LiveViewTest
+  import Lovelace.TestSupport.BackgroundWork, only: [complete: 1]
   alias Lovelace.{Calendar, Mail, Workspaces}
   alias Lovelace.Integrations.Google.ClientCredentials
   alias Lovelace.TestSupport.OnboardingKeychain
@@ -8,9 +9,11 @@ defmodule LovelaceWeb.CalendarLiveTest do
 
   defmodule FakeIO do
     @moduledoc false
+    @behaviour Lovelace.Calendar.Provider
     def get(id), do: {:ok, "synthetic:" <> id}
     def refresh(token), do: {:ok, %{access_token: token}}
 
+    @impl true
     def calendars(token) do
       send(Application.fetch_env!(:lovelace, :calendar_live_owner), {:calendar_provider, token})
 
@@ -21,6 +24,7 @@ defmodule LovelaceWeb.CalendarLiveTest do
        }}
     end
 
+    @impl true
     def events(token, "primary", _from, _to) do
       day = Date.utc_today()
 
@@ -136,7 +140,7 @@ defmodule LovelaceWeb.CalendarLiveTest do
     poll(ctx.a, ctx.window)
     view |> element("#show-connections") |> render_click()
     view |> element("#open-connection-calendar") |> render_click()
-    render_async(view)
+    complete(view)
     assert has_element?(view, "#calendar-connections")
     refute has_element?(view, "#connections-panel, #gemini-connection")
 
@@ -176,7 +180,7 @@ defmodule LovelaceWeb.CalendarLiveTest do
       OnboardingKeychain.fail(failure)
       {:ok, view, _} = live(ctx.conn, ~p"/connections/calendar")
       render_hook(view, "calendar:day", ctx.window)
-      render_async(view)
+      complete(view)
 
       assert has_element?(
                view,
@@ -224,9 +228,9 @@ defmodule LovelaceWeb.CalendarLiveTest do
 
       OnboardingKeychain.fail(nil)
       view |> element("#calendar-connections-google-prerequisite a") |> render_click()
-      render_async(view)
+      complete(view)
       view |> element("#connections-calendar") |> render_click()
-      render_async(view)
+      complete(view)
       refute has_element?(view, "#calendar-connections-select-#{ctx.a.id} fieldset[disabled]")
 
       refute has_element?(

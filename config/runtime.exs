@@ -28,6 +28,10 @@ config :lovelace, LovelaceWeb.Endpoint,
 config :lovelace, :gmail,
   redirect_uri: "http://localhost:#{System.get_env("PORT", "4321")}/oauth/google/callback"
 
+config :lovelace,
+       :github_callback_url,
+       "http://localhost:#{System.get_env("PORT", "4321")}/auth/github/callback"
+
 # dotenvx injects these before startup. API keys are resolved only at the HTTP boundary,
 # never retained in application configuration, Ash attributes, or LiveView assigns.
 config :lovelace,

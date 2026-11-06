@@ -1,13 +1,13 @@
 defmodule LovelaceWeb.Endpoint do
   use Phoenix.Endpoint, otp_app: :lovelace
 
-  # The session will be stored in the cookie and signed,
-  # this means its contents can be read but not tampered with.
-  # Set :encryption_salt if you would also like to encrypt it.
+  # Deep-link return context can contain private mail search/pagination values.
+  # Encrypt as well as authenticate the browser session.
   @session_options [
     store: :cookie,
     key: "_lovelace_key",
     signing_salt: "AX124byL",
+    encryption_salt: "e2cY7mQp",
     same_site: "Lax",
     max_age: 43_200,
     http_only: true

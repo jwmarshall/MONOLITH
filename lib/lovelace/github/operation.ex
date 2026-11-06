@@ -7,8 +7,18 @@ defmodule Lovelace.GitHub.Operation do
       run Lovelace.GitHub.Operations
     end
 
+    action :home_summary, :map do
+      run Lovelace.GitHub.Operations
+    end
+
     action :discover, :map do
       argument :connection_id, :uuid, allow_nil?: false
+      run Lovelace.GitHub.Operations
+    end
+
+    action :run_discovery, :map do
+      argument :connection_id, :uuid, allow_nil?: false
+      argument :discovery_id, :uuid, allow_nil?: false
       run Lovelace.GitHub.Operations
     end
 

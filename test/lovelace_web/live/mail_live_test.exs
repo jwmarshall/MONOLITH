@@ -1,11 +1,13 @@
 defmodule LovelaceWeb.MailLiveTest do
   # Exercise the delegated callbacks without HomeLive wiring, live Google, or Keychain.
   use LovelaceWeb.ConnCase, async: false
+  use Oban.Testing, repo: Lovelace.Repo, engine: Oban.Engines.Lite
 
   import Phoenix.LiveViewTest
+  import Lovelace.TestSupport.BackgroundWork, only: [complete: 1]
 
   alias Lovelace.Mail
-  alias Lovelace.Mail.{CacheEntry, PollWorker, ViewData}
+  alias Lovelace.Mail.{CacheEntry, DisconnectWorker, PollWorker, ReadWorker, ViewData}
   alias LovelaceWeb.{HomeMail, MailComponents}
 
   defmodule Harness do
@@ -24,8 +26,6 @@ defmodule LovelaceWeb.MailLiveTest do
     @impl true
     def handle_info(message, socket), do: HomeMail.handle_info(message, socket)
     @impl true
-    def handle_async(name, result, socket), do: HomeMail.handle_async(name, result, socket)
-    @impl true
     def render(assigns), do: ~H"<MailComponents.panel mail={@mail} workspace={@workspace} />"
   end
 
@@ -38,25 +38,32 @@ defmodule LovelaceWeb.MailLiveTest do
 
   defmodule FakeProvider do
     @moduledoc false
-    def refresh("fake-refresh"), do: {:ok, %{access_token: "fake-access"}}
+    @spec refresh(binary()) :: {:ok, Lovelace.Google.OAuthProvider.tokens()}
+    def refresh("fake-refresh"), do: {:ok, %{access_token: "fake-access", expires_in: 3600}}
 
+    @spec inbox(binary(), Lovelace.Mail.Provider.page_token()) ::
+            {:ok, Lovelace.Mail.Provider.page()}
     def inbox("fake-access", token),
       do: page(if(token, do: "Next page", else: "Private inbox subject"))
 
+    @spec search(binary(), binary(), Lovelace.Mail.Provider.page_token()) ::
+            {:ok, Lovelace.Mail.Provider.page()}
     def search("fake-access", "everywhere", _), do: page("Account-wide match")
 
+    @spec thread(binary(), binary()) :: {:ok, Lovelace.Mail.Provider.thread()}
     def thread("fake-access", "t1") do
       {:ok,
        %{
-         "id" => "t1",
-         "messages" => [
+         id: "t1",
+         messages: [
            %{
-             "id" => "m1",
-             "subject" => "Private conversation subject",
-             "from" => "sender@example.test",
-             "to" => "first@example.test",
-             "date" => "Yesterday",
-             "text" => "Private body <img src=\"https://remote.test/pixel\">"
+             id: "m1",
+             subject: "Private conversation subject",
+             from: "sender@example.test",
+             to: "first@example.test",
+             date: "Yesterday",
+             text: "Private body <img src=\"https://remote.test/pixel\">",
+             attachments: []
            }
          ]
        }}
@@ -66,23 +73,56 @@ defmodule LovelaceWeb.MailLiveTest do
       do:
         {:ok,
          %{
-           "threads" => [
+           threads: [
              %{
-               "id" => "t1",
-               "subject" => subject,
-               "from" => "sender@example.test",
-               "snippet" => "Private snippet",
-               "date" => "Yesterday",
-               "unread" => true
+               id: "t1",
+               subject: subject,
+               from: "sender@example.test",
+               snippet: "Private snippet",
+               date: "Yesterday",
+               unread: true
              }
            ],
-           "next_page_token" => "next"
+           next_page_token: "next"
          }}
+  end
+
+  defmodule EmptyProvider do
+    @moduledoc false
+    defdelegate refresh(token), to: FakeProvider
+    def inbox(_token, _page), do: {:ok, %{threads: [], next_page_token: nil}}
+  end
+
+  defmodule OfflineProvider do
+    @moduledoc false
+    defdelegate refresh(token), to: FakeProvider
+    def inbox(_token, _page), do: {:error, :transport_error}
+  end
+
+  defmodule FailedCleanupVault do
+    @moduledoc false
+    defdelegate get(id), to: FakeVault
+    def delete(_id), do: {:error, :unavailable}
+  end
+
+  defmodule UncertainRevocationProvider do
+    @moduledoc false
+    def revoke(_token), do: {:error, :transport_error}
   end
 
   @owner %{role: :local_owner}
 
   setup do
+    previous_provider = Application.fetch_env(:lovelace, :gmail_provider)
+    previous_vault = Application.fetch_env(:lovelace, :gmail_vault)
+    Application.put_env(:lovelace, :gmail_provider, FakeProvider)
+    Application.put_env(:lovelace, :gmail_vault, FakeVault)
+
+    on_exit(fn ->
+      restore(:gmail_provider, previous_provider)
+      restore(:gmail_vault, previous_vault)
+    end)
+
     workspace = Lovelace.Workspaces.create_workspace!("Mail test", actor: @owner)
     other_workspace = Lovelace.Workspaces.create_workspace!("Other mail test", actor: @owner)
     first = account("first")
@@ -130,7 +170,7 @@ defmodule LovelaceWeb.MailLiveTest do
         page_token: "old-page",
         fetched_at: DateTime.utc_now(),
         loading: true,
-        task: {:mail, :view, context.workspace.id, context.first.id, 100}
+        task: Ash.UUID.generate()
       })
 
     socket = select(socket, context.second.id)
@@ -145,31 +185,55 @@ defmodule LovelaceWeb.MailLiveTest do
     refute panel(socket, context.workspace) =~ "Private first account"
   end
 
-  test "late account, workspace and generation results cannot cross boundaries", context do
-    socket = select(context.socket, context.second.id)
-    current_task = {:mail, :view, context.workspace.id, context.second.id, 300}
-    socket = change(socket, %{generation: 300, loading: true, task: current_task})
+  test "late operations cannot populate a different account or reopened workspace", context do
+    old = pending(context.socket, context.first.id)
+    operation = old.assigns.mail.task
+    socket = select(old, context.second.id)
+    assert {:noreply, ^socket} = HomeMail.handle_info({:mail_operation, operation}, socket)
+    assert socket.assigns.mail.data_ref == nil
 
-    for name <- [
-          {:mail, :view, context.workspace.id, context.first.id, 300},
-          {:mail, :view, context.other_workspace.id, context.second.id, 300},
-          {:mail, :view, context.workspace.id, context.second.id, 299}
-        ] do
-      assert {:noreply, ^socket} = HomeMail.handle_async(name, result(), socket)
-    end
+    socket = HomeMail.open_workspace(socket, context.other_workspace)
+    assert {:noreply, ^socket} = HomeMail.handle_info({:mail_operation, operation}, socket)
+    assert socket.assigns.mail.account_id == nil
 
-    assert {:noreply, accepted} = HomeMail.handle_async(current_task, result(), socket)
-    refute accepted.assigns.mail.loading
+    socket = HomeMail.open_workspace(socket, context.workspace)
+    socket = pending(socket, context.first.id)
+    refute socket.assigns.mail.task == operation
+    assert {:noreply, ^socket} = HomeMail.handle_info({:mail_operation, operation}, socket)
+    socket = settle(socket)
+    assert panel(socket, context.workspace) =~ "Private inbox subject"
+    refute inspect(socket.assigns) =~ "Private inbox subject"
   end
 
   test "completion rechecks membership, discarding results detached while in flight", context do
     socket = pending(context.socket, context.first.id)
-    name = socket.assigns.mail.task
+    operation = socket.assigns.mail.task
     assert {:ok, true} = Mail.unlink(context.workspace.id, context.first.id, actor: @owner)
-    assert {:noreply, socket} = HomeMail.handle_async(name, result(), socket)
+    assert :ok = perform_job(ReadWorker, %{operation_id: operation})
+    assert {:noreply, socket} = HomeMail.handle_info({:mail_changed, context.first.id}, socket)
+    assert {:noreply, socket} = HomeMail.handle_info({:mail_operation, operation}, socket)
     assert socket.assigns.mail.account_id == nil
     assert socket.assigns.mail.data_ref == nil
     refute socket.assigns.mail.loading
+  end
+
+  test "an operation from an old connection generation cannot publish a conversation", context do
+    socket = pending(context.socket, context.first.id)
+
+    Mail.save_connection!(
+      %{
+        id: context.first.id,
+        subject: context.first.subject,
+        email: context.first.email,
+        generation: Ash.UUID.generate()
+      },
+      actor: @owner
+    )
+
+    socket = settle(socket)
+    assert socket.assigns.mail.error == :unavailable
+    assert socket.assigns.mail.data_ref == nil
+    refute panel(socket, context.workspace) =~ "Private inbox subject"
   end
 
   test "loading is an announced indeterminate status, distinct from actionable warnings",
@@ -207,53 +271,63 @@ defmodule LovelaceWeb.MailLiveTest do
     assert Enum.any?(LazyHTML.query(document, ".mail-warning"))
   end
 
-  test "successful page replaces the bounded list and retains truthful cache metadata", context do
-    socket = pending(context.socket, context.first.id)
-    threads = for n <- 1..25, do: %{"id" => "thread#{n}", "subject" => "Subject #{n}"}
-    time = ~U[2026-11-01 12:00:00Z]
-    ref = ViewData.put(%{"threads" => threads, "next_page_token" => "next"})
-
-    reply =
-      {:ok,
-       {:ok,
-        %{
-          data: nil,
-          data_ref: ref,
-          fetched_at: time,
-          cached: true,
-          stale: true,
-          error: :rate_limited
-        }}}
-
-    assert {:noreply, socket} = HomeMail.handle_async(socket.assigns.mail.task, reply, socket)
-    assert socket.assigns.mail.data_ref == ref
-    refute inspect(socket.assigns) =~ "Subject"
+  test "completed reads expose only an opaque render reference and truthful cache metadata",
+       context do
+    socket = context.socket |> pending(context.first.id) |> settle()
+    ref = socket.assigns.mail.data_ref
+    assert is_reference(ref)
+    assert %DateTime{} = socket.assigns.mail.fetched_at
     assert socket.assigns.mail.next_page_token == "next"
     refute socket.assigns.mail.loading
+    refute socket.assigns.mail.cached
+    refute socket.assigns.mail.stale
+    assert panel(socket, context.workspace) =~ "Private inbox subject"
+    refute inspect(socket.assigns) =~ "Private inbox subject"
+
+    socket = socket |> pending(context.first.id) |> settle()
+    assert socket.assigns.mail.cached
+    assert panel(socket, context.workspace) =~ "Local copy"
+    refute inspect(socket.assigns) =~ "Private snippet"
+  end
+
+  test "rendered lists stay bounded and expose stale-copy metadata without socket payloads",
+       context do
+    socket = select(context.socket, context.first.id)
+    threads = for n <- 1..25, do: %{"id" => "thread#{n}", "subject" => "Subject #{n}"}
+    ref = ViewData.put(%{"threads" => threads, "next_page_token" => "next"})
+
+    socket =
+      socket
+      |> change(%{
+        data_ref: ref,
+        data_loaded: true,
+        fetched_at: ~U[2026-11-01 12:00:00Z],
+        cached: true,
+        stale: true,
+        error: :rate_limited,
+        next_page_token: "next"
+      })
+
     html = panel(socket, context.workspace)
+    assert html =~ "Subject 1"
+    refute html =~ "Subject 25"
     assert html =~ "rate limit"
     assert html =~ "stale local mail"
     assert html =~ "2026-11-01 12:00:00 UTC"
     assert html =~ "Local copy"
-    refute html =~ "Subject 25"
+    refute inspect(socket.assigns) =~ "Subject"
   end
 
   test "empty and offline are distinct, and refresh failure preserves an existing copy",
        context do
-    socket = pending(context.socket, context.first.id)
-    assert {:noreply, socket} = HomeMail.handle_async(socket.assigns.mail.task, result(), socket)
+    Application.put_env(:lovelace, :gmail_provider, EmptyProvider)
+    socket = context.socket |> pending(context.first.id) |> settle()
     assert panel(socket, context.workspace) =~ "Your inbox is empty"
+    fetched_at = socket.assigns.mail.fetched_at
 
-    socket =
-      change(socket, %{
-        task: {:mail, :view, context.workspace.id, context.first.id, 400},
-        generation: 400,
-        loading: true
-      })
-
-    reply = {:ok, {:ok, %{data: nil, error: :unavailable, fetched_at: nil, stale: true}}}
-    assert {:noreply, socket} = HomeMail.handle_async(socket.assigns.mail.task, reply, socket)
-    assert socket.assigns.mail.fetched_at == ~U[2026-11-01 12:00:00Z]
+    Application.put_env(:lovelace, :gmail_provider, OfflineProvider)
+    socket = socket |> pending(context.first.id, %{force: true}) |> settle()
+    assert socket.assigns.mail.fetched_at == fetched_at
     assert panel(socket, context.workspace) =~ "Offline or Gmail unavailable"
     assert socket.assigns.mail.stale
     assert socket.assigns.mail.data_loaded
@@ -343,8 +417,14 @@ defmodule LovelaceWeb.MailLiveTest do
     assert LazyHTML.query(document, "#mail-message-m3 .mail-message-text") |> LazyHTML.text() =~
              "> Quoted history\nSignature <img"
 
-    assert LazyHTML.query(document, ".mail-attachment img[alt='photo.png']") |> LazyHTML.to_tree() !=
-             []
+    assert LazyHTML.query(document, ".mail-attachment img, .mail-attachment [src]")
+           |> LazyHTML.to_tree() == []
+
+    assert LazyHTML.query(
+             document,
+             ".mail-attachment a[href$='photo-1'][target='_blank'][rel='noopener noreferrer']"
+           )
+           |> LazyHTML.text() =~ "Preview image"
 
     assert LazyHTML.query(document, ".mail-attachment a[href*='photo-1?download=1']")
            |> LazyHTML.text() == "Download"
@@ -423,24 +503,31 @@ defmodule LovelaceWeb.MailLiveTest do
     assert socket.assigns.mail.workspace_id == nil
     assert socket.assigns.mail.account_id == nil
     assert socket.assigns.mail.accounts == []
-    assert {:noreply, ^socket} = HomeMail.handle_async(name, result(), socket)
+    assert {:noreply, ^socket} = HomeMail.handle_info({:mail_operation, name}, socket)
     assert {:noreply, ^socket} = HomeMail.handle_info({:mail_changed, context.first.id}, socket)
     assert {:noreply, ^socket} = HomeMail.handle_event("mail:unknown", %{}, socket)
-    assert {:noreply, ^socket} = HomeMail.handle_async({:mail, :unknown}, {:exit, :bad}, socket)
+
+    assert {:noreply, ^socket} =
+             HomeMail.handle_info({:mail_operation, Ash.UUID.generate()}, socket)
   end
 
   test "global disconnect reports partial credential or revocation outcomes truthfully",
        context do
-    socket = change(context.socket, %{command: {context.first.id, 700}})
-    name = {:mail, :disconnect, context.workspace.id, context.first.id, 700}
-    result = {:ok, {:ok, %{local_removed: true, credentials_removed: false, revoked: false}}}
-    assert {:noreply, socket} = HomeMail.handle_async(name, result, socket)
+    Application.put_env(:lovelace, :gmail_provider, UncertainRevocationProvider)
+    Application.put_env(:lovelace, :gmail_vault, FailedCleanupVault)
+
+    assert {:ok, %{operation_id: operation, state: :pending}} =
+             Mail.disconnect(context.first.id, actor: @owner)
+
+    socket = change(context.socket, %{command: {context.first.id, operation}})
+    assert :ok = perform_job(DisconnectWorker, %{operation_id: operation})
+    assert {:noreply, socket} = HomeMail.handle_info({:mail_operation, operation}, socket)
     assert socket.assigns.mail.command == nil
     assert socket.assigns.mail.notice =~ "credentials could not be removed"
     assert socket.assigns.mail.notice =~ "revocation could not be confirmed"
   end
 
-  test "real async delegation paginates, searches and renders bodies without socket payloads",
+  test "Oban-owned reads paginate, search and render bodies without socket payloads",
        context do
     previous_provider = Application.fetch_env(:lovelace, :gmail_provider)
     previous_vault = Application.fetch_env(:lovelace, :gmail_vault)
@@ -471,7 +558,7 @@ defmodule LovelaceWeb.MailLiveTest do
            )
 
     render_click(view, "mail:select", %{"id" => context.first.id})
-    assert render_async(view) =~ "Private inbox subject"
+    assert complete(view) =~ "Private inbox subject"
 
     assert has_element?(
              view,
@@ -497,9 +584,9 @@ defmodule LovelaceWeb.MailLiveTest do
            )
 
     render_click(view, "mail:next", %{})
-    assert render_async(view) =~ "Next page"
+    assert complete(view) =~ "Next page"
     view |> form("#mail-search", mail_search: %{query: "everywhere"}) |> render_submit()
-    assert render_async(view) =~ "Account-wide match"
+    assert complete(view) =~ "Account-wide match"
 
     assert has_element?(
              view,
@@ -507,7 +594,7 @@ defmodule LovelaceWeb.MailLiveTest do
            )
 
     render_click(view, "mail:thread", %{"id" => "t1"})
-    html = render_async(view)
+    html = complete(view)
     assert html =~ "Private body &lt;img"
     assigns = :sys.get_state(view.pid).socket.assigns
     refute inspect(assigns) =~ "Private body"
@@ -523,7 +610,7 @@ defmodule LovelaceWeb.MailLiveTest do
            )
 
     render_click(view, "mail:back", %{})
-    assert render_async(view) =~ "Account-wide match"
+    assert complete(view) =~ "Account-wide match"
     assert :sys.get_state(view.pid).socket.assigns.mail.query == "everywhere"
     assert has_element?(view, "#mail-thread-t1[data-mail-open-thread]")
 
@@ -561,7 +648,7 @@ defmodule LovelaceWeb.MailLiveTest do
       live_isolated(context.conn, Harness, session: %{"workspace_id" => context.workspace.id})
 
     render_click(view, "mail:select", %{"id" => context.first.id})
-    assert render_async(view) =~ "synthetic-ui-cooldown"
+    assert complete(view) =~ "synthetic-ui-cooldown"
 
     entry =
       CacheEntry
@@ -593,10 +680,10 @@ defmodule LovelaceWeb.MailLiveTest do
 
     calls = Lovelace.TestMail.calls()
     render(view)
-    assert render_async(view) =~ "rate limit"
+    assert complete(view) =~ "rate limit"
     assert Lovelace.TestMail.calls() == calls
     view |> element("#mail-account-view button", "Refresh") |> render_click()
-    assert render_async(view) =~ "rate limit"
+    assert complete(view) =~ "rate limit"
     assert Lovelace.TestMail.calls() == calls
   end
 
@@ -631,14 +718,33 @@ defmodule LovelaceWeb.MailLiveTest do
     socket
   end
 
-  defp pending(socket, id) do
-    socket = select(socket, id)
-    generation = socket.assigns.mail.generation
+  defp pending(socket, id, options \\ %{}) do
+    socket = if socket.assigns.mail.account_id == id, do: socket, else: select(socket, id)
 
-    change(socket, %{
-      task: {:mail, :view, socket.assigns.mail.workspace_id, id, generation},
-      loading: true
-    })
+    args =
+      Map.merge(
+        %{
+          account_id: id,
+          workspace_id: socket.assigns.mail.workspace_id,
+          owner: self(),
+          kind: :page,
+          query: nil,
+          page_token: nil,
+          thread_id: nil,
+          force: false
+        },
+        options
+      )
+
+    assert {:ok, %{operation_id: operation}} = Mail.request_read(args, actor: @owner)
+    change(socket, %{task: operation, loading: true})
+  end
+
+  defp settle(socket) do
+    operation = socket.assigns.mail.task
+    assert :ok = perform_job(ReadWorker, %{operation_id: operation})
+    assert {:noreply, socket} = HomeMail.handle_info({:mail_operation, operation}, socket)
+    socket
   end
 
   defp change(socket, values),
@@ -646,17 +752,4 @@ defmodule LovelaceWeb.MailLiveTest do
 
   defp panel(socket, workspace),
     do: render_component(&MailComponents.panel/1, mail: socket.assigns.mail, workspace: workspace)
-
-  defp result,
-    do:
-      {:ok,
-       {:ok,
-        %{
-          data: nil,
-          data_ref: ViewData.put(%{"threads" => []}),
-          fetched_at: ~U[2026-11-01 12:00:00Z],
-          cached: false,
-          stale: false,
-          error: nil
-        }}}
 end

@@ -5,14 +5,16 @@ defmodule Lovelace.OnboardingCalendarSetupTest do
   alias Ash.Resource.Info
   alias Lovelace.Calendar
   alias Lovelace.Calendar.{PollWorker, State}
+  alias Lovelace.Google.Access
   alias Lovelace.Mail
-  alias Lovelace.Mail.Connections
   alias Lovelace.Onboarding
   alias Lovelace.Onboarding.CalendarSetup
 
   @owner %{role: :local_owner}
 
   defmodule Provider do
+    @behaviour Lovelace.Calendar.Provider
+    @impl true
     def calendars(_) do
       Lovelace.TestMail.record(:calendar_catalog)
 
@@ -30,6 +32,7 @@ defmodule Lovelace.OnboardingCalendarSetupTest do
       end)
     end
 
+    @impl true
     def events(_, id, _, _) do
       Lovelace.TestMail.record({:calendar_events, id})
       {:ok, %{events: [], truncated: false}}
@@ -55,7 +58,7 @@ defmodule Lovelace.OnboardingCalendarSetupTest do
     {:ok, progress} = Onboarding.save_workspace("Calendar guide", actor: @owner)
 
     {:ok, account} =
-      Connections.accept(
+      Access.accept(
         progress.workspace_id,
         %{subject: "guide-calendar", email: "guide@example.invalid"},
         "guide-token",
@@ -141,6 +144,8 @@ defmodule Lovelace.OnboardingCalendarSetupTest do
     assert metadata.error == nil
     assert metadata.calendars == []
     refute Map.has_key?(metadata, :events)
+    assert metadata.selection_limit == 20
+    assert Map.delete(metadata, :workspace_id) == Calendar.catalog!(c.account.id, actor: @owner)
     assert {:ok, %{loading: true, catalog_at: nil}} = prepare(c)
     assert Lovelace.TestMail.calls() == []
     current = state(c.account)
@@ -288,7 +293,7 @@ defmodule Lovelace.OnboardingCalendarSetupTest do
 
     for {provider_error, displayed_error} <- [
           {:forbidden, :reconnect},
-          {:provider, :provider},
+          {:provider_error, :provider},
           {:unavailable, :unavailable}
         ] do
       Agent.update(
@@ -341,7 +346,7 @@ defmodule Lovelace.OnboardingCalendarSetupTest do
     populate(c)
 
     {:ok, replacement} =
-      Connections.accept(
+      Access.accept(
         c.workspace_id,
         %{subject: c.account.subject, email: c.account.email},
         "replacement-token",
@@ -399,7 +404,7 @@ defmodule Lovelace.OnboardingCalendarSetupTest do
     Mail.detach_account!(membership, actor: @owner)
 
     {:ok, replacement} =
-      Connections.accept(
+      Access.accept(
         c.workspace_id,
         %{subject: "new-guide-account", email: "replacement@example.invalid"},
         "replacement-token",

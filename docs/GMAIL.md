@@ -265,13 +265,32 @@ setup retain safe diagnostics at `/connections/gmail`. These are real paths, not
 Receiving-workspace fields in OAuth forms/state remain membership intent, separate
 from the post-consent destination and global Connections navigation.
 
+Google and GitHub code exchanges execute on the protected single-concurrency `:oauth`
+Oban queue. Authorized admission commits a safe correlation and ID-only job atomically;
+codes, verifiers and session-bound material stay in bounded ten-minute in-memory holders.
+A durable claim precedes secret consumption/provider exchange. Duplicate/rescued jobs never
+reuse a claimed code; holder loss, restart or interrupted exchange requires fresh sign-in.
+Google client replacement invalidates pending attempts before the native write. Safe exchange
+correlations expire after 24 hours with a 1,000-row admission bound; no credentials enter SQL.
+
+Interactive mail reads and account Keychain checks use authorized `Mail.request_read`
+admission and ID-only jobs on `:gmail`, not LiveView tasks. Scoped sensitive input in
+SQLCipher expires after ten minutes and is scrubbed at completion; at most 128 rows remain.
+One current operation per live view supersedes obsolete queued reads. Opaque status/result
+references are observable without PubSub. Private results belong to the authorized view,
+not the short-lived worker; account generation/membership is rechecked when resolving them.
+View exit, expiry and global Lock discard ephemeral results. These operations do not promise
+recovery of a rendered body after restart: request another read instead.
+
 ## Connection troubleshooting
 
 For existing accounts, **Connections → Gmail → Check Keychain** performs an explicit,
-local-only read for that account. The result contains only an allowlisted category
-and observation time, never the credential. It does not contact Google, change
-permissions, refresh mail or clear persisted sync errors/freshness. A readable token
-is **not** proof that Google still accepts it. Checks are asynchronous, one at a time
+local-only read for that account, including accounts with no workspace membership.
+The global request needs no workspace; its connection generation still fences delayed results.
+The result contains only an allowlisted category and observation time, never the credential.
+It does not contact Google, change permissions, refresh mail or clear persisted sync
+errors/freshness. A readable token is **not** proof that Google still accepts it.
+Checks are asynchronous, one at a time
 per view, and discarded across connection-generation changes or leaving Connections.
 
 - `locked`: the dedicated vault is locked, or the native helper reports authentication
@@ -338,8 +357,10 @@ interpreted as an absent credential during rollback.
 - Plain-text MIME is preferred; HTML-only mail is conservatively converted to text.
   All output is HEEx-escaped. No HTML rendering, scripts, automatic URL requests, remote
   external images or automatic attachment fetches. Opening a conversation lists bounded
-  attachment metadata; previews fetch only allowlisted raster formats and downloads are
-  explicit. Attachment bytes are not retained in SQLite. Oversized files/threads fail
+  attachment metadata; **Preview image** explicitly opens allowlisted raster formats in
+  a new authenticated tab, and **Download** is a separate explicit action. Neither
+  attachment route is requested merely by opening or scrolling a conversation.
+  Attachment bytes are not retained in SQLite. Oversized files/threads fail
   safely instead of rendering partial content. Current MIME text expects UTF-8.
 - Oban **2.24.2**, Apache-2.0, uses its bundled SQLite Lite engine. A minute cron sweep
   queues overdue per-account polls, targeting a three-minute interval, queue concurrency 1.
@@ -352,10 +373,11 @@ interpreted as an absent credential during rollback.
   automatic view refreshes, searches/threads and manual Refresh. Cached results retain
   the rate-limit/error and stale status; opening another view does not erase a known
   failure or extend the cooldown. Work already in flight cannot clear a newer cooldown.
-- Jobs contain only account ID and connection generation. Pending work survives restart;
-  Lifeline rescues abandoned work after five minutes, and the sweep discovers overdue
-  accounts after restart/resume. Each job has at most three attempts. Provider 429 responses
-  impose a five-minute wait; automatic retries are for read operations only.
+- Poll jobs contain only account ID and connection generation; interactive read/cleanup
+  jobs contain only an opaque operation ID. Pending authorized cleanup survives restart.
+  Lifeline rescues abandoned jobs after five minutes; sweeps discover overdue accounts.
+  Poll/cleanup jobs have at most three attempts; read jobs have two. Only safe read effects
+  retry; a durable remote-revocation claim prohibits replay of an unknown revoke.
 - Count observations are generation-fenced and cleared on reconnect/disconnect. Their
   separate errors preserve known values and observation times; a failed count read does
   not masquerade as a successful count update. Home's freshness label ages locally and
@@ -373,13 +395,19 @@ interpreted as an absent credential during rollback.
   reconciliation is implemented; review the **LOVELACE Gmail** service in Keychain Access
   and Google application access after an interrupted/failed connection. Do not share item
   values. Successful-return failure paths attempt restoration/deletion and report failures.
-- **Disconnect everywhere** in global **Connections** fences in-flight work, clears all workspace associations and
-  cached records, deletes the Keychain item and attempts Google revocation. Local cleanup
-  and revocation outcomes are reported separately. Failed credential deletion remains
-  visible for retry; failed/uncertain revocation needs review at
-  <https://myaccount.google.com/connections>. Google revocation can affect the application's
-  associated grants; it is not a Gmail message mutation. Minimal disconnected identity
-  metadata remains to reuse the stable connection ID on reconnection.
+- **Disconnect everywhere** atomically fences the connection generation, removes all
+  memberships/cache and commits a durable disconnection operation plus ID-only job.
+  Browser closure or navigation cannot cancel accepted cleanup. The worker retains the
+  credential only until its one-shot revocation attempt settles, then deletes it; interruption
+  after the durable claim becomes **uncertain**, never a repeated remote call. Missing
+  credentials mean **unavailable**, not verified revocation. Local removal, credential
+  deletion and remote outcome remain separate observable states. Failed deletion offers
+  retry without another revoke; reconnect supersedes obsolete cleanup before credential
+  mutation. Global Lock pauses work; unlock resumes under the same claim/generation fences.
+  Pending, failed or uncertain cleanup remains visible in Connections, with recovery at
+  <https://myaccount.google.com/connections>. Revocation may affect shared Google grants;
+  it is not a mailbox mutation. Minimal identity/operation metadata retains safe outcomes
+  and permits reuse of the stable connection ID on reconnection.
 
 ## Security and instrumentation decision
 
@@ -411,8 +439,11 @@ retain stock Bandit after reviewing this distinction:
   SQL or per-query overrides for mail. UI bodies live in bounded ephemeral render storage,
   not socket assigns. Standard browser/server instrumentation is not certified free of
   all private content; the explicit Bandit exception above remains.
-- Owner sessions are digest-only server records, 12-hour absolute expiry, rate-limited
-  unlock, CSRF protection, regenerated login sessions, and revocation/disconnection on lock.
+- Owner sessions are digest-only server records with 12-hour absolute expiry, rate-limited
+  unlock, CSRF protection, regenerated login sessions, and revocation/disconnection on Lock.
+  Browser session cookies are encrypted and signed, including private requested-destination
+  context through unlock; URLs/history can still expose submitted search context as described
+  above. Earlier signed-only cookies require fresh unlock after this cutover.
   Escape/inactivity is scenery mode, **not** a security lock. Use **Lock** explicitly.
 - Development Tidewave retains its pre-existing local code/SQL capability. Owner unlock
   does not sandbox development tooling. Never expose the application or Tidewave remotely.

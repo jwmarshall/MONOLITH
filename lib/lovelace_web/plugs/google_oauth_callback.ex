@@ -1,12 +1,9 @@
 defmodule LovelaceWeb.Plugs.GoogleOAuthCallback do
   @moduledoc "Consumes OAuth before Phoenix instrumentation; the documented stock Bandit exception remains."
   import Plug.Conn
-  alias Lovelace.Integrations.Google
-  alias Lovelace.Mail
-  alias Lovelace.Mail.{ConnectionDiagnostics, Connections, OAuth, Operations}
+  alias Lovelace.Mail.{ConnectionDiagnostics, OAuth}
   alias Lovelace.Security.Vault
   alias LovelaceWeb.Plugs.SensitivePath
-  @owner %{role: :local_owner}
 
   def init(opts), do: opts
 
@@ -61,9 +58,8 @@ defmodule LovelaceWeb.Plugs.GoogleOAuthCallback do
     params = URI.decode_query(query)
 
     with {:ok, _} <- step(:session, fn -> Lovelace.Owner.verify_session(session) end),
-         {:ok, state} <- step(:state, fn -> required(params, "state", 128) end),
-         {:ok, attempt} <- step(:state, fn -> OAuth.take(state, session) end) do
-      complete_attempt(attempt, params, session)
+         {:ok, state} <- step(:state, fn -> required(params, "state", 128) end) do
+      OAuth.complete(state, session, params)
     end
   rescue
     _ -> ConnectionDiagnostics.failure(:callback, :unexpected)
@@ -73,105 +69,7 @@ defmodule LovelaceWeb.Plugs.GoogleOAuthCallback do
 
   defp complete(_), do: ConnectionDiagnostics.failure(:callback, :invalid_callback)
 
-  defp complete_attempt(attempt, params, session) do
-    with :ok <- step(:consent, fn -> consent(params) end),
-         :ok <- step(:account_binding, fn -> current_onboarding(attempt) end),
-         {:ok, code} <- step(:code, fn -> required(params, "code", 4096) end),
-         {:ok, tokens} <-
-           step(:token_exchange, fn ->
-             Operations.provider().exchange_code(
-               code,
-               attempt.verifier,
-               LovelaceWeb.GoogleOAuthController.redirect_uri()
-             )
-           end),
-         :ok <- step(:consent, fn -> capability_scopes(attempt.capability, tokens) end),
-         {:ok, identity} <-
-           step(:identity, fn -> Operations.provider().identity(tokens.access_token) end),
-         :ok <-
-           step(:account_binding, fn ->
-             same_account(attempt, identity.subject)
-           end),
-         {:ok, refresh} <- step(:refresh_token, fn -> refresh_token(tokens, identity.subject) end),
-         {:ok, _} <- step(:session, fn -> Lovelace.Owner.verify_session(session) end),
-         :ok <- step(:account_binding, fn -> current_onboarding(attempt) end),
-         {:ok, _} <-
-           step(:connection, fn -> accept(attempt, identity, refresh) end),
-         :ok <- step(:connection, fn -> continue_onboarding(attempt) end) do
-      {:ok, attempt}
-    else
-      {:error, failure} -> {:error, failure, attempt}
-    end
-  rescue
-    _ -> attempt_failure(attempt)
-  catch
-    _, _ -> attempt_failure(attempt)
-  end
-
-  defp attempt_failure(attempt) do
-    {:error, failure} = ConnectionDiagnostics.failure(:callback, :unexpected)
-    {:error, failure, attempt}
-  end
-
-  defp continue_onboarding(%{origin: :onboarding} = attempt) do
-    case Ash.transact(Lovelace.Onboarding.State, fn -> advance_onboarding(attempt) end) do
-      {:ok, result} -> result
-      {:error, _} -> {:error, :unavailable}
-    end
-  end
-
-  defp continue_onboarding(_), do: :ok
-
-  defp advance_onboarding(attempt) do
-    with :ok <- onboarding_workspace(attempt),
-         {:ok, _} <- Lovelace.Onboarding.continue(:connect, actor: @owner) do
-      :ok
-    end
-  end
-
-  defp current_onboarding(%{origin: :onboarding, capability: :calendar} = attempt) do
-    with :ok <- onboarding_workspace(attempt),
-         {:ok, %{id: id, generation: generation}} <-
-           Lovelace.Onboarding.connection(actor: @owner),
-         true <- id == attempt.expected_account_id and generation == attempt.expected_generation do
-      :ok
-    else
-      _ -> {:error, :wrong_account}
-    end
-  end
-
-  defp current_onboarding(%{origin: :onboarding} = attempt), do: onboarding_workspace(attempt)
-  defp current_onboarding(_), do: :ok
-
-  defp onboarding_workspace(%{workspace_id: workspace_id}) do
-    case Lovelace.Onboarding.progress(actor: @owner) do
-      {:ok, %{workspace_id: ^workspace_id}} -> :ok
-      _ -> {:error, :wrong_account}
-    end
-  end
-
-  defp capability_scopes(:gmail, _), do: :ok
-
-  defp capability_scopes(:calendar, tokens),
-    do: if(Google.calendar_authorized?(tokens), do: :ok, else: {:error, :forbidden})
-
-  defp accept(%{capability: :calendar} = attempt, identity, refresh) do
-    Connections.accept(
-      attempt.workspace_id,
-      identity,
-      refresh,
-      :calendar,
-      attempt.expected_generation
-    )
-  end
-
-  defp accept(attempt, identity, refresh) do
-    Connections.accept(attempt.workspace_id, identity, refresh)
-  end
-
   defp step(stage, fun), do: ConnectionDiagnostics.step(stage, fun)
-
-  defp consent(params), do: if(is_nil(params["error"]), do: :ok, else: {:error, :denied})
 
   defp required(params, key, max) do
     case params[key] do
@@ -180,36 +78,6 @@ defmodule LovelaceWeb.Plugs.GoogleOAuthCallback do
 
       _ ->
         {:error, :invalid_callback}
-    end
-  end
-
-  defp same_account(%{capability: :calendar} = attempt, subject) do
-    case Mail.get_account(attempt.expected_account_id, actor: @owner) do
-      {:ok, %{subject: ^subject, generation: generation, status: status}}
-      when generation == attempt.expected_generation and status != :disconnected ->
-        :ok
-
-      _ ->
-        {:error, :wrong_account}
-    end
-  end
-
-  defp same_account(%{expected_account_id: expected}, _) when expected in [nil, ""], do: :ok
-
-  defp same_account(%{expected_account_id: id}, subject) do
-    case Mail.get_account(id, actor: @owner) do
-      {:ok, %{subject: ^subject}} -> :ok
-      _ -> {:error, :wrong_account}
-    end
-  end
-
-  defp refresh_token(%{refresh_token: token}, _) when is_binary(token) and byte_size(token) > 0,
-    do: {:ok, token}
-
-  defp refresh_token(_, subject) do
-    case Mail.find_account(subject, actor: @owner) do
-      {:ok, %{id: _}} -> {:ok, :reuse_existing}
-      _ -> {:error, :reconnect}
     end
   end
 end

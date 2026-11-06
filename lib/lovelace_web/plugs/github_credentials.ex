@@ -102,7 +102,7 @@ defmodule LovelaceWeb.Plugs.GitHubCredentials do
   end
 
   defp perform(%{"operation" => "discover", "connection_id" => id}, _) when is_binary(id),
-    do: result(GitHub.discover(id, actor: @owner), "discovered")
+    do: result(GitHub.discover(id, actor: @owner), "discovery_queued")
 
   defp perform(%{"operation" => "disconnect_account", "connection_id" => id}, _)
        when is_binary(id),

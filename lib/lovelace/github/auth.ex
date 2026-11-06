@@ -1,10 +1,11 @@
 defmodule Lovelace.GitHub.Auth do
-  @moduledoc "Session-bound, single-use GitHub App web authorization, stopped by global Lock."
+  @moduledoc "Protected bounded session-bound secrets for Oban-owned one-use GitHub authorization."
   use GenServer
-  alias Lovelace.GitHub.{ClientCredentials, Operations}
+  alias Lovelace.GitHub.{Callback, ClientCredentials, Operations}
   alias Lovelace.Owner
   alias Lovelace.Owner.Actions
   alias Lovelace.Security.{Secret, Vault}
+  @owner %{role: :local_owner}
   @service [actor: %{role: :owner_auth_service}]
   @limit 16
   @ttl 600_000
@@ -13,55 +14,78 @@ defmodule Lovelace.GitHub.Auth do
   def begin(session) when is_binary(session), do: call({:begin, %Secret{value: session}})
   def begin(_), do: {:error, :unavailable}
 
-  def complete(session, params) when is_binary(session) and is_map(params),
-    do: call({:complete, %Secret{value: {session, params}}}, {:error, :unavailable}, 180_000)
+  def complete(session, params) do
+    with {:ok, %{id: id}} <- admit(session, params), do: Lovelace.OAuth.await(id, __MODULE__)
+  end
 
-  def complete(_, _), do: {:error, :expired}
+  def admit(session, params) when is_binary(session) and is_map(params) do
+    with {:ok, _} <- Owner.verify_session(session),
+         {:ok, id} <- call({:prepare, %Secret{value: {session, params}}}),
+         {:ok, reference} <- enqueue(id) do
+      {:ok, reference}
+    else
+      _ -> {:error, :expired}
+    end
+  end
+
+  def admit(_, _), do: {:error, :expired}
+
+  defp enqueue(id) do
+    case Lovelace.OAuth.exchange(id, :github, actor: @owner) do
+      {:ok, _} = accepted ->
+        accepted
+
+      _ ->
+        call({:settle, id, {:error, :unavailable}})
+        {:error, :unavailable}
+    end
+  end
+
   def cancel(session) when is_binary(session), do: call({:cancel, Actions.digest(session)})
   def cancel(_), do: {:error, :unavailable}
   def status(digest) when is_binary(digest), do: call({:status, digest}, %{status: :idle})
   def status(_), do: %{status: :idle}
+  def result(id), do: call({:result, id})
+  def callback_url, do: Callback.url()
 
-  def callback_url do
-    uri = URI.parse(LovelaceWeb.Endpoint.url())
+  def execute(id) do
+    result =
+      guarded_access(fn ->
+        case call({:claim, id}) do
+          {:ok, %Secret{value: attempt}} -> exchange(attempt, attempt.params)
+          _ -> {:error, :expired}
+        end
+      end)
 
-    if uri.scheme in ["http", "https"] and uri.host == "localhost" and
-         uri.userinfo == nil and uri.query == nil and uri.fragment == nil do
-      URI.to_string(%{uri | path: "/auth/github/callback"})
-    else
-      nil
-    end
+    call({:settle, id, result})
+    result
   end
 
-  @impl true
-  def init(_) do
-    Process.flag(:trap_exit, true)
-    {:ok, %{}}
-  end
+  defp configuration(session), do: guarded_access(fn -> authorization_configuration(session) end)
 
   @impl true
-  def handle_call({:begin, %Secret{value: session}}, _from, attempts) do
-    attempts = prune(attempts)
+  def init(_), do: {:ok, %{}}
+
+  @impl true
+  def handle_call({:begin, %Secret{value: session}}, _, attempts) do
+    attempts = make_room(prune(attempts), Actions.digest(session))
     key = Actions.digest(session)
-    attempts = make_room(attempts, key)
-
-    result = guarded_access(fn -> authorization_configuration(session) end)
 
     cond do
-      match?(%{worker: worker} when is_pid(worker), attempts[key]) ->
+      public(attempts[key]).status == :exchanging ->
         {:reply, {:error, :busy}, attempts}
 
       map_size(attempts) >= @limit and not Map.has_key?(attempts, key) ->
         {:reply, {:error, :busy}, attempts}
 
       true ->
-        case result do
+        case configuration(session) do
           {:ok, client, uri, fence} ->
             state = random()
             verifier = random()
 
             attempt = %{
-              id: make_ref(),
+              id: Ash.UUID.generate(),
               session: %Secret{value: session},
               state_digest: Actions.digest(state),
               verifier: %Secret{value: verifier},
@@ -69,9 +93,7 @@ defmodule Lovelace.GitHub.Auth do
               callback_url: uri,
               fence: fence,
               expires: now() + @ttl,
-              status: :pending,
-              worker: nil,
-              caller: nil
+              status: :pending
             }
 
             query =
@@ -95,14 +117,15 @@ defmodule Lovelace.GitHub.Auth do
     end
   end
 
-  def handle_call({:complete, %Secret{value: {session, params}}}, from, attempts) do
+  def handle_call({:prepare, %Secret{value: {session, params}}}, _, attempts) do
     key = Actions.digest(session)
 
-    case attempts[key] do
-      %{status: :pending, expires: expires, state_digest: digest} = attempt ->
-        if expires > now() and valid_session?(session) and
-             is_binary(params["state"]) and Actions.digest(params["state"]) == digest do
-          {:noreply, Map.put(attempts, key, launch_exchange(attempt, params, from))}
+    case prune(attempts)[key] do
+      %{status: :pending} = attempt ->
+        if valid_session?(session) and is_binary(params["state"]) and
+             Actions.digest(params["state"]) == attempt.state_digest do
+          prepared = Map.merge(attempt, %{status: :queued, params: %Secret{value: params}})
+          {:reply, {:ok, attempt.id}, Map.put(attempts, key, prepared)}
         else
           {:reply, {:error, :expired}, attempts}
         end
@@ -112,15 +135,89 @@ defmodule Lovelace.GitHub.Auth do
     end
   end
 
-  def handle_call({:cancel, key}, _from, attempts) do
-    case attempts[key] do
-      %{status: :connected} -> {:reply, {:error, :already_authorized}, attempts}
-      nil -> {:reply, :ok, attempts}
-      attempt -> {:reply, :ok, Map.put(attempts, key, terminal(attempt, :cancelled))}
+  def handle_call({:claim, id}, _, attempts) do
+    case find(prune(attempts), id) do
+      {key, %{status: :queued} = attempt} ->
+        if current?(attempt) do
+          secret = Map.put(attempt, :params, attempt.params.value)
+
+          claimed =
+            Map.drop(attempt, [:params, :verifier, :state_digest])
+            |> Map.put(:status, :exchanging)
+
+          {:reply, {:ok, %Secret{value: secret}}, Map.put(attempts, key, claimed)}
+        else
+          {:reply, {:error, :expired}, Map.put(attempts, key, terminal(attempt, :failed))}
+        end
+
+      _ ->
+        {:reply, {:error, :expired}, attempts}
     end
   end
 
-  def handle_call({:status, key}, _from, attempts) do
+  def handle_call({:commit, id, %Secret{value: fun}}, _, attempts) do
+    case find(attempts, id) do
+      {key, %{status: :exchanging} = attempt} ->
+        result = if current?(attempt), do: guarded_access(fun), else: {:error, :expired}
+
+        next =
+          if match?({:ok, _}, result),
+            do: terminal(attempt, :connected) |> Map.put(:result, result),
+            else: attempt
+
+        {:reply, result, Map.put(attempts, key, next)}
+
+      _ ->
+        {:reply, {:error, :expired}, attempts}
+    end
+  end
+
+  def handle_call({:cancel, key}, _, attempts) do
+    case attempts[key] do
+      %{status: :connected} ->
+        {:reply, {:error, :already_authorized}, attempts}
+
+      nil ->
+        {:reply, :ok, attempts}
+
+      attempt ->
+        {:reply, :ok,
+         Map.put(
+           attempts,
+           key,
+           terminal(attempt, :cancelled) |> Map.put(:result, {:error, :expired})
+         )}
+    end
+  end
+
+  def handle_call({:settle, id, result}, _, attempts) do
+    case find(attempts, id) do
+      {_, %{status: status}} when status in [:connected, :cancelled] ->
+        {:reply, :ok, attempts}
+
+      {key, attempt} ->
+        status = if match?({:ok, _}, result), do: :connected, else: :failed
+
+        {:reply, :ok,
+         Map.put(attempts, key, terminal(attempt, status) |> Map.put(:result, result))}
+
+      _ ->
+        {:reply, :ok, attempts}
+    end
+  end
+
+  def handle_call({:result, id}, _, attempts) do
+    result =
+      case find(prune(attempts), id) do
+        {_, %{result: result}} -> result
+        {_, _} -> :pending
+        _ -> {:error, :expired}
+      end
+
+    {:reply, result, prune(attempts)}
+  end
+
+  def handle_call({:status, key}, _, attempts) do
     attempts = prune(attempts)
 
     reply =
@@ -129,49 +226,6 @@ defmodule Lovelace.GitHub.Auth do
         else: %{status: :idle}
 
     {:reply, reply, attempts}
-  end
-
-  def handle_call({:commit, id, %Secret{value: fun}}, _from, attempts) do
-    case find(attempts, id) do
-      {key, %{status: :exchanging} = attempt} ->
-        commit_attempt(attempt, key, fun, attempts)
-
-      _ ->
-        {:reply, {:error, :expired}, attempts}
-    end
-  end
-
-  @impl true
-  def handle_info({:completed, id, %Secret{value: result}}, attempts) do
-    case find(attempts, id) do
-      {key, %{status: :connected} = attempt} ->
-        {:noreply, Map.put(attempts, key, %{attempt | worker: nil})}
-
-      {key, attempt} ->
-        result = if attempt.status == :exchanging, do: result, else: {:error, :expired}
-        if attempt.caller, do: GenServer.reply(attempt.caller, result)
-        status = if match?({:ok, _}, result), do: :connected, else: :failed
-        settled = terminal(attempt, status) |> Map.merge(%{worker: nil, caller: nil})
-        {:noreply, Map.put(attempts, key, settled)}
-
-      _ ->
-        {:noreply, attempts}
-    end
-  end
-
-  def handle_info({:EXIT, pid, reason}, attempts) when reason != :normal do
-    attempts = Map.new(attempts, fn {key, attempt} -> {key, worker_exited(attempt, pid)} end)
-
-    {:noreply, attempts}
-  end
-
-  def handle_info(_, attempts), do: {:noreply, attempts}
-
-  @impl true
-  def terminate(_, attempts) do
-    Enum.each(attempts, fn {_, attempt} ->
-      if is_pid(attempt.worker), do: Process.exit(attempt.worker, :shutdown)
-    end)
   end
 
   @impl true
@@ -187,56 +241,12 @@ defmodule Lovelace.GitHub.Auth do
     end
   end
 
-  defp launch_exchange(attempt, params, caller) do
-    # Consume before spawning: crashes, concurrent callbacks and unknown exchange
-    # outcomes can never retry the same authorization code.
-    attempt = %{attempt | status: :exchanging, caller: caller}
-    parent = self()
-    worker = spawn_link(fn -> complete_exchange(attempt, params, parent) end)
-    %{attempt | worker: worker}
-  end
+  defp exchange(_, %{"error" => "access_denied"}), do: {:error, :denied}
 
-  defp complete_exchange(attempt, params, parent) do
-    result = guarded_access(fn -> exchange(attempt, params, parent) end)
-    send(parent, {:completed, attempt.id, %Secret{value: result}})
-  end
-
-  defp commit_attempt(attempt, key, fun, attempts) do
-    result =
-      if attempt.expires > now() and valid_session?(attempt.session.value),
-        do: guarded_access(fun),
-        else: {:error, :expired}
-
-    {:reply, result, Map.put(attempts, key, committed_attempt(attempt, result))}
-  end
-
-  defp committed_attempt(attempt, {:ok, _} = result) do
-    if attempt.caller, do: GenServer.reply(attempt.caller, result)
-    terminal(attempt, :connected) |> Map.put(:caller, nil)
-  end
-
-  defp committed_attempt(attempt, _result), do: attempt
-
-  defp worker_exited(attempt, pid) do
-    cond do
-      attempt.worker != pid ->
-        attempt
-
-      attempt.status == :connected ->
-        %{attempt | worker: nil}
-
-      true ->
-        if attempt.caller, do: GenServer.reply(attempt.caller, {:error, :unavailable})
-        terminal(attempt, :failed) |> Map.merge(%{worker: nil, caller: nil})
-    end
-  end
-
-  defp exchange(_attempt, %{"error" => "access_denied"}, _parent), do: {:error, :denied}
-
-  defp exchange(attempt, params, parent) do
+  defp exchange(attempt, params) do
     with true <- is_nil(params["error"]),
          code when is_binary(code) and byte_size(code) in 1..4096 <- params["code"],
-         true <- valid_session?(attempt.session.value),
+         true <- current?(attempt),
          {:ok, client} <- ClientCredentials.current(),
          true <- client.generation == attempt.client_generation,
          {:ok, bundle} <-
@@ -250,7 +260,7 @@ defmodule Lovelace.GitHub.Auth do
       Operations.authorize(
         attempt.session.value,
         Map.put(bundle, :client_generation, client.generation),
-        fn fun -> GenServer.call(parent, {:commit, attempt.id, %Secret{value: fun}}, 30_000) end,
+        fn fun -> call({:commit, attempt.id, %Secret{value: fun}}) end,
         attempt.fence
       )
     else
@@ -258,56 +268,53 @@ defmodule Lovelace.GitHub.Auth do
     end
   end
 
-  defp terminal(attempt, status),
-    do:
-      attempt
-      |> Map.drop([:session, :verifier, :state_digest, :fence, :callback_url, :client_generation])
-      |> Map.merge(%{status: status, expires: now() + @ttl})
+  defp current?(attempt) do
+    attempt.expires > now() and valid_session?(attempt.session.value) and
+      callback_url() == attempt.callback_url and
+      case ClientCredentials.current() do
+        {:ok, client} -> client.generation == attempt.client_generation
+        _ -> false
+      end
+  end
 
+  defp terminal(attempt, status), do: %{id: attempt.id, status: status, expires: now() + @ttl}
   defp public(nil), do: %{status: :idle}
   defp public(%{status: :cancelled}), do: %{status: :idle}
+
+  defp public(%{status: status, id: id}) when status in [:queued, :exchanging],
+    do: %{status: if(Lovelace.OAuth.pending?(id), do: :exchanging, else: :failed)}
+
   defp public(attempt), do: %{status: attempt.status}
-
-  defp prune(attempts),
-    do:
-      Map.filter(attempts, fn {_, attempt} ->
-        attempt.expires > now() or is_pid(attempt.worker)
-      end)
-
-  defp find(attempts, id), do: Enum.find(attempts, fn {_, attempt} -> attempt.id == id end)
+  defp prune(attempts), do: Map.filter(attempts, fn {_, a} -> a.expires > now() end)
+  defp find(attempts, id), do: Enum.find(attempts, fn {_, a} -> a.id == id end)
   defp valid_session?(session), do: match?({:ok, _}, Owner.verify_session(session))
   defp random, do: Base.url_encode64(:crypto.strong_rand_bytes(32), padding: false)
+  defp now, do: System.monotonic_time(:millisecond)
 
   defp make_room(attempts, key) do
     if map_size(attempts) >= @limit and not Map.has_key?(attempts, key) do
-      case Enum.find(attempts, fn {_, attempt} ->
-             attempt.status not in [:pending, :exchanging] and not is_pid(attempt.worker)
-           end) do
+      case Enum.find(attempts, fn {_, a} -> public(a).status not in [:pending, :exchanging] end) do
         {evict, _} -> Map.delete(attempts, evict)
-        nil -> attempts
+        _ -> attempts
       end
     else
       attempts
     end
   end
 
-  defp now, do: System.monotonic_time(:millisecond)
-
   defp provider,
     do: Application.get_env(:lovelace, :github_provider, Lovelace.Integrations.GitHub)
 
-  defp guarded_access(fun), do: guarded(fn -> Vault.with_access(fun) end)
-
-  defp guarded(fun) do
-    fun.()
+  defp guarded_access(fun) do
+    Vault.with_access(fun)
   rescue
     _ -> {:error, :unavailable}
   catch
     _, _ -> {:error, :unavailable}
   end
 
-  defp call(message, fallback \\ {:error, :unavailable}, timeout \\ 30_000) do
-    GenServer.call(__MODULE__, message, timeout)
+  defp call(message, fallback \\ {:error, :unavailable}) do
+    GenServer.call(__MODULE__, message, 30_000)
   catch
     :exit, _ -> fallback
   end

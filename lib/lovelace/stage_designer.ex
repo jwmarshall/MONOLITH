@@ -37,6 +37,8 @@ defmodule Lovelace.StageDesigner do
       define :check_scene_attempt, action: :check_scene_attempt
       define :request_scene_generation, action: :request_scene_generation
       define :generate_on_startup, action: :startup
+      define :schedule_recovery, action: :schedule_recovery
+      define :recover, action: :recover
       define :retry_failed_startup, action: :retry_failed
       define :gemini_connection_status, action: :gemini_connection_status
       define :save_gemini_key, action: :save_gemini_key, args: [:api_key]

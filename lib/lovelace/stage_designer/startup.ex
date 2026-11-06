@@ -3,16 +3,35 @@ defmodule Lovelace.StageDesigner.Startup do
   use Ash.Resource.Actions.Implementation
 
   alias Lovelace.StageDesigner
-  alias Lovelace.StageDesigner.{Coordination, Generation, Settings, Storage}
+  alias Lovelace.StageDesigner.{Coordination, Generation, RecoveryWorker, Settings, Storage}
 
   @impl true
+  def run(_input, [operation: :schedule_recovery], _context) do
+    case %{"id" => Ash.UUID.generate()} |> RecoveryWorker.new() |> Oban.insert() do
+      {:ok, _job} -> {:ok, :scheduled}
+      _ -> {:error, :background_unavailable}
+    end
+  rescue
+    _ -> {:error, :background_unavailable}
+  end
+
+  def run(_input, [operation: :recover], _context) do
+    storage = reconcile_storage(Settings.get(), DateTime.utc_now())
+    attempts = Generation.reconcile()
+
+    if storage == :ok and attempts == :ok,
+      do: {:ok, :recovered},
+      else: {:error, :background_unavailable}
+  rescue
+    _ -> {:error, :background_unavailable}
+  end
+
   def run(input, opts, _context) do
     settings = Settings.get()
 
     result =
       if settings.enabled or opts[:retry_failed?] do
         now = input.arguments.now
-        reconcile_storage(settings, now)
         Generation.startup(settings, now, Keyword.get(opts, :retry_failed?, false))
       else
         :disabled
@@ -28,8 +47,11 @@ defmodule Lovelace.StageDesigner.Startup do
       {:ok, state} when not is_nil(state) ->
         Storage.reconcile(settings, state.history, DateTime.to_unix(now))
 
-      _ ->
+      {:ok, nil} ->
         :ok
+
+      _ ->
+        {:error, :background_unavailable}
     end
   end
 

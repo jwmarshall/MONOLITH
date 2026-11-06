@@ -34,7 +34,7 @@ defmodule Lovelace.Application do
   end
 
   if Mix.env() == :test do
-    alias Lovelace.StageDesigner.Generation
+    alias Lovelace.Security.ProtectedSupervisor
 
     defp protected_children(startup_id) do
       if Vault.enabled?() do
@@ -43,31 +43,10 @@ defmodule Lovelace.Application do
         [
           Lovelace.Repo,
           {Ecto.Migrator,
-           repos: Application.fetch_env!(:lovelace, :ecto_repos), skip: skip_migrations?()},
-          %{
-            id: Lovelace.StageDesigner.DefaultScene,
-            start: {Lovelace.StageDesigner.BundledScenes, :initialize, []}
-          },
-          Lovelace.Mail.OAuth,
-          Lovelace.GitHub.Auth,
-          Lovelace.Mail.ViewData,
-          {Oban, Application.fetch_env!(:lovelace, Oban)},
-          %{
-            id: Lovelace.StageDesigner.Startup,
-            start:
-              {Task, :start_link,
-               [
-                 fn ->
-                   Generation.reconcile()
-
-                   Lovelace.StageDesigner.generate_on_startup(%{},
-                     actor: %{role: :stage_designer}
-                   )
-                 end
-               ]},
-            restart: :temporary
-          }
-        ]
+           repos: Application.fetch_env!(:lovelace, :ecto_repos), skip: skip_migrations?()}
+        ] ++
+          ProtectedSupervisor.runtime_children() ++
+          [{Oban, Application.fetch_env!(:lovelace, Oban)}]
       end
     end
 

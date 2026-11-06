@@ -290,12 +290,13 @@ defmodule LovelaceWeb.MailComponents do
                       :if={!downloadable_attachment?(attachment["size"])}
                       class="mail-muted"
                     >Larger than the 5 MiB limit</span>
-                    <img
+                    <a
                       :if={
                         previewable_image?(attachment["mime_type"]) &&
                           downloadable_attachment?(attachment["size"])
                       }
-                      src={
+                      class="workspace-action"
+                      href={
                         attachment_path(
                           @mail.account_id,
                           @mail.thread_id,
@@ -303,10 +304,10 @@ defmodule LovelaceWeb.MailComponents do
                           attachment["attachment_id"]
                         )
                       }
-                      alt={attachment["filename"]}
-                      loading="lazy"
-                      referrerpolicy="no-referrer"
-                    />
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      aria-label={"Preview image #{attachment["filename"]} (opens in a new tab)"}
+                    >Preview image<span class="sr-only"> (opens in a new tab)</span></a>
                   </li>
                 </ul>
               </section>
@@ -570,6 +571,22 @@ defmodule LovelaceWeb.MailComponents do
             <.disconnect account={account} busy={!!@mail.command || !!@mail.credential_check} />
           </div>
           <.credential_check account={account} check={credential_check_result(@mail, account)} />
+          <div :if={cleanup = Map.get(account, :cleanup)} class="mail-muted" role="status">
+            <p :if={cleanup.state == :pending}>
+              Local account removed. Credential cleanup and Google revocation are pending.
+            </p>
+            <p :if={cleanup.state != :pending && !cleanup.credentials_removed}>
+              Local account removed. Credential removal needs retrying.
+            </p>
+            <p :if={cleanup.state != :pending && cleanup.remote != :revoked}>
+              Google revocation is not confirmed ({cleanup.remote}). Review <a
+                href="https://myaccount.google.com/connections"
+                target="_blank"
+                rel="noopener noreferrer"
+                class="workspace-action-link"
+              >Google account access</a>.
+            </p>
+          </div>
         </article>
       </div>
       <LovelaceWeb.ModalComponents.modal

@@ -17,6 +17,7 @@ File.chmod!(root, 0o700)
 # synthetic read-only responses; the normal test-build guards also remain.
 defmodule Lovelace.UIFixture do
   @moduledoc false
+  @behaviour Lovelace.Calendar.Provider
 
   alias Lovelace.TestSupport.PNG
 
@@ -24,12 +25,17 @@ defmodule Lovelace.UIFixture do
   def get(_id), do: {:ok, "synthetic-refresh"}
   def put(_id, _token), do: :ok
   def delete(_id), do: :ok
-  def refresh("synthetic-refresh"), do: {:ok, %{access_token: "synthetic-access"}}
+  @spec refresh(binary()) :: {:ok, Lovelace.Google.OAuthProvider.tokens()}
+  def refresh("synthetic-refresh"),
+    do: {:ok, %{access_token: "synthetic-access", expires_in: 3600}}
+
   def revoke(_token), do: :ok
 
+  @spec attachment(binary(), binary(), binary()) :: {:ok, binary()}
   def attachment("synthetic-access", "synthetic-message-3", "synthetic-photo"),
     do: {:ok, scene_image(1)}
 
+  @impl true
   def calendars("synthetic-access") do
     {:ok,
      %{
@@ -41,6 +47,7 @@ defmodule Lovelace.UIFixture do
      }}
   end
 
+  @impl true
   def events("synthetic-access", calendar_id, _from, _to) do
     date = Date.utc_today() |> Date.to_iso8601()
     tomorrow = Date.utc_today() |> Date.add(1) |> Date.to_iso8601()
@@ -96,24 +103,29 @@ defmodule Lovelace.UIFixture do
     ])
   end
 
+  @spec inbox(binary(), Lovelace.Mail.Provider.page_token()) ::
+          {:ok, Lovelace.Mail.Provider.page()}
   def inbox("synthetic-access", _page) do
     threads =
       for number <- 1..20 do
         %{
-          "id" => "synthetic-thread-#{number}",
-          "subject" => "Synthetic conversation #{number}",
-          "from" => "sender@example.test",
-          "snippet" => "Read-only browser fixture",
-          "date" => "Today",
-          "unread" => false
+          id: "synthetic-thread-#{number}",
+          subject: "Synthetic conversation #{number}",
+          from: "sender@example.test",
+          snippet: "Read-only browser fixture",
+          date: "Today",
+          unread: false
         }
       end
 
-    {:ok, %{"threads" => threads, "next_page_token" => nil}}
+    {:ok, %{threads: threads, next_page_token: nil}}
   end
 
+  @spec search(binary(), binary(), Lovelace.Mail.Provider.page_token()) ::
+          {:ok, Lovelace.Mail.Provider.page()}
   def search("synthetic-access", _query, _page), do: inbox("synthetic-access", nil)
 
+  @spec thread(binary(), binary()) :: {:ok, Lovelace.Mail.Provider.thread()}
   def thread("synthetic-access", id) do
     # Bounded synthetic provider latency lets Chrome inspect the real loading
     # state, rather than injecting markup or racing an immediate fake response.
@@ -137,16 +149,15 @@ defmodule Lovelace.UIFixture do
     messages =
       for number <- 1..3 do
         %{
-          "id" => "synthetic-message-#{number}",
-          "subject" => if(number == 2, do: "Synthetic alternate subject", else: subject),
-          "from" => "Synthetic Sender <sender@example.test>",
-          "to" =>
+          id: "synthetic-message-#{number}",
+          subject: if(number == 2, do: "Synthetic alternate subject", else: subject),
+          from: "Synthetic Sender <sender@example.test>",
+          to:
             ~s(Browser <browser@example.test>, <img src="https://mail-fixture.invalid/recipient.png">),
-          "date" =>
+          date:
             "Sat, 15 Mar 2025 #{String.pad_leading(to_string(number + 8), 2, "0")}:30:00 +0000",
-          "text" =>
-            if(number == 3, do: latest_text, else: "Synthetic earlier message #{number}."),
-          "attachments" =>
+          text: if(number == 3, do: latest_text, else: "Synthetic earlier message #{number}."),
+          attachments:
             if(number == 3,
               do: [
                 %{
@@ -161,7 +172,7 @@ defmodule Lovelace.UIFixture do
         }
       end
 
-    {:ok, %{"messages" => messages}}
+    {:ok, %{id: id, messages: messages}}
   end
 
   defp scene_row(y, number, palette) do
@@ -218,14 +229,18 @@ try do
   Application.put_env(:lovelace, :stage_designer, scenery)
   Application.put_env(:lovelace, :workspace_idle_minutes, 3)
 
-  # Exercise the real durable scenery queue against the empty synthetic vault.
-  # No Gmail queue/plugins run; the test-built Gemini transport cannot connect to Google.
+  # Run only explicitly exercised queues against synthetic providers/credentials.
+  # No plugins or automatic sweep/polling run; test transports cannot reach providers.
   oban = Application.fetch_env!(:lovelace, Oban)
 
   Application.put_env(
     :lovelace,
     Oban,
-    Keyword.merge(oban, testing: :disabled, queues: [gemini: 1], plugins: [])
+    Keyword.merge(oban,
+      testing: :disabled,
+      queues: [gemini: 1, gmail: 1, diagnostics: 1, github: 1],
+      plugins: []
+    )
   )
 
   endpoint = Application.fetch_env!(:lovelace, LovelaceWeb.Endpoint)
@@ -416,9 +431,11 @@ try do
 
   for organization <- Lovelace.GitHub.directory!(actor: owner).organizations do
     Lovelace.GitHub.attach!(workspace.id, organization.id, actor: owner)
-    Lovelace.GitHub.refresh!(organization.id, actor: owner)
     Lovelace.GitHub.poll!(organization.id, organization.generation, actor: owner)
   end
+
+  # Bounded synthetic latency lets Chrome observe the durable discovery claim.
+  Lovelace.TestGitHub.configure(installation_response: {:delay, 5_000})
 
   {_output, status} =
     System.cmd(

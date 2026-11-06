@@ -8,11 +8,13 @@ defmodule Lovelace.MailCacheLimitsTest.Provider do
   def payload(payload), do: Agent.update(__MODULE__, &Map.put(&1, :payload, payload))
   def calls, do: Agent.get(__MODULE__, &Enum.reverse(&1.calls))
 
+  @spec refresh(binary()) :: {:ok, Lovelace.Google.OAuthProvider.tokens()}
   def refresh(token) do
     record({:refresh, token})
-    {:ok, %{access_token: "synthetic-access"}}
+    {:ok, %{access_token: "synthetic-access", expires_in: 3600}}
   end
 
+  @spec thread(binary(), binary()) :: {:ok, Lovelace.Mail.Provider.thread()}
   def thread(_token, id) do
     record({:thread, id})
     {:ok, Agent.get(__MODULE__, & &1.payload)}
@@ -26,8 +28,9 @@ defmodule Lovelace.MailCacheLimitsTest do
   use Lovelace.DataCase, async: false
   use Oban.Testing, repo: Lovelace.Repo, engine: Oban.Engines.Lite
 
+  alias Lovelace.Google.Access
   alias Lovelace.Mail
-  alias Lovelace.Mail.{CacheEntry, Connections}
+  alias Lovelace.Mail.CacheEntry
   alias Lovelace.MailCacheLimitsTest.Provider
 
   @owner %{role: :local_owner}
@@ -56,7 +59,7 @@ defmodule Lovelace.MailCacheLimitsTest do
     accounts =
       for subject <- ["cache-a", "cache-b"] do
         {:ok, account} =
-          Connections.accept(
+          Access.accept(
             workspace.id,
             %{subject: subject, email: "#{subject}@example.invalid"},
             "synthetic-#{subject}"
@@ -189,7 +192,7 @@ defmodule Lovelace.MailCacheLimitsTest do
       String.duplicate(phrase, div(padding, byte_size(phrase))) <>
         String.duplicate("x", rem(padding, byte_size(phrase)))
 
-    put_in(payload, ["messages", Access.at(0), "text"], text)
+    put_in(payload, ["messages", Elixir.Access.at(0), "text"], text)
   end
 
   defp entries(account),

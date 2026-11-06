@@ -2,6 +2,8 @@ defmodule Lovelace.StageDesigner.GenerationTest do
   use LovelaceWeb.ConnCase, async: false
   use Oban.Testing, repo: Lovelace.Repo, engine: Oban.Engines.Lite
 
+  import ExUnit.CaptureLog
+
   alias Lovelace.{Repo, StageDesigner}
   alias Lovelace.StageDesigner.{Attempt, Generation, GenerationWorker, Settings, Storage}
   alias Lovelace.TestSupport.PNG
@@ -9,6 +11,41 @@ defmodule Lovelace.StageDesigner.GenerationTest do
   @owner %{role: :local_owner}
   @service %{role: :stage_designer}
   @choices %{model: "gemini-nano-banana-2.1", aspect_ratio: "16:9", image_size: "1K"}
+
+  defmodule PaidRenderFake do
+    @behaviour Lovelace.StageDesigner.PaidRender
+
+    @impl true
+    def create(request, _options) do
+      send(self(), {:paid_submission, request})
+      {:error, :timeout}
+    end
+
+    @impl true
+    def get(id, _options) do
+      send(self(), {:unexpected_tracking, id})
+      {:error, :provider_error}
+    end
+
+    @impl true
+    def delete(id, _options) do
+      send(self(), {:unexpected_cleanup, id})
+      {:error, :provider_error}
+    end
+  end
+
+  defmodule BrokenConfirmation do
+    @behaviour Lovelace.StageDesigner.Confirmation
+
+    @impl true
+    def sign(_snapshot, options), do: fail(options)
+
+    @impl true
+    def verify(_token, options), do: fail(options)
+
+    defp fail(raise: secret), do: raise(secret)
+    defp fail(throw: secret), do: throw({:private_confirmation_failure, secret})
+  end
 
   setup {Req.Test, :verify_on_exit!}
 
@@ -105,6 +142,90 @@ defmodule Lovelace.StageDesigner.GenerationTest do
 
     assert {:ok, nil} = StageDesigner.get_state(1, actor: @service)
     assert all_enqueued(worker: GenerationWorker) == []
+  end
+
+  test "confirmation signing fails closed without composition and verification preserves expiry" do
+    {:ok, confirmation} = prepare()
+    snapshot = Map.delete(confirmation, :confirmation)
+
+    expired =
+      Phoenix.Token.sign(LovelaceWeb.Endpoint, "scene-generation-v1", snapshot,
+        signed_at: System.system_time(:second) - 601
+      )
+
+    assert {:ok, :invalid_confirmation} =
+             StageDesigner.request_scene_generation(%{confirmation: expired}, actor: @owner)
+
+    previous = Application.fetch_env!(:lovelace, :scene_confirmation)
+    on_exit(fn -> Application.put_env(:lovelace, :scene_confirmation, previous) end)
+    Application.delete_env(:lovelace, :scene_confirmation)
+    assert {:error, _} = prepare()
+    assert {:ok, :invalid_confirmation} = request(confirmation)
+    assert {:ok, []} = Attempt.page(1)
+    assert all_enqueued(worker: GenerationWorker) == []
+  end
+
+  for kind <- [:raise, :throw] do
+    test "a confirmation adapter #{kind} cannot authorize paid work or expose signing details" do
+      {:ok, confirmation} = prepare()
+      previous = Application.fetch_env!(:lovelace, :scene_confirmation)
+      on_exit(fn -> Application.put_env(:lovelace, :scene_confirmation, previous) end)
+      secret = "synthetic-private-confirmation-signing-detail"
+
+      Application.put_env(
+        :lovelace,
+        :scene_confirmation,
+        {BrokenConfirmation, [{unquote(kind), secret}]}
+      )
+
+      log =
+        capture_log(fn ->
+          assert {:error, error} = prepare()
+          refute inspect(error) =~ secret
+          assert {:ok, :invalid_confirmation} = request(confirmation)
+        end)
+
+      refute log =~ secret
+      assert {:ok, []} = Attempt.page(1)
+      assert {:ok, nil} = StageDesigner.get_state(1, actor: @service)
+      assert all_enqueued(worker: GenerationWorker) == []
+    end
+  end
+
+  test "application provider contract keeps unknown paid submissions permanently one-shot" do
+    previous = Application.get_env(:lovelace, :paid_render_provider)
+
+    on_exit(fn ->
+      if previous,
+        do: Application.put_env(:lovelace, :paid_render_provider, previous),
+        else: Application.delete_env(:lovelace, :paid_render_provider)
+    end)
+
+    Application.put_env(:lovelace, :paid_render_provider, PaidRenderFake)
+    attempt = reserve()
+    assert :ok = Generation.perform(attempt.id, :submit)
+    assert_receive {:paid_submission, %{background: true, store: true}}
+    assert current().status == :unknown
+    assert :ok = Generation.perform(attempt.id, :submit)
+    assert :ok = Generation.reconcile()
+    refute_received {:paid_submission, _}
+    refute_received {:unexpected_tracking, _}
+    refute_received {:unexpected_cleanup, _}
+    assert current().status == :unknown
+  end
+
+  test "protected recovery admission is authorized, ID-only and has no provider side effects" do
+    assert {:error, _} = StageDesigner.schedule_recovery()
+    assert {:error, _} = StageDesigner.schedule_recovery(actor: @owner)
+    assert {:error, _} = StageDesigner.recover(actor: @owner)
+    assert {:ok, :scheduled} = StageDesigner.schedule_recovery(actor: @service)
+
+    assert [%Oban.Job{args: %{"id" => _id}} = job] =
+             all_enqueued(worker: Lovelace.StageDesigner.RecoveryWorker)
+
+    assert map_size(job.args) == 1
+    assert {:ok, nil} = StageDesigner.get_state(1, actor: @service)
+    assert {:ok, []} = Attempt.page(1)
   end
 
   test "submission stores provider ID; GET publishes image before DELETE and replay does not reactivate" do

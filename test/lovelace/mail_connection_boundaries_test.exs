@@ -59,8 +59,9 @@ defmodule Lovelace.MailConnectionBoundariesTest do
   use Lovelace.DataCase, async: false
   use Oban.Testing, repo: Lovelace.Repo, engine: Oban.Engines.Lite
 
+  alias Lovelace.Google.Access
   alias Lovelace.Mail
-  alias Lovelace.Mail.{Connections, PollWorker}
+  alias Lovelace.Mail.PollWorker
   alias Lovelace.MailConnectionBoundariesTest.{RaisingProvider, Vault}
 
   @owner %{role: :local_owner}
@@ -84,7 +85,7 @@ defmodule Lovelace.MailConnectionBoundariesTest do
 
     workspace = Lovelace.Workspaces.create_workspace!("Connection boundary", actor: @owner)
     identity = %{subject: "boundary-subject", email: "boundary@example.invalid"}
-    {:ok, account} = Connections.accept(workspace.id, identity, "synthetic-prior-refresh")
+    {:ok, account} = Access.accept(workspace.id, identity, "synthetic-prior-refresh")
     account = Mail.get_account!(account.id, actor: @owner)
     Phoenix.PubSub.subscribe(Lovelace.PubSub, "mail:#{account.id}")
     Vault.reset_calls()
@@ -102,14 +103,14 @@ defmodule Lovelace.MailConnectionBoundariesTest do
        context do
     for {token, capability} <- [{"", :gmail}, {nil, :gmail}, {"replacement", :unknown}] do
       assert {:error, :reconnect} =
-               Connections.accept(context.workspace.id, context.identity, token, capability)
+               Access.accept(context.workspace.id, context.identity, token, capability)
     end
 
     assert Vault.calls() == []
     assert_unchanged(context)
 
     assert {:error, :unavailable} =
-             Connections.accept(Ash.UUID.generate(), context.identity, "replacement")
+             Access.accept(Ash.UUID.generate(), context.identity, "replacement")
 
     assert Vault.calls() == [
              {:get, context.account.id},
@@ -121,7 +122,7 @@ defmodule Lovelace.MailConnectionBoundariesTest do
     Vault.reset_calls()
 
     assert {:error, :unavailable} =
-             Connections.accept(
+             Access.accept(
                context.workspace.id,
                %{subject: nil, email: "x@example.invalid"},
                "replacement"
@@ -135,7 +136,7 @@ defmodule Lovelace.MailConnectionBoundariesTest do
     Vault.mode(:read, {:private_payload, "synthetic credential"})
 
     assert {:error, {:keychain, :unavailable}} =
-             Connections.accept(context.workspace.id, context.identity, "replacement")
+             Access.accept(context.workspace.id, context.identity, "replacement")
 
     assert Vault.calls() == [{:get, context.account.id}]
     assert_unchanged(context)
@@ -151,7 +152,7 @@ defmodule Lovelace.MailConnectionBoundariesTest do
       Vault.mode(:write, response)
 
       assert {:error, {:keychain, ^reason}} =
-               Connections.accept(context.workspace.id, context.identity, "replacement")
+               Access.accept(context.workspace.id, context.identity, "replacement")
 
       assert Vault.calls() == [
                {:get, context.account.id},
@@ -166,8 +167,8 @@ defmodule Lovelace.MailConnectionBoundariesTest do
     stale = %{context.account | generation: Ash.UUID.generate()}
     unknown = %{context.account | id: Ash.UUID.generate()}
 
-    assert {:error, :unavailable} = Connections.access_token(stale)
-    assert {:error, :unavailable} = Connections.access_token(unknown)
+    assert {:error, :unavailable} = Access.access_token(stale)
+    assert {:error, :unavailable} = Access.access_token(unknown)
 
     Mail.update_account!(
       context.account,
@@ -175,7 +176,7 @@ defmodule Lovelace.MailConnectionBoundariesTest do
       actor: @owner
     )
 
-    assert {:error, :unavailable} = Connections.access_token(context.account)
+    assert {:error, :unavailable} = Access.access_token(context.account)
     assert Vault.calls() == []
     assert Lovelace.TestMail.calls() == []
   end
@@ -188,7 +189,7 @@ defmodule Lovelace.MailConnectionBoundariesTest do
           {{:private_payload, "synthetic credential"}, :keychain}
         ] do
       Vault.mode(:read, response)
-      assert {:error, ^reason} = Connections.access_token(context.account)
+      assert {:error, ^reason} = Access.access_token(context.account)
       assert Lovelace.TestMail.calls() == []
       assert_unchanged(context)
     end
@@ -197,11 +198,11 @@ defmodule Lovelace.MailConnectionBoundariesTest do
   test "malformed refresh results and provider exceptions cannot escape as access credentials",
        context do
     Lovelace.TestMail.response({:private_payload, "synthetic provider secret"})
-    assert {:error, :keychain} = Connections.access_token(context.account)
+    assert {:error, :keychain} = Access.access_token(context.account)
     assert Vault.tokens() == context.tokens
 
     Application.put_env(:lovelace, :gmail_provider, RaisingProvider)
-    assert {:error, :unavailable} = Connections.access_token(context.account)
+    assert {:error, :unavailable} = Access.access_token(context.account)
     assert_unchanged(context)
   end
 
@@ -212,12 +213,12 @@ defmodule Lovelace.MailConnectionBoundariesTest do
 
     Vault.mode(:write, {:error, :locked})
 
-    assert {:error, :keychain} = Connections.access_token(context.account)
+    assert {:error, :keychain} = Access.access_token(context.account)
     assert Vault.tokens() == context.tokens
     assert Mail.get_account!(context.account.id, actor: @owner) == context.account
 
     Vault.mode(:write, :normal)
-    assert {:ok, "synthetic-access"} = Connections.access_token(context.account)
+    assert {:ok, "synthetic-access"} = Access.access_token(context.account)
     assert Vault.tokens()[context.account.id] == "rotated-refresh"
   end
 

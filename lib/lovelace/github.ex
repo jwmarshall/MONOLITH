@@ -17,7 +17,9 @@ defmodule Lovelace.GitHub do
 
     resource Lovelace.GitHub.Operation do
       define :directory, action: :directory
+      define :home_summary, action: :home_summary
       define :discover, action: :discover, args: [:connection_id]
+      define :run_discovery, action: :run_discovery, args: [:connection_id, :discovery_id]
       define :disconnect_account, action: :disconnect_account, args: [:connection_id]
       define :attach, action: :attach, args: [:workspace_id, :organization_id]
 

@@ -79,7 +79,7 @@ defmodule LovelaceWeb.GeminiComponents do
             type="button"
             class="workspace-action"
             phx-click="gemini:check"
-            disabled={@status == :loading}
+            disabled={@status in [:loading, :rechecking]}
           >
             Check Keychain
           </button>
@@ -131,7 +131,7 @@ defmodule LovelaceWeb.GeminiComponents do
     """
   end
 
-  defp signal_state(:loading), do: :active
+  defp signal_state(status) when status in [:loading, :rechecking], do: :active
   defp signal_state(:stored), do: :ready
   defp signal_state(:unknown), do: :unknown
   defp signal_state(:not_connected), do: :offline
@@ -142,6 +142,7 @@ defmodule LovelaceWeb.GeminiComponents do
   defp status_text(:locked), do: "Keychain is locked or access was denied"
   defp status_text(:invalid), do: "Stored key has an invalid format · replace or remove it"
   defp status_text(:loading), do: "Checking Keychain…"
+  defp status_text(:rechecking), do: "Rechecking Keychain…"
   defp status_text(:unknown), do: "Keychain not checked"
   defp status_text(_), do: "Keychain unavailable · credential state unknown"
 end

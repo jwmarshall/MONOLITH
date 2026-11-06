@@ -4,14 +4,16 @@ defmodule Lovelace.CalendarBoundariesTest do
   alias Ash.Resource.Info
   alias Lovelace.Calendar
   alias Lovelace.Calendar.State
+  alias Lovelace.Google.Access
   alias Lovelace.Mail
-  alias Lovelace.Mail.Connections
   alias Lovelace.Onboarding
   alias Lovelace.Onboarding.CalendarSetup
 
   @owner %{role: :local_owner}
 
   defmodule Provider do
+    @behaviour Lovelace.Calendar.Provider
+    @impl true
     def calendars(token) do
       Lovelace.TestMail.record({:boundary_calendars, token})
 
@@ -32,6 +34,7 @@ defmodule Lovelace.CalendarBoundariesTest do
       deliver(response)
     end
 
+    @impl true
     def events(token, id, _from, _to) do
       Lovelace.TestMail.record({:boundary_events, token, id})
 
@@ -71,7 +74,7 @@ defmodule Lovelace.CalendarBoundariesTest do
     {:ok, progress} = Onboarding.save_workspace("Calendar boundaries", actor: @owner)
 
     {:ok, account} =
-      Connections.accept(
+      Access.accept(
         progress.workspace_id,
         %{subject: "boundary-owner", email: "boundary@example.invalid"},
         "boundary-refresh",
@@ -281,7 +284,7 @@ defmodule Lovelace.CalendarBoundariesTest do
     before = Lovelace.TestMail.calls()
 
     configure(:boundary_catalog, fn ->
-      Connections.serial(c.account.id, fn ->
+      Access.serial(c.account.id, fn ->
         Mail.update_account!(
           c.account,
           %{expected_generation: c.account.generation, calendar_enabled: false},
@@ -320,7 +323,7 @@ defmodule Lovelace.CalendarBoundariesTest do
     configure(:boundary_events, %{
       "primary" => fn ->
         {:ok, replacement} =
-          Connections.accept(
+          Access.accept(
             c.workspace_id,
             %{subject: c.account.subject, email: c.account.email},
             "rotated-boundary-refresh",
@@ -346,7 +349,7 @@ defmodule Lovelace.CalendarBoundariesTest do
     populate(c)
 
     {:ok, other} =
-      Connections.accept(
+      Access.accept(
         c.workspace_id,
         %{subject: "independent-calendar", email: "independent@example.invalid"},
         "independent-refresh",
@@ -364,7 +367,7 @@ defmodule Lovelace.CalendarBoundariesTest do
     old_revision = state(c.account).revision
 
     {:ok, replacement} =
-      Connections.accept(
+      Access.accept(
         c.workspace_id,
         %{subject: c.account.subject, email: c.account.email},
         "gmail-only-refresh",

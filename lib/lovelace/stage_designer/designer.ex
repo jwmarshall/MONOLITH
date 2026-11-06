@@ -6,7 +6,7 @@ defmodule Lovelace.StageDesigner.Designer do
 
   actions do
     action :gemini_connection_status, :atom do
-      run {Lovelace.Integrations.Gemini.Credentials, operation: :status}
+      run {Lovelace.StageDesigner.CredentialOperations, operation: :status}
     end
 
     action :save_gemini_key, :boolean do
@@ -18,11 +18,11 @@ defmodule Lovelace.StageDesigner.Designer do
         constraints trim?: false
       end
 
-      run {Lovelace.Integrations.Gemini.Credentials, operation: :save}
+      run {Lovelace.StageDesigner.CredentialOperations, operation: :save}
     end
 
     action :remove_gemini_key, :boolean do
-      run {Lovelace.Integrations.Gemini.Credentials, operation: :delete}
+      run {Lovelace.StageDesigner.CredentialOperations, operation: :delete}
     end
 
     action :list_scenes, :map do
@@ -85,6 +85,14 @@ defmodule Lovelace.StageDesigner.Designer do
       run Lovelace.StageDesigner.ReadImage
     end
 
+    action :schedule_recovery, :atom do
+      run {Lovelace.StageDesigner.Startup, operation: :schedule_recovery}
+    end
+
+    action :recover, :atom do
+      run {Lovelace.StageDesigner.Startup, operation: :recover}
+    end
+
     action :startup, :atom do
       argument :now, :utc_datetime_usec do
         allow_nil? false
@@ -130,7 +138,7 @@ defmodule Lovelace.StageDesigner.Designer do
       authorize_if always()
     end
 
-    policy action(:startup) do
+    policy action([:startup, :schedule_recovery, :recover]) do
       authorize_if actor_attribute_equals(:role, :stage_designer)
     end
 

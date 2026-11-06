@@ -1,21 +1,12 @@
 defmodule LovelaceWeb.HomeGoogle do
   @moduledoc false
   import Phoenix.Component, only: [assign: 3]
-  import Phoenix.LiveView, only: [start_async: 3]
+  alias LovelaceWeb.HomeConnectionDiagnostic
 
-  def init(socket), do: assign(socket, :google_status, :unknown)
-
-  def open(socket) do
-    socket
-    |> assign(:google_status, :loading)
-    |> start_async(:google_status, fn ->
-      Lovelace.Google.client_status(actor: %{role: :local_owner})
-    end)
+  def init(socket) do
+    socket |> assign(:google_status, :unknown) |> HomeConnectionDiagnostic.init(:google)
   end
 
-  def handle_async({:ok, {:ok, status}}, socket)
-      when status in [:stored, :not_connected, :locked, :unavailable, :invalid],
-      do: {:noreply, assign(socket, :google_status, status)}
-
-  def handle_async(_, socket), do: {:noreply, assign(socket, :google_status, :unavailable)}
+  def open(socket), do: HomeConnectionDiagnostic.open(socket, :google)
+  defdelegate handle_info(message, socket), to: HomeConnectionDiagnostic
 end

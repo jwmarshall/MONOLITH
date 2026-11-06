@@ -10,9 +10,11 @@ defmodule Lovelace.GitHubBoundariesTest do
   use Lovelace.DataCase, async: false
 
   alias Lovelace.GitHub
-  alias Lovelace.GitHub.{Auth, Operations}
+  alias Lovelace.GitHub.{Auth, Credentials, Operations}
+  alias Lovelace.OAuth.{Exchange, Worker}
   alias Lovelace.Owner.Actions
   alias Lovelace.{TestGitHub, TestGitHubKeychain}
+  alias Lovelace.TestSupport.{GitHubDiscovery, OAuthJobs}
 
   @owner %{role: :local_owner}
 
@@ -50,7 +52,7 @@ defmodule Lovelace.GitHubBoundariesTest do
     TestGitHub.configure(user_response: {:ok, %{github_id: "DIFFERENT_USER", login: "other"}})
     calls = TestGitHub.state().calls
 
-    assert {:error, _} = GitHub.discover(account.id, actor: @owner)
+    assert {:error, _} = GitHubDiscovery.discover(account.id)
     assert TestGitHub.state().calls == calls ++ [{:user, "github_access_fake"}]
     assert_receive {:github_changed, id}
     assert id == org.id
@@ -63,7 +65,7 @@ defmodule Lovelace.GitHubBoundariesTest do
     assert current_org(org.id).total_count == nil
     assert [%{organization_id: organization_id}] = directory().memberships
     assert organization_id == org.id
-    assert {:error, :reconnect} = Operations.access_token(account.id)
+    assert {:error, :reconnect} = Credentials.access_token(account.id)
   end
 
   for generation <- [nil, "generation-from-a-restored-vault"] do
@@ -75,7 +77,7 @@ defmodule Lovelace.GitHubBoundariesTest do
       :ok = TestGitHubKeychain.put(account.id, Jason.encode!(restored))
       calls = TestGitHub.state().calls
 
-      assert {:error, :reconnect} = Operations.access_token(account.id)
+      assert {:error, :reconnect} = Credentials.access_token(account.id)
       assert TestGitHub.state().calls == calls
       assert current_account(account.id).generation != account.generation
       assert current_account(account.id).status == :reauthorization
@@ -122,7 +124,7 @@ defmodule Lovelace.GitHubBoundariesTest do
     {org, account} = connect(context)
     TestGitHub.configure(user_response: {:error, %{private_token: "synthetic_private_value"}})
 
-    assert {:error, error} = GitHub.discover(account.id, actor: @owner)
+    assert {:error, error} = GitHubDiscovery.discover(account.id)
     refute inspect(error) =~ "synthetic_private_value"
     assert current_account(account.id).status == :ready
     assert current_account(account.id).last_error == nil
@@ -151,7 +153,7 @@ defmodule Lovelace.GitHubBoundariesTest do
              GitHub.disconnect(org.id, actor: @owner)
 
     assert {:error, :not_found} = TestGitHubKeychain.get(org.id)
-    assert {:ok, "github_access_fake"} = Operations.access_token(account.id)
+    assert {:ok, "github_access_fake"} = Credentials.access_token(account.id)
     assert {:error, _} = GitHub.refresh(org.id, actor: @owner)
   end
 
@@ -163,28 +165,33 @@ defmodule Lovelace.GitHubBoundariesTest do
     assert Auth.status(Actions.digest(context.session)) == %{status: :idle}
     replacement = callback_params(context.session)
 
-    assert {:error, :expired} = Auth.complete(context.session, old)
+    assert {:error, :expired} = OAuthJobs.complete(context.session, old)
     assert Auth.status(Actions.digest(context.session)) == %{status: :pending}
     assert TestGitHub.state().calls == []
     assert TestGitHub.state().tokens == initial_tokens
-    assert {:ok, _} = Auth.complete(context.session, replacement)
+    assert {:ok, _} = OAuthJobs.complete(context.session, replacement)
     assert Auth.status(Actions.digest(context.session)) == %{status: :connected}
     assert Enum.count(TestGitHub.state().calls, &match?({:exchange_code, _, _, _, _, _}, &1)) == 1
   end
 
-  test "an exchange worker crash fails its caller and consumes the code", context do
+  test "an interrupted claimed exchange cannot be replayed by worker rescue", context do
     TestGitHub.configure(exchange_response: {:wait, self(), {:ok, TestGitHub.bundle()}})
     params = callback_params(context.session)
     initial_tokens = TestGitHub.state().tokens
-    task = Task.async(fn -> Auth.complete(context.session, params) end)
-    assert_receive {:github_waiting, worker}
+    assert {:ok, reference} = Auth.admit(context.session, params)
+    job = Lovelace.Repo.get!(Oban.Job, reference.job_id)
+    {worker, monitor} = spawn_monitor(fn -> Worker.perform(job) end)
+    assert_receive {:github_waiting, ^worker}
     Process.exit(worker, :kill)
-
-    assert {:error, :unavailable} = Task.await(task)
-    assert Auth.status(Actions.digest(context.session)) == %{status: :failed}
-    assert {:error, :expired} = Auth.complete(context.session, params)
+    assert_receive {:DOWN, ^monitor, :process, ^worker, :killed}
+    assert :ok = Worker.perform(job)
+    assert {:ok, %{status: :claimed}} = Exchange.get(reference.id)
+    assert {:error, :expired} = Auth.admit(context.session, params)
+    assert :ok = Auth.cancel(context.session)
+    assert Auth.status(Actions.digest(context.session)) == %{status: :idle}
     assert TestGitHub.state().tokens == initial_tokens
     assert directory().connections == []
+    assert Enum.count(TestGitHub.state().calls, &match?({:exchange_code, _, _, _, _, _}, &1)) == 1
   end
 
   test "OAuth capacity rejects a seventeenth pending flow but reclaims a cancelled slot" do
@@ -205,7 +212,7 @@ defmodule Lovelace.GitHubBoundariesTest do
     assert :ok = Auth.cancel(hd(active))
     assert {:ok, _} = Auth.begin(overflow)
     assert Auth.status(Actions.digest(overflow)) == %{status: :pending}
-    assert {:error, :expired} = Auth.complete(hd(active), hd(params))
+    assert {:error, :expired} = OAuthJobs.complete(hd(active), hd(params))
     assert Auth.status(Actions.digest(Enum.at(active, 1))) == %{status: :pending}
     assert directory().connections == []
   end
@@ -294,7 +301,7 @@ defmodule Lovelace.GitHubBoundaryAdapterTest do
   test "malformed GraphQL error envelopes never become empty successful snapshots" do
     for graph <- [Map.put(graph(), "errors", %{}), %{"errors" => []}] do
       enqueue([response(installations()), response(repositories()), response(graph)])
-      assert {:error, :provider} = GitHub.pull_requests("ghu_synthetic", owner())
+      assert {:error, :provider} = GitHub.installation_snapshot("ghu_synthetic", owner())
 
       assert Enum.map(requests(), & &1.path) == [
                "/user/installations?per_page=100&page=1",
@@ -307,13 +314,13 @@ defmodule Lovelace.GitHubBoundaryAdapterTest do
   test "malformed GraphQL owner identity prevents publishing even empty repository readouts" do
     graph = put_in(graph(), ["data", "r0", "owner"], nil)
     enqueue([response(installations()), response(repositories()), response(graph)])
-    assert {:error, :provider} = GitHub.pull_requests("ghu_synthetic", owner())
+    assert {:error, :provider} = GitHub.installation_snapshot("ghu_synthetic", owner())
     assert length(requests()) == 3
   end
 
   test "an inconsistent Actions page marks Actions unavailable without discarding verified counts" do
     enqueue(snapshot_responses(%{"total_count" => 1, "workflow_runs" => []}))
-    assert {:ok, snapshot} = GitHub.pull_requests("ghu_synthetic", owner())
+    assert {:ok, snapshot} = GitHub.installation_snapshot("ghu_synthetic", owner())
     assert snapshot.total_count == 0
     assert snapshot.issue_count == 0
 
@@ -330,7 +337,7 @@ defmodule Lovelace.GitHubBoundaryAdapterTest do
   test "rate limiting during final scope verification discards otherwise successful readouts" do
     responses = snapshot_responses(%{"total_count" => 0, "workflow_runs" => []})
     enqueue(List.replace_at(responses, 4, {:ok, %{status: 429, headers: [], body: "private"}}))
-    assert {:error, :rate_limited} = GitHub.pull_requests("ghu_synthetic", owner())
+    assert {:error, :rate_limited} = GitHub.installation_snapshot("ghu_synthetic", owner())
     assert length(requests()) == 5
   end
 

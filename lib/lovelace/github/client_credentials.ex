@@ -1,6 +1,6 @@
 defmodule Lovelace.GitHub.ClientCredentials do
   @moduledoc "GitHub App client configuration stored only in the dedicated unlocked vault."
-  alias Lovelace.GitHub.Operations
+  alias Lovelace.GitHub.{Coordination, Credentials}
   alias Lovelace.Security.Vault
   @account "2fc350e8-33e5-4fd8-9c90-adbb609c742b"
 
@@ -48,11 +48,17 @@ defmodule Lovelace.GitHub.ClientCredentials do
   end
 
   defp save_locked(id, secret, slug) do
-    :global.trans(
-      {{Operations, :state}, self()},
-      fn -> store_if_changed(id, secret, slug) end,
-      [node()]
-    )
+    Coordination.state(fn -> save_diagnostic(id, secret, slug) end)
+  end
+
+  defp save_diagnostic(id, secret, slug) do
+    Lovelace.ConnectionDiagnostics.serial(:github, fn -> save_current(id, secret, slug) end)
+  end
+
+  defp save_current(id, secret, slug) do
+    with :ok <- Lovelace.ConnectionDiagnostics.invalidate(:github) do
+      store_if_changed(id, secret, slug)
+    end
   end
 
   defp store_if_changed(id, secret, slug) do
@@ -72,7 +78,7 @@ defmodule Lovelace.GitHub.ClientCredentials do
       })
 
     case keychain().put(@account, json) do
-      :ok -> Operations.client_changed()
+      :ok -> Credentials.client_changed()
       _ -> {:error, :keychain}
     end
   end

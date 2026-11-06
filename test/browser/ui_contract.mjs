@@ -32,11 +32,12 @@ const pending = new Map()
 const errors = []
 const cspViolations = []
 const external = []
+const attachmentRequests = []
 const deadline = setTimeout(() => {
-  console.error("UI browser suite exceeded its 90-second deadline")
+  console.error("UI browser suite exceeded its 120-second deadline")
   chrome.kill("SIGKILL")
   process.exit(1)
-}, 90_000)
+}, 120_000)
 
 function send(method, params = {}, session = sessionId) {
   const id = ++nextId
@@ -180,6 +181,59 @@ async function verifyEmptyInstallation() {
   assert.deepEqual(errors, [])
   assert.deepEqual(external, [])
   console.log('PASS bundled default without generated scenes: static/no-JS/live, image decoding, empty gallery and stable reload/navigation/wake')
+}
+
+async function verifyGitHubDiscovery() {
+  await send('Page.navigate', {url: origin + '/connections/github'})
+  await waitFor("!!document.querySelector('[id^=github-discover-] button') && window.liveSocket?.getSocket().isConnected()", 'GitHub account access controls')
+  await click('#workspace-pane')
+  await focused()
+  const connectionId = await evaluate("document.querySelector('[id^=github-discover-] input[name=connection_id]').value")
+  await click(`#github-discover-${connectionId} button`)
+  await waitFor(`location.pathname === '/connections/github' &&
+    ['pending', 'running'].includes(document.querySelector('#github-discovery-status-${connectionId}')?.dataset.state)`, 'durable account discovery accepted before provider completion')
+  const operation = await evaluate(`(() => {
+    const status = document.querySelector('#github-discovery-status-${connectionId}');
+    return {id: status.dataset.operationId, job: status.dataset.jobId};
+  })()`)
+  assert.match(operation.id, /^[0-9a-f-]{36}$/)
+  assert.match(operation.job, /^[1-9][0-9]*$/)
+  await send('Page.reload')
+  await waitFor(`document.querySelector('#github-discovery-status-${connectionId}')?.dataset.operationId === '${operation.id}' &&
+    window.liveSocket?.getSocket().isConnected()`, 'discovery remains observable after request and view exit')
+  await waitFor(`document.querySelector('#github-discovery-status-${connectionId}')?.dataset.state === 'succeeded'`, 'durable discovery publishes successful account access')
+  assert.equal(await evaluate(`document.querySelector('#github-discovery-status-${connectionId}').dataset.jobId`), operation.job)
+  assert.match(await evaluate(`document.querySelector('#github-discovery-status-${connectionId}').textContent`), /Account access refreshed/)
+  await click('#workspace-pane')
+  await focused()
+  await evaluate(`document.querySelectorAll('#github-connections button[phx-click="github:refresh"]').forEach(button => button.click())`)
+  await click('#home-link')
+  await home()
+  await waitFor("Array.from(document.querySelectorAll('#github-readouts .github-home-metric:first-child .github-home-total')).length === 2 && Array.from(document.querySelectorAll('#github-readouts .github-home-metric:first-child .github-home-total')).every(count => count.textContent.trim() === '1')", 'synthetic owner snapshots repopulate through the protected GitHub queue', 16_000)
+  console.log('PASS durable GitHub discovery: accepted job correlation, browser reload and eventual fenced success')
+}
+
+async function verifyAccountSwitchFencing() {
+  await click('#home-link')
+  await home()
+  await evaluate('window.accountSwitchSocket = window.liveSocket; true')
+  for (const [id, thread] of [[accountId, 13], [unattachedId, 14]]) {
+    await click(`#open-home-account-${id}`)
+    await waitFor("document.querySelector('#home-inbox #mail-threads')?.getAttribute('aria-busy') === 'false'", 'account inbox before delayed reader switch')
+    await click(`#mail-thread-synthetic-thread-${thread}`)
+    await waitFor("!!document.querySelector('#mail-loading')", 'provider read is pending before switching account')
+    await click('#home-link')
+    await home()
+  }
+  await click(`#open-home-account-${accountId}`)
+  await waitFor("document.querySelector('#home-inbox #mail-threads')?.getAttribute('aria-busy') === 'false'", 'A returns after A to B to A')
+  assert.equal(await evaluate("document.querySelector('#mail-heading').textContent.trim()"), 'browser@example.test')
+  await click('#mail-thread-synthetic-thread-15')
+  await readerLoaded()
+  assert.equal(await evaluate("document.querySelector('#mail-conversation-heading').textContent.trim()"), 'Synthetic conversation 15')
+  assert.equal(await evaluate("window.accountSwitchSocket === window.liveSocket"), true, 'switches preserve the live stage rather than replacing the page')
+  assert.equal(await evaluate("document.querySelector('#mail-panel').textContent.includes('Synthetic conversation 14') || document.querySelector('#mail-panel').textContent.includes('Synthetic conversation 13')"), false, 'obsolete A and B readers cannot replace the current result')
+  console.log('PASS A to B to A during delayed reads: same LiveSocket, current account and no obsolete conversation publication')
 }
 
 async function scenesLoaded(count = 20, active = 1) {
@@ -844,6 +898,7 @@ try {
       cspViolations.push("CSP violation")
     } else if (message.method === "Fetch.requestPaused") {
       const {requestId, request} = message.params
+      if (/\/attachments\//.test(request.url)) attachmentRequests.push(request.url)
       if (failStageImages && request.url.startsWith(`${origin}/stage/background/`)) {
         send("Fetch.failRequest", {requestId, errorReason: "Failed"}, message.sessionId).catch(() => {})
       } else if (request.url.startsWith(`${origin}/`) || request.url.startsWith("data:")) {
@@ -904,6 +959,7 @@ try {
   assert.equal(await evaluate("document.activeElement.id"), "directory-heading")
   console.log("PASS ordinary entrance, static stage, Home/Lock visibility and gate/focus handoff")
 
+  await verifyGitHubDiscovery()
   await home()
   await verifyNavigationHistory()
   await home()
@@ -1173,10 +1229,31 @@ try {
   assert.equal(await evaluate(`Array.from(document.querySelectorAll('#mail-panel :is(h1, h2, h3, h4, h5, h6)')).filter(heading => heading.textContent.trim() === ${JSON.stringify(conversationTitle)}).length`), 1, "conversation subject is not repeated as message titles")
   assert.equal(await evaluate("document.querySelectorAll('.mail-message-subject').length"), 1, "only the changed middle subject gets a per-message title")
   assert.equal(await evaluate("!!document.querySelector('#mail-message-synthetic-message-2 .mail-message-subject')"), true)
-  await evaluate("document.querySelector('#mail-message-synthetic-message-3 .mail-attachment img').scrollIntoView({block: 'center'})")
-  await waitFor("document.querySelector('#mail-message-synthetic-message-3 .mail-attachment img')?.naturalWidth === 480", "synthetic raster attachment preview loads through the authenticated route")
+  await evaluate("document.querySelector('#mail-message-synthetic-message-3 .mail-attachment').scrollIntoView({block: 'center'})")
+  assert.equal(await evaluate("document.querySelectorAll('.mail-attachment img, .mail-attachment [src]').length"), 0, "opening a thread renders attachment metadata without image sources")
+  assert.deepEqual(attachmentRequests, [], "opening and scrolling a thread never retrieves attachments")
   assert.equal(await evaluate("document.querySelector('#mail-message-synthetic-message-3 .mail-attachment-name').textContent.trim()"), "synthetic-scene.png")
-  assert.equal(await evaluate("document.querySelector('#mail-message-synthetic-message-3 .mail-attachment a').getAttribute('href').endsWith('?download=1')"), true, "download uses an explicit same-origin attachment route")
+  assert.equal(await evaluate("document.querySelector('#mail-message-synthetic-message-3 .mail-attachment a[href$=\"?download=1\"]').textContent.trim()"), "Download", "download uses an explicit same-origin attachment route")
+  const previewSelector = '#mail-message-synthetic-message-3 .mail-attachment a[target="_blank"]'
+  const previewUrl = await evaluate(`document.querySelector(${JSON.stringify(previewSelector)}).href`)
+  assert.ok(previewUrl.startsWith(`${origin}/`), "preview stays on the authenticated same-origin route")
+  await click(previewSelector)
+  let previewTarget
+  const previewDeadline = Date.now() + 8_000
+  while (!previewTarget && Date.now() < previewDeadline) {
+    const previewTargets = await send("Target.getTargets", {}, null)
+    previewTarget = previewTargets.targetInfos.find(target => target.url === previewUrl)
+    if (!previewTarget) await new Promise(resolve => setTimeout(resolve, 25))
+  }
+  assert.ok(previewTarget, "explicit Preview image opens its authenticated route in a new tab")
+  try {
+    const {sessionId: previewSession} = await send("Target.attachToTarget", {targetId: previewTarget.targetId, flatten: true}, null)
+    await send("Runtime.enable", {}, previewSession)
+    await waitFor("document.querySelector('img')?.naturalWidth === 480", "explicitly requested raster attachment safely decodes", 8_000, previewSession)
+  } finally {
+    await send("Target.closeTarget", {targetId: previewTarget.targetId}, null)
+    await send("Target.activateTarget", {targetId}, null)
+  }
   await readerLayout(1440, false)
   await screenshot('mail-attachments-desktop')
 
@@ -1525,6 +1602,7 @@ try {
       assert.match(await evaluate("document.querySelector('#gmail-disconnect-help').textContent"), /mailbox is unchanged/)
       if (!forced) await screenshot(`gmail-connections-${width}`)
       await statusDetails(width, forced)
+      await waitFor("document.querySelector('#new-gmail-connection')?.disabled === false", "Google client diagnostic enables Gmail admission")
       await click("#new-gmail-connection")
       await waitFor("document.querySelector('#gmail-connection-modal')?.matches(':modal') && document.activeElement.id === 'mail-workspace-new'", "Gmail modal at each width/preference")
       assert.equal(await evaluate("document.querySelector('#gmail-connection-modal').scrollWidth <= document.querySelector('#gmail-connection-modal').clientWidth"), true, "Gmail modal has no horizontal overflow")
@@ -1701,6 +1779,7 @@ try {
       await focused()
     }
   }
+  await verifyAccountSwitchFencing()
   await verifyThemes()
   assert.deepEqual(cspViolations, [], "CSP evidence accumulates across all navigations/reloads")
   assert.deepEqual(errors, [])

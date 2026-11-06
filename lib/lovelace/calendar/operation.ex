@@ -1,8 +1,13 @@
 defmodule Lovelace.Calendar.Operation do
-  @moduledoc "Owner-authorized agenda operations; only snapshot returns private display content."
+  @moduledoc "Owner-authorized agenda and catalog operations; catalog never reads cached events."
   use Ash.Resource, domain: Lovelace.Calendar, authorizers: [Ash.Policy.Authorizer]
 
   actions do
+    action :catalog, :map do
+      argument :account_id, :uuid, allow_nil?: false
+      run Lovelace.Calendar.Operations
+    end
+
     action :snapshot, :map do
       argument :account_id, :uuid, allow_nil?: false
       argument :from_iso, :string, allow_nil?: false, constraints: [max_length: 40]
@@ -42,10 +47,14 @@ defmodule Lovelace.Calendar.Operation do
       argument :revision, :uuid, allow_nil?: false
       run Lovelace.Calendar.Operations
     end
+
+    action :sweep, :map do
+      run Lovelace.Calendar.Operations
+    end
   end
 
   policies do
-    policy action([:snapshot, :prepare, :select_calendars, :refresh]) do
+    policy action([:catalog, :snapshot, :prepare, :select_calendars, :refresh, :sweep]) do
       access_type :strict
       authorize_if Lovelace.Workspaces.LocalOwner
     end

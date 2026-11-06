@@ -100,7 +100,7 @@ defmodule Lovelace.StageDesigner.Attempt do
     attribute :aspect_ratio, :string, allow_nil?: false
     attribute :image_size, :string, allow_nil?: false
     attribute :timeout_seconds, :integer, allow_nil?: false, default: 120
-    attribute :provider_id, :string, constraints: [max_length: 512]
+    attribute :provider_id, :string, sensitive?: true, constraints: [max_length: 512]
     attribute :failure, :string, constraints: [max_length: 1000]
     attribute :poll_count, :integer, allow_nil?: false, default: 0
     attribute :tracking_errors, :integer, allow_nil?: false, default: 0

@@ -2,6 +2,7 @@ defmodule LovelaceWeb.SceneErrorStatesTest do
   use LovelaceWeb.ConnCase, async: false
   use Oban.Testing, repo: Lovelace.Repo, engine: Oban.Engines.Lite
   import Phoenix.LiveViewTest
+  import Lovelace.TestSupport.BackgroundWork, only: [complete: 1]
 
   alias Lovelace.{Repo, StageDesigner}
   alias Lovelace.StageDesigner.{Attempt, Generation, GenerationWorker, Settings, Storage}
@@ -31,7 +32,7 @@ defmodule LovelaceWeb.SceneErrorStatesTest do
     saved = StageDesigner.scene_direction!(actor: @owner)
     state = StageDesigner.get_state!(1, actor: @service)
     {:ok, view, _} = live(conn, "/scenes")
-    render_async(view)
+    complete(view)
 
     reject_writes("BEFORE INSERT ON stage_designer_directions", fn ->
       view |> form("#scene-direction-form", direction: @direction) |> render_submit()
@@ -71,7 +72,7 @@ defmodule LovelaceWeb.SceneErrorStatesTest do
     view =
       without_table("stage_designer_directions", fn ->
         {:ok, view, _} = live(conn, "/scenes")
-        render_async(view)
+        complete(view)
         assert has_element?(view, "#scene-direction-guidance[role=alert]")
         refute has_element?(view, "#scene-direction-form")
         assert has_element?(view, "#scene-generate[disabled]")
@@ -82,7 +83,7 @@ defmodule LovelaceWeb.SceneErrorStatesTest do
       end)
 
     view |> element("#scenes-refresh") |> render_click()
-    render_async(view)
+    complete(view)
     assert has_element?(view, "#scene-direction-form")
     assert has_element?(view, "#scene-direction-subject option[value=landscape][selected]")
     assert has_element?(view, "#scene-generate:not([disabled])")
@@ -100,12 +101,12 @@ defmodule LovelaceWeb.SceneErrorStatesTest do
     original = SceneGeneration.current()
     state = StageDesigner.get_state!(1, actor: @service)
     {:ok, view, _} = live(conn, "/scenes")
-    render_async(view)
+    complete(view)
     assert has_element?(view, "#scene-history-#{original.id}")
 
     without_table("stage_designer_attempts", fn ->
       view |> element("#scenes-refresh") |> render_click()
-      render_async(view)
+      complete(view)
       assert has_element?(view, ".scene-status", "Scenes couldn’t be loaded")
       refute has_element?(view, "#scenes-empty, #scene-gallery, #scene-attempt-history")
       assert has_element?(view, "#scene-generate[disabled]")
@@ -114,7 +115,7 @@ defmodule LovelaceWeb.SceneErrorStatesTest do
     end)
 
     view |> element("#scenes-refresh") |> render_click()
-    render_async(view)
+    complete(view)
     assert has_element?(view, "#scene-history-#{original.id}")
     assert has_element?(view, "#scene-#{digest}[data-active=true]")
     assert SceneGeneration.current() == original
@@ -130,11 +131,11 @@ defmodule LovelaceWeb.SceneErrorStatesTest do
     digest = publish(settings, PNG.image())
     state = StageDesigner.get_state!(1, actor: @service)
     {:ok, view, _} = live(conn, "/scenes")
-    render_async(view)
+    complete(view)
 
     without_table("stage_designer_directions", fn ->
       view |> form("#scene-generation-settings") |> render_submit()
-      render_async(view)
+      complete(view)
       assert has_element?(view, ".scene-status", "Confirmation couldn’t be prepared")
       refute has_element?(view, "#scene-generation-modal")
       assert StageDesigner.get_state!(1, actor: @service) == state
@@ -143,7 +144,7 @@ defmodule LovelaceWeb.SceneErrorStatesTest do
     end)
 
     view |> form("#scene-generation-settings") |> render_submit()
-    render_async(view)
+    complete(view)
     assert has_element?(view, "#scene-generation-modal")
     view |> element("#scene-generation-cancel") |> render_click()
     assert StageDesigner.get_state!(1, actor: @service) == state
@@ -158,28 +159,28 @@ defmodule LovelaceWeb.SceneErrorStatesTest do
     latest = publish(settings, PNG.image(5, 2))
     {:ok, view, _} = live(conn, "/scenes")
     {:ok, other, _} = live(conn, "/scenes")
-    render_async(view)
-    render_async(other)
+    complete(view)
+    complete(other)
     view |> form("#scene-generation-settings") |> render_submit()
-    render_async(view)
+    complete(view)
     assert has_element?(view, "#scene-generation-modal")
 
     other |> element("#use-scene-#{first}") |> render_click()
-    render_async(other)
-    render_async(view)
+    complete(other)
+    complete(view)
     assert_background(view, first)
     other |> form("#scene-generation-settings") |> render_submit()
-    render_async(other)
+    complete(other)
     other |> element("#scene-generation-confirm") |> render_click()
-    render_async(other)
-    render_async(view)
+    complete(other)
+    complete(view)
     original = SceneGeneration.current()
     state = StageDesigner.get_state!(1, actor: @service)
     assert state.selected_digest == first
     assert state.history == [latest, first]
 
     view |> element("#scene-generation-confirm") |> render_click()
-    render_async(view)
+    complete(view)
     assert has_element?(view, ".scene-status", "confirmation is invalid or expired")
     refute has_element?(view, "#scene-generation-modal")
     assert StageDesigner.get_state!(1, actor: @service) == state
@@ -200,16 +201,13 @@ defmodule LovelaceWeb.SceneErrorStatesTest do
     digest = publish(settings, PNG.image())
     state = StageDesigner.get_state!(1, actor: @service)
     {:ok, view, _} = live(conn, "/scenes")
-    render_async(view)
+    complete(view)
     view |> form("#scene-generation-settings") |> render_submit()
-    render_async(view)
+    complete(view)
 
     reject_writes("BEFORE INSERT ON stage_designer_attempts", fn ->
       view |> element("#scene-generation-confirm") |> render_click()
-      # Request completion starts :scene_gallery, but render_async/1 only waits
-      # for tasks present when called. Await both phases before checking readiness.
-      render_async(view)
-      render_async(view)
+      complete(view)
       assert has_element?(view, ".scene-status", "Generation could not be started")
       refute has_element?(view, "#scene-generation-modal")
       assert has_element?(view, "#scene-generate:not([disabled])")
@@ -237,11 +235,11 @@ defmodule LovelaceWeb.SceneErrorStatesTest do
 
     state = StageDesigner.get_state!(1, actor: @service)
     {:ok, view, _} = live(conn, "/scenes")
-    render_async(view)
+    complete(view)
 
     reject_writes("BEFORE UPDATE ON stage_designer_attempts", fn ->
       view |> element("#scene-current-check-#{original.id}") |> render_click()
-      render_async(view)
+      complete(view)
       assert has_element?(view, ".scene-status", "Recovery could not be scheduled")
       assert has_element?(view, "#scene-history-#{original.id} [data-status=tracking_paused]")
       assert has_element?(view, "#scene-current-check-#{original.id}:not([disabled])")
@@ -269,7 +267,7 @@ defmodule LovelaceWeb.SceneErrorStatesTest do
 
     state = StageDesigner.get_state!(1, actor: @service)
     {:ok, view, _} = live(conn, "/scenes")
-    render_async(view)
+    complete(view)
     view |> element("#scene-history-acknowledge-#{original.id}") |> render_click()
 
     assert has_element?(
@@ -279,7 +277,7 @@ defmodule LovelaceWeb.SceneErrorStatesTest do
 
     reject_writes("BEFORE UPDATE ON stage_designer_attempts", fn ->
       view |> element("#scene-acknowledgement-confirm") |> render_click()
-      render_async(view)
+      complete(view)
       assert has_element?(view, ".scene-status", "could not be acknowledged")
       refute has_element?(view, "#scene-acknowledgement-modal")
       assert has_element?(view, "#scene-history-#{original.id}", original.failure)
@@ -303,7 +301,7 @@ defmodule LovelaceWeb.SceneErrorStatesTest do
     completed = SceneGeneration.submit(__MODULE__)
     assert completed.cleanup == :pending
     {:ok, view, _} = live(conn, "/scenes")
-    render_async(view)
+    complete(view)
     assert has_element?(view, "#scene-history-#{completed.id}", "Startup request")
     assert has_element?(view, "#scene-history-#{completed.id}", "deletion pending")
     assert_background(view, completed.digest)
@@ -315,7 +313,7 @@ defmodule LovelaceWeb.SceneErrorStatesTest do
     end)
 
     assert :ok = Generation.perform(completed.id, :cleanup, SceneGeneration.options(__MODULE__))
-    render_async(view)
+    complete(view)
     assert has_element?(view, "#scene-history-#{completed.id}", "deletion confirmed")
     refute has_element?(view, "#scene-history-#{completed.id}", "deletion pending")
     assert SceneGeneration.current().cleanup == :completed

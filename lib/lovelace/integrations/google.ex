@@ -1,6 +1,7 @@
 defmodule Lovelace.Integrations.Google do
   @moduledoc """
-  Bounded, read-only Google protocol primitives; no persistence or account policy.
+  Concrete Google adapter for `Lovelace.Mail.Provider` and
+  `Lovelace.Google.OAuthProvider`; no persistence or account policy.
 
   `Application.get_env(:lovelace, :gmail, [])` accepts a keyword list or map:
   * `:redirect_uri` — default `http://localhost:4000/oauth/google/callback`;
@@ -27,8 +28,13 @@ defmodule Lovelace.Integrations.Google do
   retained; bytes are fetched only by an explicit, bounded request.
   """
 
+  alias Lovelace.Google.OAuthProvider
   alias Lovelace.Integrations.Google.{Message, Transport}
+  alias Lovelace.Mail.Provider
   alias Lovelace.Security.Vault
+
+  @behaviour Provider
+  @behaviour OAuthProvider
 
   @scope "openid email https://www.googleapis.com/auth/gmail.readonly"
   @calendar_scopes [
@@ -55,33 +61,9 @@ defmodule Lovelace.Integrations.Google do
     :provider_error
   ]
 
-  @type tokens :: %{
-          required(:access_token) => binary(),
-          required(:expires_in) => pos_integer(),
-          optional(:refresh_token) => binary(),
-          optional(:scopes) => [binary()]
-        }
-  @type failure :: {:error, atom()}
-  @type summary :: %{
-          id: binary(),
-          subject: binary(),
-          from: binary(),
-          snippet: binary(),
-          unread: boolean(),
-          date: binary()
-        }
-  @type page :: %{threads: [summary()], next_page_token: binary() | nil}
-  @type message :: %{
-          id: binary(),
-          from: binary(),
-          to: binary(),
-          date: binary(),
-          subject: binary(),
-          text: binary()
-        }
-
-  @spec authorization_url(%{state: binary(), verifier: binary(), redirect_uri: binary()}) ::
-          {:ok, binary()} | failure()
+  @impl OAuthProvider
+  @spec authorization_url(OAuthProvider.authorization()) ::
+          {:ok, binary()} | OAuthProvider.failure()
   def authorization_url(params) do
     safe(fn ->
       with {:ok, config} <- configuration(),
@@ -125,7 +107,9 @@ defmodule Lovelace.Integrations.Google do
 
   def calendar_authorized?(_), do: false
 
-  @spec exchange_code(binary(), binary(), binary()) :: {:ok, tokens()} | failure()
+  @impl OAuthProvider
+  @spec exchange_code(binary(), binary(), binary()) ::
+          {:ok, OAuthProvider.tokens()} | OAuthProvider.failure()
   def exchange_code(code, verifier, redirect_uri) do
     bounded(fn config ->
       with true <- bounded_string?(code, 8192) and valid_verifier?(verifier),
@@ -150,7 +134,8 @@ defmodule Lovelace.Integrations.Google do
     end)
   end
 
-  @spec refresh(binary()) :: {:ok, tokens()} | failure()
+  @impl OAuthProvider
+  @spec refresh(binary()) :: {:ok, OAuthProvider.tokens()} | OAuthProvider.failure()
   def refresh(refresh_token) do
     bounded(fn config ->
       with true <- valid_token?(refresh_token),
@@ -172,7 +157,8 @@ defmodule Lovelace.Integrations.Google do
     end)
   end
 
-  @spec identity(binary()) :: {:ok, %{subject: binary(), email: binary()}} | failure()
+  @impl OAuthProvider
+  @spec identity(binary()) :: {:ok, OAuthProvider.identity()} | OAuthProvider.failure()
   def identity(access_token) do
     bounded(fn config ->
       with {:ok, data} <-
@@ -187,7 +173,8 @@ defmodule Lovelace.Integrations.Google do
     end)
   end
 
-  @spec inbox(binary(), binary() | nil) :: {:ok, page()} | failure()
+  @impl Provider
+  @spec inbox(binary(), Provider.page_token()) :: {:ok, Provider.page()} | Provider.failure()
   def inbox(access_token, page_token \\ nil), do: list(access_token, nil, page_token)
 
   @doc """
@@ -199,8 +186,8 @@ defmodule Lovelace.Integrations.Google do
   estimates, metadata and message counts are never used. The whole observation
   shares one deadline and at most ten pages of 500 IDs.
   """
-  @spec inbox_unread(binary()) ::
-          {:ok, %{total: non_neg_integer(), recent: non_neg_integer()}} | failure()
+  @impl Provider
+  @spec inbox_unread(binary()) :: {:ok, Provider.unread()} | Provider.failure()
   def inbox_unread(access_token) do
     bounded(fn config ->
       until = DateTime.utc_now() |> DateTime.to_unix()
@@ -264,14 +251,17 @@ defmodule Lovelace.Integrations.Google do
     end
   end
 
-  @spec search(binary(), binary(), binary() | nil) :: {:ok, page()} | failure()
+  @impl Provider
+  @spec search(binary(), binary(), Provider.page_token()) ::
+          {:ok, Provider.page()} | Provider.failure()
   def search(access_token, query, page_token \\ nil) do
     if bounded_string?(query, 4096),
       do: list(access_token, query, page_token),
       else: {:error, :invalid_request}
   end
 
-  @spec thread(binary(), binary()) :: {:ok, %{id: binary(), messages: [message()]}} | failure()
+  @impl Provider
+  @spec thread(binary(), binary()) :: {:ok, Provider.thread()} | Provider.failure()
   def thread(access_token, id) do
     bounded(fn config ->
       with true <- valid_id?(id),
@@ -284,7 +274,8 @@ defmodule Lovelace.Integrations.Google do
     end)
   end
 
-  @spec attachment(binary(), binary(), binary()) :: {:ok, binary()} | failure()
+  @impl Provider
+  @spec attachment(binary(), binary(), binary()) :: {:ok, binary()} | Provider.failure()
   def attachment(access_token, message_id, attachment_id) do
     if valid_id?(message_id) and valid_attachment_id?(attachment_id),
       do: fetch_attachment(access_token, message_id, attachment_id),
@@ -312,7 +303,8 @@ defmodule Lovelace.Integrations.Google do
     end
   end
 
-  @spec revoke(binary()) :: :ok | failure()
+  @impl OAuthProvider
+  @spec revoke(binary()) :: :ok | OAuthProvider.failure()
   def revoke(refresh_token) do
     if valid_token?(refresh_token) do
       bounded(fn config ->

@@ -1,10 +1,12 @@
 defmodule LovelaceWeb.GitHubLiveTest do
   use LovelaceWeb.ConnCase, async: false
   import Phoenix.LiveViewTest
+  import Lovelace.TestSupport.BackgroundWork, only: [complete: 1]
 
   alias Lovelace.{GitHub, TestGitHub, Workspaces}
   alias Lovelace.GitHub.{Auth, Operations}
   alias Lovelace.Owner.Actions
+  alias Lovelace.TestSupport.{GitHubDiscovery, OAuthJobs}
 
   @owner %{role: :local_owner}
 
@@ -36,6 +38,35 @@ defmodule LovelaceWeb.GitHubLiveTest do
       workspace: Workspaces.create_workspace!("GitHub studio", actor: @owner),
       session: get_session(conn, :owner_session_token)
     }
+  end
+
+  test "queued account-access discovery stays observable after its requesting view exits",
+       %{conn: conn, workspace: workspace, session: session} do
+    org = connect_owner(workspace, session)
+    assert {:ok, operation} = GitHub.discover(org.connection_id, actor: @owner)
+    {:ok, view, _} = live(conn, "/connections/github")
+    selector = "#github-discovery-status-#{org.connection_id}"
+
+    assert has_element?(
+             view,
+             "#{selector}[data-state=pending][data-job-id='#{operation.job_id}']"
+           )
+
+    assert has_element?(view, "#github-discover-#{org.connection_id} button[disabled]")
+    GenServer.stop(view.pid, :normal)
+
+    assert {:ok, _} = GitHubDiscovery.finish(org.connection_id)
+    {:ok, reopened, html} = live(conn, "/connections/github")
+
+    assert has_element?(
+             reopened,
+             "#{selector}[data-state=succeeded][data-operation-id='#{operation.id}']",
+             "Account access refreshed"
+           )
+
+    assert has_element?(reopened, "#github-discover-#{org.connection_id} button:not([disabled])")
+    refute html =~ "synthetic_client_secret"
+    refute html =~ TestGitHub.bundle().access_token
   end
 
   test "Home keeps owner summaries distinct, workspace details escape provider text, and detach preserves summaries",
@@ -107,9 +138,15 @@ defmodule LovelaceWeb.GitHubLiveTest do
     session: session
   } do
     org = connect_owner(workspace, session)
-    {:ok, view, _} = live(conn, "/")
+    {:ok, view, _} = live(conn, "/connections/github")
+    complete(view)
     TestGitHub.configure(response: {:error, :rate_limited})
-    {:ok, _} = GitHub.refresh(org.id, actor: @owner)
+
+    view
+    |> element("button[phx-click='github:refresh'][phx-value-id='#{org.id}']")
+    |> render_click()
+
+    assert has_element?(view, "[role=alert]", "GitHub refresh requested")
     GitHub.poll(org.id, org.generation, actor: @owner)
     render_patch(view, "/workspaces/#{workspace.id}")
     assert has_element?(view, "#workspace-github-org-#{org.id}", "GitHub rate limit")
@@ -178,12 +215,12 @@ defmodule LovelaceWeb.GitHubLiveTest do
     assert has_element?(view, "#connections-github[aria-current=page]")
     assert has_element?(view, "#github-connection-#{org.id}", "acme")
     assert has_element?(view, "#github-account-status-#{org.connection_id}", "Connected")
-    render_async(view)
+    complete(view)
     assert has_element?(view, "#github-client-editor:not([open])")
     assert has_element?(view, "#github-app-setup:not([open])")
 
     {:ok, reopened, _} = live(conn, "/connections/github")
-    render_async(reopened)
+    complete(reopened)
     assert has_element?(reopened, "#github-account-status-#{org.connection_id}", "Connected")
     assert has_element?(reopened, "#github-client-editor:not([open])")
     refute has_element?(view, "#connections-panel, #calendar-connections, #gemini-connection")
@@ -207,7 +244,7 @@ defmodule LovelaceWeb.GitHubLiveTest do
     assert Enum.empty?(LazyHTML.query(loading, "#github-client-editor, #github-app-setup"))
 
     {:ok, view, _} = live(conn, "/connections/github")
-    html = render_async(view)
+    html = complete(view)
     assert has_element?(view, "#github-sign-in-form")
     assert has_element?(view, "#github-client-editor:not([open])")
     assert has_element?(view, "#github-app-setup:not([open])")
@@ -217,24 +254,29 @@ defmodule LovelaceWeb.GitHubLiveTest do
     refute inspect(:sys.get_state(view.pid).socket.assigns) =~ "synthetic_client_secret"
     assert TestGitHub.state().calls == []
 
-    TestGitHub.configure(keychain_error: :locked)
-    render_patch(view, "/connections")
-    render_patch(view, "/connections/github")
-    render_async(view)
-    assert has_element?(view, "#github-authorization [role=alert]", "could not be read")
-    refute has_element?(view, "#github-sign-in-form")
-    refute has_element?(view, "#github-authorization [role=status]", "setup is required")
+    for failure <- [:locked, :unavailable] do
+      TestGitHub.configure(keychain_error: failure)
+      render_patch(view, "/connections")
+      render_patch(view, "/connections/github")
+      complete(view)
+      assert has_element?(view, "#github-authorization [role=alert]", "could not be read")
+      refute has_element?(view, "#github-sign-in-form")
+      refute has_element?(view, "#github-authorization [role=status]", "setup is required")
+    end
   end
 
   test "failed OAuth authorization remains a usable recovery page after the authorization tick",
        %{conn: conn, session: session} do
     {:ok, view, _} = live(conn, "/connections/github")
-    render_async(view)
+    complete(view)
     {:ok, authorization_url} = Auth.begin(session)
     params = authorization_url |> URI.parse() |> Map.fetch!(:query) |> URI.decode_query()
 
     assert {:error, _} =
-             Auth.complete(session, %{"state" => params["state"], "error" => "access_denied"})
+             OAuthJobs.complete(session, %{
+               "state" => params["state"],
+               "error" => "access_denied"
+             })
 
     send(view.pid, :github_auth_tick)
     render(view)
@@ -252,7 +294,7 @@ defmodule LovelaceWeb.GitHubLiveTest do
 
     for _ <- 1..2 do
       {:ok, view, _} = live(recycle(returned), "/connections/github")
-      render_async(view)
+      complete(view)
       send(view.pid, :github_auth_tick)
       html = render(view)
       assert has_element?(view, "#github-authorization-error")
@@ -279,7 +321,7 @@ defmodule LovelaceWeb.GitHubLiveTest do
     refute has_element?(view, "#github-attach-form")
 
     TestGitHub.configure(installation_response: :ok)
-    assert {:ok, _} = GitHub.discover(authorized.connection.id, actor: @owner)
+    assert {:ok, _} = GitHubDiscovery.discover(authorized.connection.id)
     render(view)
     assert has_element?(view, "#github-attach-form option")
     refute has_element?(view, "#github-workspace-connect")

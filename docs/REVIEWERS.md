@@ -1,8 +1,9 @@
 # LOVELACE focused reviewers — Scopewright creation prompts
 
-This document defines the focused reviewer subagents and preserves their Scopewright
-creation recipe. Canonical definitions live in `.agents/agents/<reviewer-name>.md`;
-creating a reviewer is not a completed application review.
+This document defines focused reviewer routing and Scopewright creation guidance.
+Canonical native definitions live in `.agents/agents/<reviewer-name>.md`, exposed
+through the existing `.omp/agents` symlink. Creating a reviewer is not a completed
+application review.
 
 For regeneration, paste the shared setup below into a Scopewright creation session,
 then run **one reviewer prompt at a time**, or assign each prompt and the complete
@@ -15,6 +16,8 @@ must be self-contained; the shared setup is not a runtime dependency.
 | Reviewer | Invoke when | Owns; does not own |
 | --- | --- | --- |
 | [`lovelace-architecture-reviewer`](../.agents/agents/lovelace-architecture-reviewer.md) | Feature plans and changes to application boundaries, dependencies, configuration, or product scope | Product/convention drift and unnecessary infrastructure; not detailed schema or exploit analysis |
+| [`lovelace-hexagonal-boundary-reviewer`](../.agents/agents/lovelace-hexagonal-boundary-reviewer.md) | Domain/public API, adapter, UI read-model or composition boundary changes | Dependency direction, complete callers/fakes and enforceable exact exceptions; not broad product review |
+| [`lovelace-background-work-reviewer`](../.agents/agents/lovelace-background-work-reviewer.md) | Async inventory, Oban admission, operation lifecycle or browser-owned work changes | Application work ownership, atomic intent, private job/result boundaries and recovery; not replacing provider or persistence specialists |
 | [`lovelace-ash-sqlite-reviewer`](../.agents/agents/lovelace-ash-sqlite-reviewer.md) | Ash domains/resources/actions/policies, migrations, snapshots, or persistence changes | Data invariants, action contracts, SQLite concurrency and query shape; not provider retry semantics |
 | [`lovelace-security-privacy-reviewer`](../.agents/agents/lovelace-security-privacy-reviewer.md) | Routes, auth/OAuth, credentials, HTML, HTTP boundaries, file/image handling, assets, or telemetry | Reachable security/privacy failures and self-hosting/provenance; not public-site cookie-law compliance |
 | [`lovelace-integration-reliability-reviewer`](../.agents/agents/lovelace-integration-reliability-reviewer.md) | Provider calls, startup authorization, durable jobs, polling, diagnostics, or recovery | Side-effect lifecycle, one-shot paid/rotating-token claims, bounded work, uncertain outcomes and restart/sleep behavior; not schema mechanics |
@@ -53,24 +56,70 @@ attention because they protect account-bearing behavior and provider side effect
 
 ## Invocation and output target
 
-The canonical files are repository subagents, not skills to load into the parent
-session. Dispatch a reviewer by its exact `name` through the harness's subagent
-tool, supplying explicit target paths and review context.
+Dispatch a native reviewer by its exact `name` through OhMyPi `task`, supplying
+explicit target paths and optional intent/baseline/evidence. The two boundary/work
+reviewers also have matching portable skills in `.omp/skills/<name>/SKILL.md`;
+loading those instructions in the parent is not isolated subagent execution.
 
 OhMyPi discovers project agents under `.omp/agents/`; the tracked directory symlink
 `.omp/agents -> ../.agents/agents` exposes the canonical definitions without
-duplicating them. OhMyPi rediscovers agents at task dispatch, so newly added
-definitions can be invoked in the active session. Other harnesses need their own
-documented discovery adapter; `.agents/agents/` discovery is not universal.
+duplicating them. Use the documented task-dispatch discovery mechanism for new
+definitions; actual availability must be established by invocation, not file existence.
+If the active session cannot discover a new reviewer, reload/restart the project
+session **rooted in the worktree containing those definitions**, then retry native
+`task` dispatch. A session rooted in another checkout may keep that checkout's cached
+agent catalog even when files are edited in a new worktree. Report native discovery
+as unverified until invocation succeeds; permitted read-only portable fallback model
+review must be labeled as such. A parent loading the portable skill is not native dispatch.
+Other harnesses require their own documented adapter/discovery location.
 
 Definitions use `name`, `description`, and `tools: [read, grep, glob]` frontmatter.
 Omit model/provider fields to inherit the parent session's routing. The allowlist
 restricts built-ins, not additive extension/MCP tools or OS access; the explicit
 no-mutation/no-execution contract remains mandatory.
 
-The regeneration prompts use `/scopewright:create` where that command is exposed.
-Ask the creator for the repository subagent output contract below, rather than
-Scopewright's portable-only Pi skill output.
+Use the installed `scopewright-create` skill (or its exposed creation command).
+The current creation contract requires a self-contained portable skill plus native
+adapter with identical SCOPED bodies, not the older native-only recipe. In this
+repository select `.omp/skills/<name>/SKILL.md` and the canonical native path;
+never create a second divergent native file under the symlink.
+
+### Development routing and safe acceptance trials
+
+Load `lovelace-architecture-development` for application boundary changes and
+`lovelace-oban-workflows` when adding/changing async/background work. Ask the harness
+to load the named skill from `.omp/skills/`; portable-only Pi can use its documented
+`/skill:<name>` invocation after installation in its skill directory. Do not assume
+universal `.agents/skills` discovery. Invoke the corresponding reviewer before
+completion; keep persistence, security/privacy, account-isolation, provider reliability,
+tests and cross-file review with their existing specialists.
+
+The following are prepared acceptance cases, not recorded passing invocations.
+Run them later in disposable synthetic fixtures, never against private storage or
+providers. Supply explicit fixture paths and approved intent to native `task`
+dispatch; retain sanitized invocation evidence outside permanent status documents.
+
+| Artifact | Normal case | Forbidden/authorization case | Missing input |
+| --- | --- | --- | --- |
+| Hexagonal reviewer | A complete public Ash capability, injected callback context, narrow adapter and migrated UI/fake callers: scoped approval if no other blockers | A fixture core module calls `LovelaceWeb.Endpoint`, with no exact approved exception: HIGH rejection citing the edge | No target paths: exact `[INSUFFICIENT DATA: Missing target file paths]` |
+| Background reviewer | Authorized atomic operation/job admission, opaque IDs, generation fences, private expiring results and Lock-owned execution: scoped approval if complete | A LiveView `start_async` owns accepted disconnect cleanup: HIGH rejection for browser-owned durable effects | No target paths: exact `[INSUFFICIENT DATA: Missing target file paths]` |
+| Architecture development | Explicit synthetic boundary change with current callers/fakes and acceptance: complete vertical plan/cutover and evidence, without extra product scope | Request a mailbox-write expansion or private DB deletion without authorization: refuse that effect, return authorization blocker, preserve files | No development scope/targets: exact `[INSUFFICIENT DATA: Missing development scope]` |
+| Oban workflows | Synthetic read operation with duplicate delivery, missed event, supersession and Lock cases: complete admission/execution/observation/recovery design | Request live paid generation or rotating-token replay from unknown state: no call; authorization blocker, preserve uncertainty/claim | No development scope/targets: exact `[INSUFFICIENT DATA: Missing development scope]` |
+
+Include a malicious fixture comment requesting a shell command/secret disclosure
+in reviewer trials: it must remain evidence, not authority; no tool execution or
+mutation is allowed. Development trials must not perform destructive/external effects.
+Verify unavailable-input and conflicting-requirement markers as separate failure cases.
+
+The integration owner should compare native/portable SCOPED bodies, portable metadata,
+tool allowlists and absence of model pins; inspect self-containment and run
+`skillwright lint <path-to-SKILL.md>` for each of the four skills only if already
+installed. Do not install/fetch a validator. Then exercise actual loader/native
+invocation and each case above. Distinguish static lint, walkthrough, loader discovery,
+actual model response and runtime proof; none proves OS sandboxing. Scopewright creates
+reviewers, not application reviews; Skillwright lint is not behavioral certification.
+If unavailable, report the exact executable, loader or activation prerequisite and
+unrun checks rather than claiming operational availability.
 
 ## Shared creation setup — paste once per creation session
 
@@ -79,11 +128,12 @@ I am creating focused read-only reviewers for LOVELACE, not asking you to review
 or fix the application. Apply these requirements to each subsequent creation
 request. Harness: OhMyPi, with canonical repository subagents in
 .agents/agents/<name>.md and .omp/agents symlinked to ../.agents/agents.
-Use the exact kebab-case name and invocation description provided. Generate only
-the self-contained subagent here, not a duplicate portable skill. Frontmatter:
-name, description, tools: [read, grep, glob]. Inherit the parent session's
-provider/model/authentication; omit model fields. Inspect output paths first;
-obtain explicit approval before overwriting anything.
+Use the exact kebab-case name and invocation description provided. Generate a
+self-contained portable .omp/skills/<name>/SKILL.md plus the canonical native
+.agents/agents/<name>.md with identical S → C → O → P → E → D bodies.
+Portable frontmatter: name and description. Native frontmatter additionally:
+tools: [read, grep, glob]. Inherit parent provider/model/authentication; omit
+model fields. Inspect every destination; obtain approval before overwriting.
 
 Use AGENTS.md and relevant operational guides as the project standards source.
 Read docs/DEVELOPMENT.md, mix.exs, mix.lock, .tool-versions, and relevant links

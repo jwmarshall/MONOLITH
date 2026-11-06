@@ -49,7 +49,7 @@ defmodule Lovelace.WorkerLifecycleTest.Calendar do
 
   alias Lovelace.Calendar
   alias Lovelace.Calendar.{PollWorker, State}
-  alias Lovelace.Mail.Connections
+  alias Lovelace.Google.Access
   alias Lovelace.WorkerLifecycleTest.CalendarProvider
 
   @owner %{role: :local_owner}
@@ -77,7 +77,7 @@ defmodule Lovelace.WorkerLifecycleTest.Calendar do
     accounts =
       for subject <- ["worker-calendar-a", "worker-calendar-b"] do
         {:ok, account} =
-          Connections.accept(
+          Access.accept(
             workspace.id,
             %{subject: subject, email: subject <> "@example.invalid"},
             "token-" <> subject,
@@ -302,7 +302,7 @@ defmodule Lovelace.WorkerLifecycleTest.GitHub do
 
     assert Enum.any?(
              TestGitHub.state().calls,
-             &match?({:pull_requests, "replacement-worker-token", _}, &1)
+             &match?({:installation_snapshot, "replacement-worker-token", _}, &1)
            )
 
     assert organization("acme").fetched_at
@@ -423,7 +423,7 @@ defmodule Lovelace.WorkerLifecycleTest.GitHub do
     assert organization("org-b") == untouched
 
     assert Enum.any?(TestGitHub.state().calls, fn
-             {:pull_requests, "worker-account-a", %{github_id: "WORKER_ORG_A"}} -> true
+             {:installation_snapshot, "worker-account-a", %{github_id: "WORKER_ORG_A"}} -> true
              _ -> false
            end)
   end

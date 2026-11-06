@@ -1,10 +1,12 @@
 defmodule LovelaceWeb.GitHubCredentialsTest do
   use LovelaceWeb.ConnCase, async: false
   import ExUnit.CaptureLog
+  alias Lovelace.ConnectionDiagnostics.State, as: DiagnosticState
   alias Lovelace.GitHub
-  alias Lovelace.GitHub.{Auth, ClientCredentials, Operations}
+  alias Lovelace.GitHub.{Auth, ClientCredentials, Credentials, Operations}
   alias Lovelace.Owner.Actions
   alias Lovelace.TestGitHub
+  alias Lovelace.TestSupport.{GitHubDiscovery, OAuthJobs}
   alias LovelaceWeb.Plugs.GitHubCredentials
   alias Plug.Conn.Query
   @owner %{role: :local_owner}
@@ -21,6 +23,12 @@ defmodule LovelaceWeb.GitHubCredentialsTest do
     Enum.each(settings, fn {key, value} -> Application.put_env(:lovelace, key, value) end)
     conn = authenticate_owner(conn)
     session = get_session(conn, :owner_session_token)
+
+    assert {:ok, nil} =
+             Ash.get(DiagnosticState, :github,
+               actor: %{role: :connection_diagnostics},
+               not_found_error?: false
+             )
 
     assert {:ok, true} =
              Lovelace.GitHub.save_client_credentials(
@@ -387,7 +395,7 @@ defmodule LovelaceWeb.GitHubCredentialsTest do
     logs =
       capture_log(fn ->
         response =
-          get(
+          OAuthJobs.get(
             conn,
             "/auth/github/callback?" <>
               URI.encode_query(%{
@@ -432,7 +440,12 @@ defmodule LovelaceWeb.GitHubCredentialsTest do
           URI.encode_query(%{"iss" => "https://github.com/login/oauth#unexpected"}),
           issuer <> "&" <> issuer
         ] do
-      response = get(conn, "/auth/github/callback?" <> query <> "&" <> invalid)
+      response =
+        OAuthJobs.get(
+          conn,
+          "/auth/github/callback?" <> query <> "&" <> invalid
+        )
+
       assert redirected_to(response, 303) == "/connections/github?github=callback_invalid"
       assert response.query_string == ""
       assert response.params == %{}
@@ -442,12 +455,17 @@ defmodule LovelaceWeb.GitHubCredentialsTest do
       assert directory().connections == []
     end
 
-    accepted = get(conn, "/auth/github/callback?" <> query <> "&" <> issuer)
+    accepted =
+      OAuthJobs.get(conn, "/auth/github/callback?" <> query <> "&" <> issuer)
+
     assert redirected_to(accepted, 303) == "/connections/github?github=authorized"
     assert [%{status: :ready}] = directory().connections
 
     calls = TestGitHub.state().calls
-    replay = get(conn, "/auth/github/callback?" <> query <> "&" <> issuer)
+
+    replay =
+      OAuthJobs.get(conn, "/auth/github/callback?" <> query <> "&" <> issuer)
+
     assert redirected_to(replay, 303) == "/connections/github?github=authorization_unmatched"
     assert TestGitHub.state().calls == calls
   end
@@ -467,14 +485,14 @@ defmodule LovelaceWeb.GitHubCredentialsTest do
         "iss" => "https://github.com/login/oauth"
       })
 
-    response = get(conn, "/auth/github/callback?" <> query)
+    response = OAuthJobs.get(conn, "/auth/github/callback?" <> query)
     assert redirected_to(response, 303) == "/connections/github?github=authorization_denied"
     assert Auth.status(Actions.digest(session)) == %{status: :failed}
     assert TestGitHub.state().calls == []
     assert directory().connections == []
     refute response.resp_body =~ "private_denial_detail"
 
-    replay = get(conn, "/auth/github/callback?" <> query)
+    replay = OAuthJobs.get(conn, "/auth/github/callback?" <> query)
     assert redirected_to(replay, 303) == "/connections/github?github=authorization_unmatched"
     assert TestGitHub.state().calls == []
   end
@@ -493,7 +511,7 @@ defmodule LovelaceWeb.GitHubCredentialsTest do
           {"state=#{state}&error=access_denied&error_description=private_detail",
            "authorization_denied"}
         ] do
-      response = get(conn, "/auth/github/callback?" <> query)
+      response = OAuthJobs.get(conn, "/auth/github/callback?" <> query)
       assert redirected_to(response, 303) == "/connections/github?github=#{notice}"
       assert get_session(response, :github_authorization_result) == notice
       assert response.query_string == ""
@@ -527,7 +545,7 @@ defmodule LovelaceWeb.GitHubCredentialsTest do
     stale =
       restarted
       |> recycle()
-      |> get(
+      |> OAuthJobs.get(
         "/auth/github/callback?" <> URI.encode_query(%{"state" => old_state, "code" => "stale"})
       )
 
@@ -538,7 +556,7 @@ defmodule LovelaceWeb.GitHubCredentialsTest do
     accepted =
       stale
       |> recycle()
-      |> get(
+      |> OAuthJobs.get(
         "/auth/github/callback?" <> URI.encode_query(%{"state" => state, "code" => "accepted"})
       )
 
@@ -587,7 +605,9 @@ defmodule LovelaceWeb.GitHubCredentialsTest do
     callback =
       conn
       |> recycle()
-      |> get("/auth/github/callback?" <> URI.encode_query(%{"state" => state, "code" => "late"}))
+      |> OAuthJobs.get(
+        "/auth/github/callback?" <> URI.encode_query(%{"state" => state, "code" => "late"})
+      )
 
     assert redirected_to(callback, 303) == "/connections/github?github=authorization_unmatched"
     assert directory().connections == []
@@ -601,7 +621,13 @@ defmodule LovelaceWeb.GitHubCredentialsTest do
   } do
     {:ok, url} = Auth.begin(session)
     state = URI.decode_query(URI.parse(url).query)["state"]
-    assert {:ok, authorized} = Auth.complete(session, %{"state" => state, "code" => "accepted"})
+
+    assert {:ok, authorized} =
+             OAuthJobs.complete(session, %{
+               "state" => state,
+               "code" => "accepted"
+             })
+
     before = directory()
     tokens = TestGitHub.state().tokens
     TestGitHub.configure(calls: [])
@@ -632,7 +658,9 @@ defmodule LovelaceWeb.GitHubCredentialsTest do
     response =
       submit(c.conn, %{"operation" => "discover", "connection_id" => first.connection.id})
 
-    assert redirected_to(response, 303) == "/connections/github?github=discovered"
+    assert redirected_to(response, 303) == "/connections/github?github=discovery_queued"
+    assert TestGitHub.state().calls == []
+    assert {:ok, _} = GitHubDiscovery.finish(first.connection.id)
     assert organization("ORG_ACME").login == "renamed"
     assert organization("ORG_NEW").connection_id == first.connection.id
     assert organization("USER_SYNTHETIC").status == :reauthorization
@@ -646,13 +674,7 @@ defmodule LovelaceWeb.GitHubCredentialsTest do
            ]
   end
 
-  for {reason, notice} <- [
-        {:rate_limited, "rate_limited"},
-        {:provider, "provider_failed"},
-        {:unavailable, "unavailable"},
-        {:configuration, "configuration"},
-        {:denied, "failed"}
-      ] do
+  for reason <- [:rate_limited, :provider, :unavailable, :configuration, :denied] do
     test "discovery reports #{reason} honestly without changing credentials", c do
       authorized = authorize(c.session)
       before = directory()
@@ -663,8 +685,10 @@ defmodule LovelaceWeb.GitHubCredentialsTest do
       response =
         submit(c.conn, %{"operation" => "discover", "connection_id" => authorized.connection.id})
 
-      assert redirected_to(response, 303) ==
-               "/connections/github?github=" <> unquote(notice)
+      assert redirected_to(response, 303) == "/connections/github?github=discovery_queued"
+      assert TestGitHub.state().calls == []
+      assert {:error, ^reason} = GitHubDiscovery.finish(authorized.connection.id)
+      assert connection(authorized.connection.id).discovery_error == reason
 
       assert TestGitHub.state().tokens == tokens
 
@@ -677,7 +701,10 @@ defmodule LovelaceWeb.GitHubCredentialsTest do
         assert connection(authorized.connection.id).status == :reauthorization
         assert Enum.all?(directory().organizations, &(&1.status == :reauthorization))
       else
-        assert directory() == before
+        assert Map.take(directory(), [:organizations, :memberships]) ==
+                 Map.take(before, [:organizations, :memberships])
+
+        assert connection(authorized.connection.id).status == :ready
       end
     end
   end
@@ -693,7 +720,9 @@ defmodule LovelaceWeb.GitHubCredentialsTest do
     response =
       submit(c.conn, %{"operation" => "discover", "connection_id" => authorized.connection.id})
 
-    assert redirected_to(response, 303) == "/connections/github?github=access_failed"
+    assert redirected_to(response, 303) == "/connections/github?github=discovery_queued"
+    assert TestGitHub.state().calls == []
+    assert {:error, :reconnect} = GitHubDiscovery.finish(authorized.connection.id)
     assert connection(authorized.connection.id).status == :reauthorization
     assert organization("ORG_ACME").status == :reauthorization
     assert [%{workspace_id: id}] = directory().memberships
@@ -865,7 +894,9 @@ defmodule LovelaceWeb.GitHubCredentialsTest do
     assert organization("ORG_ACME").status == :disconnected
     assert directory().memberships == []
     assert TestGitHub.state().tokens == tokens
-    assert {:error, :reconnect} = Operations.access_token(authorized.connection.id)
+
+    assert {:error, :reconnect} =
+             Credentials.access_token(authorized.connection.id)
 
     TestGitHub.configure(keychain_delete_error: nil)
     response = submit(c.conn, params)
