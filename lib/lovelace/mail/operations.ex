@@ -3,8 +3,9 @@ defmodule Lovelace.Mail.Operations do
   use Ash.Resource.Actions.Implementation
   require Ash.Query
 
+  alias Lovelace.Google.Access
   alias Lovelace.Mail
-  alias Lovelace.Mail.{Account, CacheEntry, Connections, WorkspaceAccount}
+  alias Lovelace.Mail.{Account, CacheEntry, Disconnects, Reads}
   alias Lovelace.Security.Vault
 
   @max_entries 120
@@ -43,16 +44,26 @@ defmodule Lovelace.Mail.Operations do
   end
 
   defp execute(:check_credentials, args, %{role: :local_owner}) do
-    {:ok, %{status: Connections.check_credentials(args.account_id, args.generation)}}
+    {:ok, %{status: Access.check_credentials(args.account_id, args.generation)}}
   end
 
-  defp execute(:disconnect, args, actor) do
-    with {:ok, account} <- Mail.get_account(args.account_id, actor: actor) do
-      Connections.serial(account.id, fn ->
-        disconnect(Mail.get_account!(account.id, actor: actor), actor)
-      end)
-    end
-  end
+  defp execute(:disconnect, args, actor), do: Disconnects.accept(args.account_id, actor)
+
+  defp execute(:disconnect_status, args, actor), do: Disconnects.observe(args.account_id, actor)
+
+  defp execute(:finish_disconnect, args, %{role: :mail_cleanup}),
+    do: {:ok, Disconnects.perform(args.operation_id) == :ok}
+
+  defp execute(:request_read, args, actor), do: Reads.request(args, actor)
+
+  defp execute(:read_status, args, actor),
+    do: Reads.observe(args.operation_id, actor)
+
+  defp execute(:cancel_read, args, _actor),
+    do: {:ok, Reads.cancel(args.operation_id)}
+
+  defp execute(:perform_read, args, %{role: :mail_read}),
+    do: {:ok, Reads.perform(args.operation_id) == :ok}
 
   defp execute(:poll, args, %{role: :mail_service, account_id: id} = actor)
        when id == args.account_id do
@@ -106,7 +117,7 @@ defmodule Lovelace.Mail.Operations do
            ),
          true <- metadata["size"] <= 5 * 1024 * 1024,
          :ok <- admit_request(account, actor),
-         {:ok, token} <- Connections.access_token(account),
+         {:ok, token} <- Access.access_token(account),
          :ok <- admit_request(account, actor),
          {:ok, bytes} <- provider().attachment(token, args.message_id, args.attachment_id),
          true <- byte_size(bytes) <= 5 * 1024 * 1024,
@@ -199,7 +210,7 @@ defmodule Lovelace.Mail.Operations do
   end
 
   defp fetch_remote(account, key, request, cached, actor) do
-    with {:ok, token} <- Connections.access_token(account),
+    with {:ok, token} <- Access.access_token(account),
          :ok <- admit_request(account, actor),
          {:ok, payload} <- request.(token),
          {:ok, entry} <- publish(account, key, payload, actor),
@@ -218,7 +229,7 @@ defmodule Lovelace.Mail.Operations do
   # recently succeeded. HTTP and token access stay outside the short write transaction.
   defp fetch_unread(account, actor) do
     with :ok <- admit_request(account, actor),
-         {:ok, token} <- Connections.access_token(account),
+         {:ok, token} <- Access.access_token(account),
          :ok <- admit_request(account, actor),
          {:ok, count} <- request_unread(token),
          {:ok, error} when error in [nil, :rate_limited] <- publish_unread(account, count, actor) do
@@ -329,11 +340,7 @@ defmodule Lovelace.Mail.Operations do
     end
   end
 
-  @doc false
-  def cooldown?(%{last_error: :rate_limited, next_poll_at: %DateTime{} = deadline}),
-    do: DateTime.compare(deadline, DateTime.utc_now()) == :gt
-
-  def cooldown?(_), do: false
+  defp cooldown?(account), do: Access.cooldown?(account)
 
   defp cached_result(entry, cached, %{last_error: error}) when not is_nil(error),
     do: Map.merge(result(entry, cached), %{error: error, stale: true})
@@ -491,68 +498,6 @@ defmodule Lovelace.Mail.Operations do
     :ok
   end
 
-  defp disconnect(account, actor) do
-    credential = vault().get(account.id)
-
-    {:ok, _} =
-      Ash.transact([Account, CacheEntry, WorkspaceAccount], fn ->
-        Mail.update_account!(
-          account,
-          %{
-            expected_generation: account.generation,
-            status: :disconnected,
-            calendar_enabled: false,
-            generation: Ash.UUID.generate(),
-            inbox_unread_count: nil,
-            inbox_unread_recent_count: nil,
-            inbox_unread_at: nil,
-            inbox_unread_error: nil,
-            # Persist cleanup intent before crossing the nontransactional vault boundary.
-            last_error: :keychain
-          },
-          actor: actor
-        )
-
-        CacheEntry
-        |> Ash.Query.for_read(:read, %{account_id: account.id}, actor: actor)
-        |> Ash.read!()
-        |> Enum.each(fn e ->
-          e |> Ash.Changeset.for_destroy(:evict, %{}, actor: actor) |> Ash.destroy!()
-        end)
-
-        WorkspaceAccount
-        |> Ash.Query.for_read(:for_account, %{account_id: account.id}, actor: actor)
-        |> Ash.read!()
-        |> Enum.each(&Mail.detach_account!(&1, actor: actor))
-
-        true
-      end)
-
-    Lovelace.Calendar.clear(account.id)
-    deleted = vault().delete(account.id) == :ok
-
-    current = Mail.get_account!(account.id, actor: actor)
-
-    Mail.update_account(
-      current,
-      %{
-        expected_generation: current.generation,
-        last_error: if(deleted, do: nil, else: :keychain)
-      },
-      actor: actor
-    )
-
-    revoked =
-      case credential do
-        {:ok, token} -> provider().revoke(token) == :ok
-        {:error, :not_found} -> true
-        _ -> false
-      end
-
-    broadcast(account.id)
-    {:ok, %{local_removed: true, credentials_removed: deleted, revoked: revoked}}
-  end
-
   @doc false
   def member?(workspace_id, account_id, actor),
     do: Enum.any?(memberships(workspace_id, actor), &(&1.account_id == account_id))
@@ -590,11 +535,7 @@ defmodule Lovelace.Mail.Operations do
   def broadcast(id),
     do: Phoenix.PubSub.broadcast(Lovelace.PubSub, "mail:#{id}", {:mail_changed, id})
 
-  @doc false
-  def provider, do: Application.get_env(:lovelace, :gmail_provider, Lovelace.Integrations.Google)
-  @doc false
-  def vault,
-    do: Application.get_env(:lovelace, :gmail_vault, Lovelace.Integrations.Google.Keychain)
+  defp provider, do: Access.provider()
 
   defp safe_reason(reason) when reason in [:invalid_grant, :unauthorized, :reconnect],
     do: :reconnect

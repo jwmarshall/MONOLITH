@@ -61,6 +61,9 @@ config :lovelace,
     Lovelace.GitHub,
     Lovelace.Google,
     Lovelace.Onboarding,
+    Lovelace.Home,
+    Lovelace.OAuth,
+    Lovelace.ConnectionDiagnostics,
     Lovelace.Owner
   ],
   ecto_repos: [Lovelace.Repo],
@@ -83,15 +86,19 @@ config :lovelace, LovelaceWeb.Endpoint,
   pubsub_server: Lovelace.PubSub,
   live_view: [signing_salt: "U9kM1spw"]
 
+config :lovelace, :scene_confirmation, {LovelaceWeb.SceneConfirmation, []}
+config :lovelace, :paid_render_provider, Lovelace.Integrations.Gemini.Interactions
+
 # Lite is Oban's bundled SQLite engine. Only identifiers enter durable job arguments.
 config :lovelace, Oban,
   repo: Lovelace.Repo,
   engine: Oban.Engines.Lite,
-  queues: [gmail: 1, gemini: 1, github: 1],
+  queues: [gmail: 1, calendar: 1, gemini: 1, github: 1, oauth: 1, diagnostics: 1],
   plugins: [
     {Oban.Plugins.Cron,
      crontab: [
        {"* * * * *", Lovelace.Mail.SweepWorker},
+       {"* * * * *", Lovelace.Calendar.SweepWorker},
        {"* * * * *", Lovelace.GitHub.SweepWorker},
        {"* * * * *", Lovelace.StageDesigner.RecoveryWorker}
      ]},

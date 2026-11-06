@@ -56,24 +56,27 @@ end
 
 defmodule Lovelace.TestGoogle do
   @moduledoc false
+  @behaviour Lovelace.Mail.Provider
+  @behaviour Lovelace.Google.OAuthProvider
+  @impl true
   def refresh(token) do
     Lovelace.TestMail.record({:refresh, token})
 
     case Lovelace.TestMail.result() do
       :ok ->
-        {:ok, %{access_token: "access:" <> token}}
+        {:ok, %{access_token: "access:" <> token, expires_in: 3600}}
 
       {:wait_thread, _} ->
-        {:ok, %{access_token: "access:" <> token}}
+        {:ok, %{access_token: "access:" <> token, expires_in: 3600}}
 
       {:wait_attachment, _} ->
-        {:ok, %{access_token: "access:" <> token}}
+        {:ok, %{access_token: "access:" <> token, expires_in: 3600}}
 
       {:wait, pid} ->
         send(pid, {:provider_waiting, self()})
 
         receive do
-          :continue -> {:ok, %{access_token: "access:" <> token}}
+          :continue -> {:ok, %{access_token: "access:" <> token, expires_in: 3600}}
         end
 
       error ->
@@ -81,6 +84,7 @@ defmodule Lovelace.TestGoogle do
     end
   end
 
+  @impl true
   def inbox_unread(token) do
     Lovelace.TestMail.record({:inbox_unread, token})
 
@@ -103,8 +107,10 @@ defmodule Lovelace.TestGoogle do
     end
   end
 
+  @impl true
   def inbox(token, page), do: search(token, "in:inbox", page)
 
+  @impl true
   def search(token, query, page) do
     Lovelace.TestMail.record({:page, token, query, page})
 
@@ -124,6 +130,7 @@ defmodule Lovelace.TestGoogle do
      }}
   end
 
+  @impl true
   def thread(token, id) do
     case Lovelace.TestMail.result() do
       {:wait_thread, pid} ->
@@ -161,6 +168,7 @@ defmodule Lovelace.TestGoogle do
      }}
   end
 
+  @impl true
   def attachment(token, message_id, attachment_id) do
     Lovelace.TestMail.record({:attachment, token, message_id, attachment_id})
 
@@ -177,18 +185,22 @@ defmodule Lovelace.TestGoogle do
     end
   end
 
+  @impl true
   def revoke(token) do
     Lovelace.TestMail.record({:revoke, token})
     :ok
   end
 
+  @impl true
   def authorization_url(%{state: state}),
     do:
       {:ok, "https://accounts.google.com/o/oauth2/v2/auth?" <> URI.encode_query(%{state: state})}
 
+  @impl true
   def exchange_code("fake-code", _verifier, _redirect),
-    do: {:ok, %{access_token: "new-access", refresh_token: "new-refresh"}}
+    do: {:ok, %{access_token: "new-access", refresh_token: "new-refresh", expires_in: 3600}}
 
-  def exchange_code(_, _, _), do: {:error, :provider}
+  def exchange_code(_, _, _), do: {:error, :provider_error}
+  @impl true
   def identity("new-access"), do: {:ok, %{subject: "new-subject", email: "new@example.invalid"}}
 end

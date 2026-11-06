@@ -1,9 +1,10 @@
 defmodule LovelaceWeb.HomeGitHub do
   @moduledoc "Installation-owner readouts; authorization and provider work belong to the GitHub domain."
   import Phoenix.Component, only: [assign: 2]
-  import Phoenix.LiveView, only: [connected?: 1, put_flash: 3, start_async: 3]
+  import Phoenix.LiveView, only: [connected?: 1, put_flash: 3]
   alias Lovelace.GitHub.Auth
   alias Lovelace.Owner.Actions
+  alias LovelaceWeb.HomeConnectionDiagnostic
 
   @owner %{role: :local_owner}
   @authorization_errors ~w(authorization_unlinked authorization_unmatched authorization_denied callback_invalid authorization_failed keychain_failed locked)
@@ -30,36 +31,10 @@ defmodule LovelaceWeb.HomeGitHub do
       github_error: false,
       github_now: DateTime.utc_now()
     )
+    |> HomeConnectionDiagnostic.init(:github)
   end
 
-  def open(socket) do
-    socket
-    |> assign(
-      github_configuration_status: :loading,
-      github_configured: false,
-      github_installation_url: nil
-    )
-    |> start_async(:github_client_status, fn -> Lovelace.GitHub.client_status(actor: @owner) end)
-  end
-
-  def handle_async({:ok, {:ok, %{configured?: configured, app_slug: slug}}}, socket) do
-    {:noreply,
-     assign(socket,
-       github_configured: configured,
-       github_configuration_status: if(configured, do: :stored, else: :not_connected),
-       github_installation_url:
-         if(configured, do: "https://github.com/apps/#{slug}/installations/new")
-     )}
-  end
-
-  def handle_async(_, socket) do
-    {:noreply,
-     assign(socket,
-       github_configured: false,
-       github_configuration_status: :unavailable,
-       github_installation_url: nil
-     )}
-  end
+  def open(socket), do: HomeConnectionDiagnostic.open(socket, :github)
 
   def reload(socket) do
     case Lovelace.GitHub.directory(actor: @owner) do
@@ -98,6 +73,9 @@ defmodule LovelaceWeb.HomeGitHub do
     end
   end
 
+  def handle_info({:connection_diagnostic, :github, _} = message, socket),
+    do: HomeConnectionDiagnostic.handle_info(message, socket)
+
   def handle_info(:github_tick, socket) do
     Process.send_after(self(), :github_tick, 60_000)
     {:noreply, reload(socket)}
@@ -122,13 +100,25 @@ defmodule LovelaceWeb.HomeGitHub do
           if(auth.status == :connected, do: nil, else: socket.assigns.github_authorization_error)
       )
 
-    {:noreply, if(changed && auth.status == :connected, do: reload(socket), else: socket)}
+    {:noreply, refresh_observation(socket, active, auth, changed)}
   end
 
   def handle_info(:github_directory_changed, socket), do: {:noreply, reload(socket)}
 
   def handle_info({:github_changed, id}, socket) do
     {:noreply, if(id in socket.assigns.github_subscriptions, do: reload(socket), else: socket)}
+  end
+
+  defp refresh_observation(socket, active, auth, changed) do
+    observing_discovery =
+      active and
+        Enum.any?(
+          socket.assigns.github_connections,
+          &(&1.discovery_status in [:pending, :running])
+        )
+
+    reload? = observing_discovery or (changed and auth.status == :connected)
+    if reload?, do: reload(socket), else: socket
   end
 
   def handle_event("github:refresh", %{"id" => id}, socket) do
@@ -148,26 +138,6 @@ defmodule LovelaceWeb.HomeGitHub do
   end
 
   def handle_event(_, _, socket), do: {:noreply, socket}
-
-  def workspace_connections(socket) do
-    by_id =
-      Map.new(socket.assigns.github_organizations, fn org ->
-        {org.id,
-         %{
-           id: org.id,
-           email: "GitHub · " <> org.login,
-           status: org.status,
-           last_error: org.last_error
-         }}
-      end)
-
-    Enum.reduce(socket.assigns.github_memberships, %{}, fn member, grouped ->
-      case Map.get(by_id, member.organization_id) do
-        nil -> grouped
-        connection -> Map.update(grouped, member.workspace_id, [connection], &[connection | &1])
-      end
-    end)
-  end
 
   @result_messages %{
     "pending" => {:info, "Complete GitHub authorization in the browser to connect your account."},
@@ -193,9 +163,9 @@ defmodule LovelaceWeb.HomeGitHub do
       {:error,
        "LOVELACE locked before the GitHub operation could finish. Unlock it and try again."},
     "cancelled" => {:info, "GitHub connection attempt cancelled locally."},
-    "discovered" =>
+    "discovery_queued" =>
       {:info,
-       "GitHub account access refreshed. Choose an account or organization to add to a workspace."},
+       "GitHub account access refresh requested. Its status remains available here after reload."},
     "attached" => {:info, "GitHub owner added to workspace."},
     "detached" =>
       {:info, "GitHub owner removed from this workspace. Its connection is unchanged."},

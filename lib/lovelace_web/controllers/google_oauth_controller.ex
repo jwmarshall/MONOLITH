@@ -2,7 +2,7 @@ defmodule LovelaceWeb.GoogleOAuthController do
   @moduledoc "Explicit, CSRF-protected connection intent; callback bypasses request instrumentation."
   use LovelaceWeb, :controller
   alias Lovelace.Mail
-  alias Lovelace.Mail.{OAuth, Operations}
+  alias Lovelace.Mail.OAuth
 
   def create(conn, _params) do
     workspace = conn.body_params["workspace_id"]
@@ -14,15 +14,8 @@ defmodule LovelaceWeb.GoogleOAuthController do
          {:ok, %{id: ^workspace}} <-
            Lovelace.Workspaces.get_workspace(workspace, actor: conn.assigns.current_actor),
          {:ok, generation} <- expected_account(expected, conn.assigns.current_actor, capability),
-         {:ok, state, verifier} <-
-           OAuth.begin(workspace, session, expected, capability, generation, origin),
          {:ok, url} <-
-           Operations.provider().authorization_url(%{
-             state: state,
-             verifier: verifier,
-             redirect_uri: redirect_uri(),
-             capability: capability
-           }),
+           OAuth.authorization_url(workspace, session, expected, capability, generation, origin),
          %URI{scheme: "https", host: "accounts.google.com", userinfo: nil} <- URI.parse(url) do
       conn |> put_resp_header("location", url) |> send_resp(303, "")
     else
@@ -69,10 +62,5 @@ defmodule LovelaceWeb.GoogleOAuthController do
       {:ok, %{generation: generation}} -> {:ok, generation}
       _ -> {:error, :unavailable}
     end
-  end
-
-  def redirect_uri do
-    Application.get_env(:lovelace, :gmail, [])
-    |> Keyword.get(:redirect_uri, "http://localhost:4000/oauth/google/callback")
   end
 end

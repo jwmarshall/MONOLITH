@@ -6,7 +6,9 @@ defmodule LovelaceWeb.OwnerControllerTest do
   @password "a long local test password"
 
   setup %{conn: conn} do
-    if is_nil(Process.whereis(Owner.Throttle)), do: start_supervised!(Owner.Throttle)
+    # Each controller case needs its own node-wide authentication budget.
+    :ok = Supervisor.terminate_child(Lovelace.Supervisor, Owner.Throttle)
+    {:ok, _} = Supervisor.restart_child(Lovelace.Supervisor, Owner.Throttle)
     client = rem(System.unique_integer([:positive]), 254) + 1
     %{conn: %{conn | host: "localhost", remote_ip: {127, 0, 0, client}}}
   end

@@ -5,13 +5,13 @@ defmodule LovelaceWeb.OnboardingControllerTest do
   alias Ash.Domain.Info, as: DomainInfo
   alias Ash.Resource.Info
   alias Lovelace.Calendar.State
+  alias Lovelace.Google.Access
   alias Lovelace.Integrations.Google
   alias Lovelace.Integrations.Google.ClientCredentials
   alias Lovelace.{Mail, Onboarding}
-  alias Lovelace.Mail.Connections
   alias Lovelace.Mail.WorkspaceAccount
   alias Lovelace.Onboarding.CalendarSetup
-  alias Lovelace.TestSupport.{OnboardingGoogleTransport, OnboardingKeychain}
+  alias Lovelace.TestSupport.{OAuthJobs, OnboardingGoogleTransport, OnboardingKeychain}
 
   @owner [actor: %{role: :local_owner}]
   @id "synthetic-onboarding-client"
@@ -317,7 +317,7 @@ defmodule LovelaceWeb.OnboardingControllerTest do
     assert OnboardingKeychain.calls() == []
 
     callback =
-      get(
+      OAuthJobs.get(
         conn,
         "/oauth/google/callback?" <>
           URI.encode_query(%{code: "synthetic-code", state: params["state"]})
@@ -351,7 +351,7 @@ defmodule LovelaceWeb.OnboardingControllerTest do
     assert {:ok, %{calendar_enabled: false}} = Onboarding.connection(@owner)
 
     calendar_callback =
-      get(
+      OAuthJobs.get(
         conn,
         "/oauth/google/callback?" <>
           URI.encode_query(%{code: "synthetic-calendar-code", state: calendar_params["state"]})
@@ -360,24 +360,63 @@ defmodule LovelaceWeb.OnboardingControllerTest do
     assert redirected_to(calendar_callback, 303) == "/onboarding/calendar"
     assert Onboarding.entry_path() == "/onboarding/calendar"
     assert Onboarding.pending?()
-    assert {:ok, %{id: ^account_id, calendar_enabled: true}} = Onboarding.connection(@owner)
+
+    assert {:ok, %{id: ^account_id, generation: calendar_generation, calendar_enabled: true}} =
+             Onboarding.connection(@owner)
+
     assert [%{id: ^account_id}] = Mail.list_accounts!(@owner)
     assert OnboardingKeychain.calls() == [:exchange, :identity, :exchange, :identity]
 
-    ordinary_callback =
-      get(
+    stale_callback =
+      OAuthJobs.get(
         conn,
         "/oauth/google/callback?" <>
-          URI.encode_query(%{
-            code: "synthetic-code",
-            state: ordinary_params["state"],
-            origin: "onboarding",
-            return_to: "https://untrusted.example/"
-          })
+          URI.encode_query(%{code: "synthetic-code", state: ordinary_params["state"]})
       )
 
-    assert redirected_to(ordinary_callback, 303) ==
-             "/workspaces/#{workspace.id}?gmail=connected"
+    assert redirected_to(stale_callback, 303) ==
+             "/connections/gmail?reason=reconnect&gmail=failed&stage=connection"
+
+    assert {:ok,
+            %{
+              id: ^account_id,
+              generation: ^calendar_generation,
+              calendar_enabled: true,
+              status: :ready
+            }} = Onboarding.connection(@owner)
+
+    assert Onboarding.entry_path() == "/onboarding/calendar"
+    assert Onboarding.pending?()
+    assert [%{id: ^account_id}] = Mail.list_accounts!(@owner)
+
+    for callback_context <- [
+          %{},
+          %{origin: "onboarding", return_to: "https://untrusted.example/"}
+        ] do
+      fresh = post(conn, "/oauth/google/start", %{workspace_id: workspace.id})
+
+      fresh_params =
+        fresh |> redirected_to(303) |> URI.parse() |> Map.fetch!(:query) |> URI.decode_query()
+
+      ordinary_callback =
+        OAuthJobs.get(
+          conn,
+          "/oauth/google/callback?" <>
+            URI.encode_query(
+              Map.merge(callback_context, %{code: "synthetic-code", state: fresh_params["state"]})
+            )
+        )
+
+      assert redirected_to(ordinary_callback, 303) ==
+               "/workspaces/#{workspace.id}?gmail=connected"
+
+      assert {:ok, %{id: ^account_id, calendar_enabled: false, status: :ready}} =
+               Onboarding.connection(@owner)
+
+      assert [%{id: ^account_id}] = Mail.list_accounts!(@owner)
+      assert Onboarding.entry_path() == "/onboarding/calendar"
+      assert Onboarding.pending?()
+    end
   end
 
   for request_kind <- [:page, :status, :rejected_selection] do
@@ -533,7 +572,7 @@ defmodule LovelaceWeb.OnboardingControllerTest do
     {:ok, _} = Onboarding.continue(:connect, @owner)
 
     {:ok, account} =
-      Connections.accept(
+      Access.accept(
         workspace.id,
         %{subject: "synthetic-onboarding-subject", email: "synthetic@example.invalid"},
         "synthetic-refresh",
@@ -744,7 +783,7 @@ defmodule LovelaceWeb.OnboardingControllerTest do
     submit(conn, %{client_id: @id, client_secret: @secret})
 
     {:ok, account} =
-      Connections.accept(
+      Access.accept(
         workspace.id,
         %{subject: "synthetic-onboarding-subject", email: "synthetic@example.invalid"},
         "synthetic-refresh"

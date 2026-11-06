@@ -185,8 +185,20 @@ defmodule Lovelace.SyntheticVaultScenario do
   alias Lovelace.StageDesigner
   alias Lovelace.StageDesigner.{Attempt, Generation, GenerationWorker}
 
-  def dispatched(_event, _measurements, %{job: %Oban.Job{queue: "gemini"}}, observer),
-    do: send(observer, {:gemini_dispatched, Vault.open?()})
+  # Recovery also uses :gemini and may have old start observations across Lock.
+  # Readiness evidence must identify the actual paid-submission attempt.
+  def dispatched(
+        _event,
+        _measurements,
+        %{
+          job: %Oban.Job{
+            worker: "Lovelace.StageDesigner.GenerationWorker",
+            args: %{"id" => id, "operation" => "submit"}
+          }
+        },
+        observer
+      ),
+      do: send(observer, {:gemini_dispatched, id, Vault.open?()})
 
   def dispatched(_event, _measurements, _metadata, _observer), do: :ok
 
@@ -757,7 +769,8 @@ assert {:snooze, 1} =
          })
 
 assert {:ok, _} = Owner.unlock(password, "queued-gemini-readiness")
-assert_receive {:gemini_dispatched, admission_open?}, 10_000
+queued_id = queued.id
+assert_receive {:gemini_dispatched, ^queued_id, admission_open?}, 10_000
 assert admission_open?
 assert_receive {:gemini_credentials, gemini_job, true, {:ok, _}}, 10_000
 gemini_job_ref = Process.monitor(gemini_job)

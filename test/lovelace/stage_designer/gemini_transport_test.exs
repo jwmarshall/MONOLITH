@@ -3,7 +3,7 @@ defmodule Lovelace.StageDesigner.GeminiTransportTest do
 
   import ExUnit.CaptureLog
 
-  alias Lovelace.StageDesigner.{Gemini, GeminiTransport, Settings}
+  alias Lovelace.Integrations.Gemini.{Interactions, Transport}
   alias Lovelace.TestSupport.PNG
 
   @key "synthetic-transport-key-MUST-NOT-EMIT"
@@ -40,12 +40,12 @@ defmodule Lovelace.StageDesigner.GeminiTransportTest do
 
   test "test builds reject an ordinary production connector without a fake plug" do
     assert {_, %Req.TransportError{reason: :client_configuration_error}} =
-             GeminiTransport.run(request())
+             Transport.run(request())
 
     assert_events(:error, %{category: :client_configuration_error})
 
     assert {:error, :client_configuration_error} =
-             Gemini.generate(%Settings{prompt: @prompt}, api_key: @key)
+             Interactions.create(interaction_request(), api_key: @key)
 
     assert_events(:error, %{category: :client_configuration_error})
   end
@@ -55,15 +55,15 @@ defmodule Lovelace.StageDesigner.GeminiTransportTest do
 
     body =
       Jason.encode!(%{
-        "candidates" => [
+        id: "synthetic_interaction",
+        status: "completed",
+        steps: [
           %{
-            "finishReason" => "STOP",
-            "content" => %{
-              "parts" => [
-                %{"text" => @provider},
-                %{"inlineData" => %{"mimeType" => "image/png", "data" => Base.encode64(bytes)}}
-              ]
-            }
+            type: "model_output",
+            content: [
+              %{type: "text", text: @provider},
+              %{type: "image", mime_type: "image/png", data: Base.encode64(bytes)}
+            ]
           }
         ]
       })
@@ -79,11 +79,11 @@ defmodule Lovelace.StageDesigner.GeminiTransportTest do
         :gen_tcp.send(socket, "0\r\nx-private-trailer: #{@prompt}\r\n\r\n")
       end)
 
-    assert {:ok, ^bytes} =
-             Gemini.generate_on_loopback(%Settings{prompt: @prompt}, [api_key: @key], port)
+    assert {:ok, %{images: [^bytes]}} =
+             Interactions.create_on_loopback(interaction_request(), [api_key: @key], port)
 
     assert_receive {:wire_request, ^server, wire}
-    assert wire =~ "POST /v1beta/models/gemini-nano-banana-2.1:generateContent HTTP/1.1"
+    assert wire =~ "POST /v1beta/interactions HTTP/1.1"
     assert wire =~ "x-goog-api-key: #{@key}"
     assert wire =~ @prompt
     assert_receive {:server_done, ^server}
@@ -95,14 +95,12 @@ defmodule Lovelace.StageDesigner.GeminiTransportTest do
 
     body =
       Jason.encode!(%{
-        "candidates" => [
+        id: "synthetic_interaction",
+        status: "completed",
+        steps: [
           %{
-            "finishReason" => "STOP",
-            "content" => %{
-              "parts" => [
-                %{"inlineData" => %{"mimeType" => "image/png", "data" => Base.encode64(bytes)}}
-              ]
-            }
+            type: "model_output",
+            content: [%{type: "image", mime_type: "image/png", data: Base.encode64(bytes)}]
           }
         ]
       })
@@ -127,8 +125,8 @@ defmodule Lovelace.StageDesigner.GeminiTransportTest do
           )
         end)
 
-      assert {:ok, ^bytes} =
-               Gemini.generate_on_loopback(%Settings{prompt: @prompt}, [api_key: @key], port)
+      assert {:ok, %{images: [^bytes]}} =
+               Interactions.create_on_loopback(interaction_request(), [api_key: @key], port)
 
       assert_receive {:server_done, ^server}
       assert_events(:stop, %{status: 200, outcome: :ok})
@@ -201,9 +199,9 @@ defmodule Lovelace.StageDesigner.GeminiTransportTest do
         end)
 
       assert {:error, {:http_error, ^status, ^expected}} =
-               Gemini.generate_on_loopback(
-                 %Settings{prompt: @prompt, timeout_seconds: 1},
-                 [api_key: @key],
+               Interactions.create_on_loopback(
+                 interaction_request(),
+                 [api_key: @key, timeout_seconds: 1],
                  port
                )
 
@@ -387,7 +385,7 @@ defmodule Lovelace.StageDesigner.GeminiTransportTest do
   end
 
   test "fixed production policy verifies TLS; invalid destinations and oversized requests never connect" do
-    options = GeminiTransport.production_connection_options(100)
+    options = Transport.production_connection_options(100)
     assert options[:protocols] == [:http1]
     assert options[:mode] == :passive
     assert options[:log] == false
@@ -401,21 +399,22 @@ defmodule Lovelace.StageDesigner.GeminiTransportTest do
     refute Keyword.has_key?(options, :proxy)
 
     for url <- [
-          "http://generativelanguage.googleapis.com/v1beta/models/model:generateContent",
-          "https://attacker.invalid/v1beta/models/model:generateContent",
-          "https://generativelanguage.googleapis.com:8443/v1beta/models/model:generateContent",
-          "https://generativelanguage.googleapis.com/v1beta/models/model:generateContent?key=x"
+          "http://generativelanguage.googleapis.com/v1beta/interactions",
+          "https://attacker.invalid/v1beta/interactions",
+          "https://generativelanguage.googleapis.com:8443/v1beta/interactions",
+          "https://generativelanguage.googleapis.com/v1beta/interactions?key=x",
+          "https://generativelanguage.googleapis.com/v1beta/models/model:generateContent"
         ] do
       request = %{request() | url: URI.parse(url)}
 
       assert {_, %Req.TransportError{reason: :client_configuration_error}} =
-               GeminiTransport.run(request)
+               Transport.run(request)
 
       assert_events(:error, %{category: :client_configuration_error})
     end
 
     assert {_, %Req.TransportError{reason: :client_configuration_error}} =
-             GeminiTransport.run(%{request() | body: :binary.copy("x", 64 * 1024 + 1)})
+             Transport.run(%{request() | body: :binary.copy("x", 64 * 1024 + 1)})
 
     assert_events(:error, %{category: :client_configuration_error})
   end
@@ -453,7 +452,7 @@ defmodule Lovelace.StageDesigner.GeminiTransportTest do
     log =
       capture_log(fn ->
         assert {_, %Req.TransportError{reason: :tls_error}} =
-                 GeminiTransport.run_on_loopback_tls(request(), port)
+                 Transport.run_on_loopback_tls(request(), port)
 
         assert_receive {:tls_rejected, true}
         assert_events(:error, %{category: :tls_error})
@@ -466,18 +465,22 @@ defmodule Lovelace.StageDesigner.GeminiTransportTest do
     request =
       Req.Request.new(
         method: :post,
-        url: "https://generativelanguage.googleapis.com/v1beta/models/model:generateContent",
+        url: "https://generativelanguage.googleapis.com/v1beta/interactions",
         headers: [{"x-goog-api-key", @key}, {"content-type", "application/json"}],
         body: Jason.encode!(%{prompt: @prompt}),
         options: [receive_timeout: Keyword.get(opts, :timeout, 2000)],
-        adapter: GeminiTransport
+        adapter: Transport
       )
 
     callback = fn {:data, _chunk}, acc -> {:cont, acc} end
     %{request | into: Keyword.get(opts, :into, callback)}
   end
 
-  defp run(port, opts \\ []), do: GeminiTransport.run_on_loopback(request(opts), port)
+  defp run(port, opts \\ []), do: Transport.run_on_loopback(request(opts), port)
+
+  defp interaction_request do
+    %{model: "gemini-nano-banana-2.1", input: @prompt, response_format: %{type: "image"}}
+  end
 
   defp server(fun) do
     {:ok, listen} =

@@ -345,7 +345,11 @@ defmodule LovelaceWeb.GitHubComponents do
           <p :if={@configuration_status == :not_connected} class="empty-state-copy" role="status">
             GitHub App setup is required before you can sign in.
           </p>
-          <p :if={@configuration_status == :unavailable} class="connection-warning" role="alert">
+          <p
+            :if={@configuration_status in [:locked, :unavailable]}
+            class="connection-warning"
+            role="alert"
+          >
             App settings could not be read from the dedicated keychain. Unlock LOVELACE and check keychain access; this is not a GitHub authorization failure.
           </p>
           <p
@@ -550,6 +554,20 @@ defmodule LovelaceWeb.GitHubComponents do
             <p :if={connection.status == :disconnected} class="connection-warning" role="alert">
               Disconnected locally. Credential removal failed; retry to remove it from the dedicated keychain.
             </p>
+            <p
+              :if={connection.discovery_status}
+              id={"github-discovery-status-#{connection.id}"}
+              role="status"
+              class="mail-muted"
+              data-operation-id={connection.discovery_id}
+              data-job-id={connection.discovery_job_id}
+              data-state={connection.discovery_status}
+            >
+              {discovery_label(connection.discovery_status)}
+              <span :if={connection.discovery_error}>
+                {error_label(connection.discovery_error)}
+              </span>
+            </p>
           </div>
           <div class="mail-actions">
             <.form
@@ -561,7 +579,11 @@ defmodule LovelaceWeb.GitHubComponents do
             >
               <input type="hidden" name="operation" value="discover" />
               <input type="hidden" name="connection_id" value={connection.id} />
-              <button type="submit" class="workspace-action">Refresh account access</button>
+              <button
+                type="submit"
+                class="workspace-action"
+                disabled={connection.discovery_status in [:pending, :running]}
+              >Refresh account access</button>
             </.form>
             <.form
               for={%{}}
@@ -1142,4 +1164,12 @@ defmodule LovelaceWeb.GitHubComponents do
 
   defp error_label(_),
     do: "GitHub refresh failed. Previously observed results may be stale."
+
+  defp discovery_label(:pending), do: "Account access refresh queued."
+  defp discovery_label(:running), do: "Refreshing account access."
+  defp discovery_label(:succeeded), do: "Account access refreshed."
+  defp discovery_label(:failed), do: "Account access could not be refreshed."
+
+  defp discovery_label(:superseded),
+    do: "Account access refresh was superseded. Request a fresh refresh if needed."
 end

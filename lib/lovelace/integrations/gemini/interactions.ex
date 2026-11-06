@@ -21,9 +21,11 @@ defmodule Lovelace.Integrations.Gemini.Interactions do
   `delete/2` returns `:ok`. Errors contain only fixed categories/allowlisted codes.
 
   Options: `timeout_seconds` (1..120, default 120), and trusted `api_key`/`plug`
-  test injections matching the legacy client. Credentials are resolved only at the
-  HTTP boundary. Callers own authorization, cost confirmation and durable intent.
+  test injections. Credentials are resolved only at the HTTP boundary. Callers
+  own authorization, cost confirmation and durable intent.
   """
+
+  @behaviour Lovelace.StageDesigner.PaidRender
 
   alias Lovelace.Integrations.Gemini.{Credentials, Transport}
   alias Lovelace.Security.Vault
@@ -44,7 +46,7 @@ defmodule Lovelace.Integrations.Gemini.Interactions do
     "requires_action" => :requires_action,
     "requires_continuation" => :requires_continuation
   }
-  # Same diagnostic allowlist as the legacy StageDesigner.Gemini boundary.
+  # Provider text is reduced to this finite diagnostic allowlist.
   @safe_codes %{
     "API_KEY_INVALID" => :api_key_invalid,
     "API_KEY_SERVICE_BLOCKED" => :api_key_service_blocked,
@@ -63,29 +65,19 @@ defmodule Lovelace.Integrations.Gemini.Interactions do
     "DEADLINE_EXCEEDED" => :deadline_exceeded
   }
 
-  @type failure :: atom() | {:http_error, integer(), atom() | nil} | {:transport_error, atom()}
-  @type normalized :: %{
-          id: binary(),
-          status:
-            :in_progress
-            | :completed
-            | :failed
-            | :cancelled
-            | :incomplete
-            | :requires_action
-            | :requires_continuation,
-          text: binary(),
-          images: [binary()],
-          error: failure() | nil
-        }
+  @type failure :: Lovelace.StageDesigner.PaidRender.failure()
+  @type normalized :: Lovelace.StageDesigner.PaidRender.interaction()
 
   @spec create(map(), keyword()) :: {:ok, normalized()} | {:error, failure()}
+  @impl true
   def create(request, opts \\ []), do: execute(:post, request, opts, nil)
 
   @spec get(binary(), keyword()) :: {:ok, normalized()} | {:error, failure()}
+  @impl true
   def get(id, opts \\ []), do: execute(:get, id, opts, nil)
 
   @spec delete(binary(), keyword()) :: :ok | {:error, failure()}
+  @impl true
   def delete(id, opts \\ []), do: execute(:delete, id, opts, nil)
 
   if Mix.env() == :test do

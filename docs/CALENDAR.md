@@ -80,8 +80,10 @@ new dependency is required. The day is rechecked on a timer and visibility/resum
 
 A connection retains one browser-day context at a time. Browsers in different timezones
 may replace that context; a view never presents a different context's events as its own.
-Polling targets three minutes via the existing minute Oban sweep while LOVELACE runs
-unlocked. It stops requesting an expired day until a browser supplies the next day.
+Polling targets three minutes via Calendar's independent minute Oban sweep while LOVELACE runs
+unlocked. Both Calendar workers use the dedicated `:calendar` queue at concurrency one;
+Calendar recovery does not wait for Gmail's sweep to complete. Each sweep examines at most
+100 expired and 100 due contexts. It stops requesting an expired day until a browser supplies the next day.
 Explicit global **Lock** stops Repo, Oban and provider work; startup stays locked until
 owner unlock. Visual idle/Escape is not a lock and keeps authorized background work
 running. Sleep, network failures and queue backlog delay updates; nothing runs with
@@ -114,6 +116,37 @@ Jobs contain only account ID, connection generation and context revision. Accoun
 revision fences discard late results after reconnect, disconnect, day or selection changes.
 Titles/calendar names are untrusted escaped text. Links are allowlisted HTTPS Google
 Calendar destinations and are followed only by an explicit click.
+
+## Application boundaries
+
+`Lovelace.Calendar.catalog/2` is the authorized, provider-free catalog capability used by
+onboarding. It selects only catalog metadata from protected storage, never cached events
+or an event-bearing agenda. Calendar owns the catalog's 24-hour freshness, loading/error
+states, independent bounded-result/selection warnings, selection limit and cooldown deadline.
+Onboarding adds its workspace/account/generation fence and uses Calendar actions for every
+mutation; it does not query Calendar persistence or reconstruct Calendar policy.
+
+`Lovelace.Google.Access` is the single shared Google identity/credential coordination owner.
+Gmail and Calendar use the same account and subject serialization, generation checks and
+refresh-token rotation. Optional Calendar consent checks the expected current generation
+under that serializer. Unbound Gmail consent also rechecks its captured subject connection
+(`:absent` or immutable account ID/generation) after acquiring the account lock, before any
+credential access; a late callback cannot resurrect a disconnected or replaced generation.
+Grant replacement commits the shared account/membership, clears
+Calendar synchronously, and only then admits the next Gmail sync and broadcasts invalidation.
+Disconnect uses that same serializer/reset boundary. Calendar never reaches into private
+Mail operations. The existing shared-credential admission gate still respects an active
+Gmail rate limit; Calendar provider failures/cooldowns remain Calendar-owned and do not
+overwrite Gmail health.
+
+`Lovelace.Calendar.Provider` owns the typed bounded-page contract; the concrete
+`Lovelace.Integrations.Google.Calendar` adapter and synthetic fakes implement it.
+Calendar-list and expanded-event calls return at most 100 items with explicit truncation,
+finite safe error atoms and a finite whole-operation deadline. Adapters do not follow
+pagination or establish persisted freshness. Calendar retains responsibility for exact
+day overlap, selected-calendar/aggregate limits, observation timestamps and publication
+fences. Credential refresh is separate from the read-only page contract. Safe reads may
+be requested again; a queue completion is not evidence of a successful fresh observation.
 
 ## Removal and verification
 

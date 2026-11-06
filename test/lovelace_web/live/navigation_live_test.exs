@@ -3,6 +3,7 @@ defmodule LovelaceWeb.NavigationLiveTest do
 
   import Phoenix.LiveViewTest
   alias Lovelace.{Mail, Workspaces}
+  alias Lovelace.TestSupport.BackgroundWork
   alias LovelaceWeb.HomeNavigation
 
   @owner %{role: :local_owner}
@@ -10,24 +11,50 @@ defmodule LovelaceWeb.NavigationLiveTest do
   defmodule FakeMail do
     @moduledoc false
     def get(id), do: {:ok, id}
-    def refresh(id), do: {:ok, %{access_token: id}}
+    @spec refresh(binary()) :: {:ok, Lovelace.Google.OAuthProvider.tokens()}
+    def refresh(id), do: {:ok, %{access_token: id, expires_in: 3600}}
+
+    @spec inbox(binary(), Lovelace.Mail.Provider.page_token()) ::
+            {:ok, Lovelace.Mail.Provider.page()}
     def inbox(id, page), do: result(id, nil, page)
+
+    @spec search(binary(), binary(), Lovelace.Mail.Provider.page_token()) ::
+            {:ok, Lovelace.Mail.Provider.page()}
     def search(id, query, page), do: result(id, query, page)
 
+    @spec thread(binary(), binary()) :: {:ok, Lovelace.Mail.Provider.thread()}
     def thread(id, thread),
       do:
-        {:ok, %{"messages" => [%{"id" => thread, "subject" => id, "text" => "Synthetic reader"}]}}
+        {:ok,
+         %{
+           id: thread,
+           messages: [
+             %{
+               id: thread,
+               subject: id,
+               from: "sender@example.test",
+               to: "owner@example.test",
+               date: "Today",
+               text: "Synthetic reader",
+               attachments: []
+             }
+           ]
+         }}
 
     defp result(id, query, page) do
       {:ok,
        %{
-         "threads" => [
+         threads: [
            %{
-             "id" => "deep-thread",
-             "subject" => Enum.join([id, query || "inbox", page || "first"], " ")
+             id: "deep-thread",
+             subject: Enum.join([id, query || "inbox", page || "first"], " "),
+             from: "sender@example.test",
+             snippet: "Synthetic reader",
+             date: "Today",
+             unread: false
            }
          ],
-         "next_page_token" => "second"
+         next_page_token: "second"
        }}
     end
   end
@@ -161,7 +188,7 @@ defmodule LovelaceWeb.NavigationLiveTest do
 
   test "Settings deep entry and reload discard unrelated context without restoring mail", ctx do
     {:ok, view, _} = live(ctx.conn, HomeNavigation.account_path(ctx.account.id))
-    render_async(view)
+    BackgroundWork.complete(view)
     old = state(view).mail
     render_patch(view, "/settings?workspace=#{ctx.workspace.id}&page=bad&q=ignored")
     assert_patch(view, "/settings")
@@ -207,7 +234,7 @@ defmodule LovelaceWeb.NavigationLiveTest do
       {:ok, view, _} =
         live(ctx.conn, "/connections/#{provider}?workspace=missing&q=obsolete&page=2")
 
-      render_async(view)
+      BackgroundWork.complete(view)
       assert state(view).navigation_path == "/connections/#{provider}"
       assert state(view).selected == nil
       assert has_element?(view, "#back-to-connections[href='/connections']")
@@ -230,7 +257,7 @@ defmodule LovelaceWeb.NavigationLiveTest do
            "#calendar-connections"}
         ] do
       {:ok, view, _} = live(ctx.conn, legacy)
-      render_async(view)
+      BackgroundWork.complete(view)
       assert state(view).navigation_path == canonical
       assert has_element?(view, selector)
     end
@@ -253,35 +280,35 @@ defmodule LovelaceWeb.NavigationLiveTest do
     results = base <> "?" <> URI.encode_query(q: query, page_token: "second")
     thread = base <> "/threads/deep-thread?" <> URI.encode_query(q: query, page_token: "second")
     {:ok, view, _} = live(ctx.conn, thread)
-    render_async(view)
+    BackgroundWork.complete(view)
     assert has_element?(view, "#mail-conversation", "Synthetic reader")
     assert has_element?(view, "#mail-back[href='#{results}']")
     assert has_element?(view, "#mail-search input[value='#{query}']")
     refute has_element?(view, "#mail-threads")
     view |> element("#mail-back") |> render_click()
     assert_patch(view, results)
-    render_async(view)
+    BackgroundWork.complete(view)
     assert has_element?(view, "#mail-thread-deep-thread", "#{query} second")
     key = state(view).mail.list_key
     render_patch(view, thread)
-    render_async(view)
+    BackgroundWork.complete(view)
     assert state(view).mail.list_key == key
     render_patch(view, results)
-    render_async(view)
+    BackgroundWork.complete(view)
     assert state(view).mail.list_key == key
     assert has_element?(view, "#mail-thread-deep-thread", "#{query} second")
     {:ok, reloaded, _} = live(ctx.conn, results)
-    render_async(reloaded)
+    BackgroundWork.complete(reloaded)
     assert has_element?(reloaded, "#mail-thread-deep-thread", "#{query} second")
   end
 
   test "submitted search writes a restorable URL, not each keystroke", ctx do
     base = HomeNavigation.account_path(ctx.account.id)
     {:ok, view, _} = live(ctx.conn, base)
-    render_async(view)
+    BackgroundWork.complete(view)
     view |> form("#mail-search", mail_search: %{query: "everywhere"}) |> render_submit()
     assert_patch(view, base <> "?q=everywhere")
-    render_async(view)
+    BackgroundWork.complete(view)
     assert has_element?(view, "#mail-thread-deep-thread", "everywhere first")
     view |> element("#mail-thread-deep-thread") |> render_click()
     assert_patch(view, base <> "/threads/deep-thread?q=everywhere")
@@ -289,7 +316,7 @@ defmodule LovelaceWeb.NavigationLiveTest do
 
   test "direct account URLs support unattached accounts without creating membership", ctx do
     {:ok, view, _} = live(ctx.conn, HomeNavigation.account_path(ctx.unattached.id))
-    render_async(view)
+    BackgroundWork.complete(view)
     assert has_element?(view, "#mail-heading", ctx.unattached.email)
     assert {:ok, []} = Mail.workspace_accounts(ctx.other.id, actor: @owner)
     assert state(view).mail.workspace_id == nil
@@ -307,10 +334,10 @@ defmodule LovelaceWeb.NavigationLiveTest do
 
   test "history transitions fence delayed results and clear the previous account", ctx do
     {:ok, view, _} = live(ctx.conn, HomeNavigation.account_path(ctx.account.id))
-    render_async(view)
+    BackgroundWork.complete(view)
     old = state(view).mail
     render_patch(view, HomeNavigation.account_path(ctx.unattached.id))
-    render_async(view)
+    BackgroundWork.complete(view)
     send(view.pid, {:mail_changed, ctx.account.id})
     render(view)
     assert state(view).mail.account_id == ctx.unattached.id
@@ -323,7 +350,7 @@ defmodule LovelaceWeb.NavigationLiveTest do
 
   test "account disappearance replaces the invalid URL and leaves usable navigation", ctx do
     {:ok, view, _} = live(ctx.conn, HomeNavigation.account_path(ctx.account.id))
-    render_async(view)
+    BackgroundWork.complete(view)
 
     Mail.update_account!(
       ctx.account,
@@ -366,11 +393,75 @@ defmodule LovelaceWeb.NavigationLiveTest do
     assert has_element?(view, "#connections-calendar[aria-current=page]")
     assert has_element?(view, "#calendar-connections")
     render_patch(view, "/scenes?page=2")
-    render_async(view)
+    BackgroundWork.complete(view)
     assert state(view).scene_page == 2
     assert has_element?(view, "#scenes-panel")
     render_patch(view, "/connections/calendar")
     assert has_element?(view, "#calendar-connections")
+  end
+
+  test "destination projection stays exclusive through history while scenery and subscriptions survive",
+       ctx do
+    {:ok, view, _} = live(ctx.conn, "/")
+    background = state(view).background.url
+
+    for {path, action, selector} <- [
+          {"/workspaces", :workspaces, "#workspace-list"},
+          {"/workspaces/#{ctx.workspace.id}", :workspace, "#workspace-landing"},
+          {"/workspaces/#{ctx.workspace.id}/integrations", :integration_add,
+           "#integration-add-panel"},
+          {"/connections", :connections, "#connections-overview"},
+          {"/settings", :settings, "#settings-panel"},
+          {"/", :index, "#home-overview"},
+          {"/workspaces", :workspaces, "#workspace-list"}
+        ] do
+      render_patch(view, path)
+      assigns = state(view)
+      assert assigns.destination.action == action
+      assert HomeNavigation.current(%{assigns: assigns}) == path
+      assert assigns.navigation_path == path
+      assert assigns.background.url == background
+      assert has_element?(view, selector)
+
+      assert Enum.count(
+               [assigns.home, assigns.settings, assigns.connections, assigns.scenes],
+               & &1
+             ) <= 1
+
+      unless action in [:index, :workspaces] do
+        assert assigns.directory_subscriptions == []
+      end
+    end
+  end
+
+  test "A to B to A rejects an earlier admission even when the account destination matches again",
+       ctx do
+    Oban.Testing.with_testing_mode(:manual, fn ->
+      path = HomeNavigation.account_path(ctx.account.id)
+      {:ok, view, _} = live(ctx.conn, path)
+      earlier = state(view).mail
+      assert is_binary(earlier.task)
+
+      render_patch(view, HomeNavigation.account_path(ctx.unattached.id))
+      render_patch(view, path)
+      current = state(view).mail
+      assert is_binary(current.task)
+      refute current.task == earlier.task
+      refute current.generation == earlier.generation
+
+      send(view.pid, {:mail_operation, earlier.task})
+      send(view.pid, {:mail_observe, earlier.task, 1})
+      send(view.pid, {:mail_changed, ctx.unattached.id})
+      render(view)
+
+      assert state(view).mail.task == current.task
+      assert state(view).mail.generation == current.generation
+      assert state(view).destination.account_id == ctx.account.id
+      assert state(view).navigation_path == path
+      assert has_element?(view, "#mail-heading", ctx.account.email)
+      refute has_element?(view, "#mail-heading", ctx.unattached.email)
+      refute has_element?(view, "#workspace-list, #connections-overview, #settings-panel")
+    end)
   end
 
   defp state(view), do: :sys.get_state(view.pid).socket.assigns

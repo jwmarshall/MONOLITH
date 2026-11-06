@@ -2,8 +2,9 @@ defmodule Lovelace.MailTest do
   use Lovelace.DataCase
   use Oban.Testing, repo: Lovelace.Repo, engine: Oban.Engines.Lite
   alias Ecto.Adapters.SQL.Sandbox
+  alias Lovelace.Google.Access
   alias Lovelace.Mail
-  alias Lovelace.Mail.{CacheEntry, Connections, Operations, PollWorker}
+  alias Lovelace.Mail.{CacheEntry, DisconnectWorker, Operations, PollWorker}
   require Ash.Query
 
   @owner %{role: :local_owner}
@@ -28,10 +29,10 @@ defmodule Lovelace.MailTest do
     workspace = Lovelace.Workspaces.create_workspace!("Mail fixture", actor: @owner)
 
     {:ok, a} =
-      Connections.accept(workspace.id, %{subject: "sub-a", email: "a@example.invalid"}, "token-a")
+      Access.accept(workspace.id, %{subject: "sub-a", email: "a@example.invalid"}, "token-a")
 
     {:ok, b} =
-      Connections.accept(workspace.id, %{subject: "sub-b", email: "b@example.invalid"}, "token-b")
+      Access.accept(workspace.id, %{subject: "sub-b", email: "b@example.invalid"}, "token-b")
 
     %{workspace: workspace, a: a, b: b}
   end
@@ -44,7 +45,7 @@ defmodule Lovelace.MailTest do
     refute a.calendar_enabled
 
     assert {:ok, enabled} =
-             Connections.accept(
+             Access.accept(
                w.id,
                %{subject: a.subject, email: a.email},
                "calendar-refresh",
@@ -58,7 +59,7 @@ defmodule Lovelace.MailTest do
     assert {:ok, "calendar-refresh"} = Lovelace.TestMailVault.get(a.id)
 
     assert {:ok, reconnected} =
-             Connections.accept(w.id, %{subject: a.subject, email: a.email}, "gmail-refresh")
+             Access.accept(w.id, %{subject: a.subject, email: a.email}, "gmail-refresh")
 
     refute reconnected.calendar_enabled
     assert reconnected.id == a.id
@@ -68,16 +69,39 @@ defmodule Lovelace.MailTest do
     workspace: w,
     a: a
   } do
-    assert {:ok, %{local_removed: true}} = Mail.disconnect(a.id, actor: @owner)
+    assert {:ok,
+            %{
+              operation_id: operation_id,
+              state: :pending,
+              local_removed: true,
+              credentials: :pending,
+              credentials_removed: false,
+              remote: :pending,
+              revoked: false
+            }} = Mail.disconnect(a.id, actor: @owner)
 
     assert {:error, :reconnect} =
-             Connections.accept(
+             Access.accept(
                w.id,
                %{subject: a.subject, email: a.email},
                "late-calendar-refresh",
                :calendar,
                a.generation
              )
+
+    assert {:ok, "token-a"} = Lovelace.TestMailVault.get(a.id)
+    assert :ok = perform_job(DisconnectWorker, %{"operation_id" => operation_id})
+
+    assert {:ok,
+            %{
+              operation_id: ^operation_id,
+              state: :complete,
+              local_removed: true,
+              credentials: :removed,
+              credentials_removed: true,
+              remote: :revoked,
+              revoked: true
+            }} = Mail.disconnect_status(a.id, actor: @owner)
 
     assert {:error, :not_found} = Lovelace.TestMailVault.get(a.id)
     assert Mail.get_account!(a.id, actor: @owner).status == :disconnected
@@ -91,7 +115,7 @@ defmodule Lovelace.MailTest do
     Application.put_env(:lovelace, :gmail_vault, Lovelace.TestMailReadDenied)
 
     assert {:error, {:keychain, :locked}} =
-             Connections.accept(w.id, %{subject: a.subject, email: a.email}, "replacement-token")
+             Access.accept(w.id, %{subject: a.subject, email: a.email}, "replacement-token")
 
     assert {:ok, "token-a"} = Lovelace.TestMailVault.get(a.id)
     assert Mail.get_account!(a.id, actor: @owner).generation == a.generation
@@ -102,7 +126,7 @@ defmodule Lovelace.MailTest do
     assert {:ok, true} = Mail.link(other.id, a.id, actor: @owner)
 
     assert {:ok, again} =
-             Connections.accept(
+             Access.accept(
                w.id,
                %{subject: "sub-a", email: "renamed@example.invalid"},
                "token-new"
@@ -296,16 +320,40 @@ defmodule Lovelace.MailTest do
     assert {:ok, %{data: data}} = Mail.thread(other.id, a.id, "same-id", actor: @owner)
     assert data
 
-    assert {:ok, %{credentials_removed: true, revoked: true}} =
-             Mail.disconnect(a.id, actor: @owner)
+    assert {:ok,
+            %{
+              operation_id: operation_id,
+              state: :pending,
+              local_removed: true,
+              credentials: :pending,
+              credentials_removed: false,
+              remote: :pending,
+              revoked: false
+            }} = Mail.disconnect(a.id, actor: @owner)
 
     assert Mail.workspace_accounts!(other.id, actor: @owner) == []
-    assert {:error, :not_found} = Lovelace.TestMailVault.get(a.id)
+    assert {:ok, "token-a"} = Lovelace.TestMailVault.get(a.id)
+    refute {:revoke, "token-a"} in Lovelace.TestMail.calls()
 
     assert [] ==
              CacheEntry
              |> Ash.Query.for_read(:read, %{account_id: a.id}, actor: @owner)
              |> Ash.read!()
+
+    assert :ok = perform_job(DisconnectWorker, %{"operation_id" => operation_id})
+
+    assert {:ok,
+            %{
+              operation_id: ^operation_id,
+              state: :complete,
+              local_removed: true,
+              credentials: :removed,
+              credentials_removed: true,
+              remote: :revoked,
+              revoked: true
+            }} = Mail.disconnect_status(a.id, actor: @owner)
+
+    assert {:error, :not_found} = Lovelace.TestMailVault.get(a.id)
 
     assert {:ok, %{skipped: true}} =
              Mail.poll(a.id, a.generation, actor: %{role: :mail_service, account_id: a.id})
@@ -341,14 +389,64 @@ defmodule Lovelace.MailTest do
 
   test "interrupted vault cleanup remains durably visible and retryable", %{a: a} do
     Application.put_env(:lovelace, :gmail_vault, Lovelace.TestMailDeleteFailure)
-    assert %{error: :unavailable} = Mail.disconnect!(a.id, actor: @owner)
+
+    assert {:ok,
+            %{
+              operation_id: operation_id,
+              state: :pending,
+              local_removed: true,
+              credentials: :pending,
+              credentials_removed: false,
+              remote: :pending,
+              revoked: false
+            }} = Mail.disconnect(a.id, actor: @owner)
+
+    assert :ok = perform_job(DisconnectWorker, %{"operation_id" => operation_id})
+
+    assert {:ok,
+            %{
+              operation_id: ^operation_id,
+              state: :complete,
+              local_removed: true,
+              credentials: :failed,
+              credentials_removed: false,
+              remote: :revoked,
+              revoked: true
+            }} = Mail.disconnect_status(a.id, actor: @owner)
+
+    assert Enum.count(Lovelace.TestMail.calls(), &match?({:revoke, "token-a"}, &1)) == 1
 
     assert %{status: :disconnected, last_error: :keychain} =
              Mail.get_account!(a.id, actor: @owner)
 
     assert {:ok, "token-a"} = Lovelace.TestMailVault.get(a.id)
     Application.put_env(:lovelace, :gmail_vault, Lovelace.TestMailVault)
-    assert %{credentials_removed: true} = Mail.disconnect!(a.id, actor: @owner)
+
+    assert {:ok,
+            %{
+              operation_id: ^operation_id,
+              state: :pending,
+              local_removed: true,
+              credentials: :failed,
+              credentials_removed: false,
+              remote: :revoked,
+              revoked: true
+            }} = Mail.disconnect(a.id, actor: @owner)
+
+    assert :ok = perform_job(DisconnectWorker, %{"operation_id" => operation_id})
+
+    assert {:ok,
+            %{
+              operation_id: ^operation_id,
+              state: :complete,
+              local_removed: true,
+              credentials: :removed,
+              credentials_removed: true,
+              remote: :revoked,
+              revoked: true
+            }} = Mail.disconnect_status(a.id, actor: @owner)
+
+    assert Enum.count(Lovelace.TestMail.calls(), &match?({:revoke, "token-a"}, &1)) == 1
     assert Mail.get_account!(a.id, actor: @owner).last_error == nil
     assert {:error, :not_found} = Lovelace.TestMailVault.get(a.id)
   end
@@ -366,7 +464,18 @@ defmodule Lovelace.MailTest do
     Sandbox.allow(Lovelace.Repo, self(), task.pid)
     send(task.pid, :go)
     assert_receive {:thread_waiting, provider}, 2000
-    assert %{local_removed: true} = Mail.disconnect!(a.id, actor: @owner)
+
+    assert {:ok,
+            %{
+              operation_id: operation_id,
+              state: :pending,
+              local_removed: true,
+              credentials: :pending,
+              credentials_removed: false,
+              remote: :pending,
+              revoked: false
+            }} = Mail.disconnect(a.id, actor: @owner)
+
     send(provider, :continue)
     assert {:ok, %{data: nil, error: :unavailable}} = Task.await(task)
 
@@ -374,6 +483,19 @@ defmodule Lovelace.MailTest do
              CacheEntry
              |> Ash.Query.for_read(:read, %{account_id: a.id}, actor: @owner)
              |> Ash.read!()
+
+    assert :ok = perform_job(DisconnectWorker, %{"operation_id" => operation_id})
+
+    assert {:ok,
+            %{
+              operation_id: ^operation_id,
+              state: :complete,
+              local_removed: true,
+              credentials: :removed,
+              credentials_removed: true,
+              remote: :revoked,
+              revoked: true
+            }} = Mail.disconnect_status(a.id, actor: @owner)
   end
 
   test "stale account status updates cannot undo a new connection generation", %{a: a} do

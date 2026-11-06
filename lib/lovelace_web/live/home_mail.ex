@@ -5,15 +5,15 @@ defmodule LovelaceWeb.HomeMail do
   Call `init/1` at mount, `open_workspace/2` or `open_connections/1` on entry
   and `leave_workspace/1` on exit. Subscriptions track attached accounts or the
   global connection list; only updates for the selected account refresh its view.
-  Delegate `mail:*` events, `{:mail_changed, id}` messages and async
-  names beginning with `:mail`. Render `MailComponents.panel mail={@mail}
+  Delegate `mail:*` events and mail operation/invalidation messages. Render
+  `MailComponents.panel mail={@mail}
   workspace={@selected}`. All state lives in `:mail`; it contains no credentials
   or provider content. `:data_ref` resolves through Mail.ViewData only at render.
   Workers publish payloads there before returning an opaque result to LiveView.
   Lists replace rather than accumulate (at most 20 threads per page).
   """
   import Phoenix.Component, only: [assign: 3, to_form: 2]
-  import Phoenix.LiveView, only: [connected?: 1, start_async: 3, cancel_async: 2]
+  import Phoenix.LiveView, only: [connected?: 1]
 
   alias Lovelace.Mail
   alias Lovelace.Mail.ViewData
@@ -114,61 +114,95 @@ defmodule LovelaceWeb.HomeMail do
     end
   end
 
+  def handle_info({:mail_operation, id}, socket), do: {:noreply, observe(socket, id, 0)}
+
+  def handle_info({:mail_observe, id, attempt}, socket),
+    do: {:noreply, observe(socket, id, attempt)}
+
   def handle_info(_, socket), do: {:noreply, socket}
 
-  def handle_async({:mail, :view, workspace, account, generation} = name, result, socket) do
-    mail = socket.assigns.mail
+  defp observe(%{assigns: %{mail: %{command: {account, id}}}} = socket, id, attempt) do
+    case Mail.disconnect_status(account, actor: @owner) do
+      {:ok, %{operation_id: ^id, state: :pending}} ->
+        observe_later(socket, id, attempt)
 
-    if mail.workspace_id == workspace && mail.account_id == account &&
-         mail.generation == generation && mail.task == name do
-      socket = load_accounts(socket)
+      {:ok, %{operation_id: ^id} = result} ->
+        socket
+        |> put(%{command: nil, notice: disconnect_notice({:ok, {:ok, result}})})
+        |> load_accounts()
 
-      if socket.assigns.mail.account_id == account do
-        {:noreply, apply_result(socket, result)}
+      _ ->
+        put(socket, %{command: nil, notice: disconnect_notice(nil)})
+    end
+  end
+
+  defp observe(%{assigns: %{mail: %{task: id}}} = socket, id, attempt) do
+    case Mail.read_status(id, actor: @owner) do
+      {:ok, %{state: :pending}} ->
+        observe_later(socket, id, attempt)
+
+      {:ok, %{state: :complete, result: result}} ->
+        apply_current_read(socket, id, result)
+
+      _ ->
+        apply_result(socket, {:exit, :expired})
+    end
+  end
+
+  defp observe(%{assigns: %{mail: %{credential_check: {_, _, id}}}} = socket, id, attempt) do
+    case Mail.read_status(id, actor: @owner) do
+      {:ok, %{state: :pending}} ->
+        observe_later(socket, id, attempt)
+
+      {:ok, %{state: :complete, result: result}} ->
+        credential_checked(socket, {:ok, result})
+
+      _ ->
+        credential_checked(socket, nil)
+    end
+  end
+
+  defp observe(socket, _, _), do: socket
+
+  defp apply_current_read(socket, id, result) do
+    socket = load_accounts(socket)
+    if socket.assigns.mail.task == id, do: apply_result(socket, {:ok, result}), else: socket
+  end
+
+  defp observe_later(socket, id, attempt) when attempt < 120 do
+    Process.send_after(self(), {:mail_observe, id, attempt + 1}, 500)
+    socket
+  end
+
+  defp observe_later(socket, _id, _attempt) do
+    put(socket, %{
+      loading: false,
+      task: nil,
+      credential_check: nil,
+      command: nil,
+      notice:
+        "Automatic status checks stopped. Reload Connections to observe cleanup; refresh mail to request an expired read."
+    })
+  end
+
+  defp credential_checked(socket, result) do
+    {id, generation, _} = socket.assigns.mail.credential_check
+    socket = load_accounts(socket)
+    current = Enum.find(socket.assigns.mail.accounts, &(&1.id == id))
+
+    checks =
+      if current && current.generation == generation && current.status != :disconnected do
+        Map.put(socket.assigns.mail.credential_checks, id, %{
+          generation: generation,
+          status: credential_result(result),
+          checked_at: DateTime.utc_now()
+        })
       else
-        {:noreply, socket}
+        Map.delete(socket.assigns.mail.credential_checks, id)
       end
-    else
-      {:noreply, socket}
-    end
+
+    put(socket, %{credential_check: nil, credential_checks: checks})
   end
-
-  def handle_async({:mail, :disconnect, workspace, account, generation}, result, socket) do
-    mail = socket.assigns.mail
-
-    if mail.workspace_id == workspace && mail.command == {account, generation} do
-      notice = disconnect_notice(result)
-      {:noreply, socket |> put(%{command: nil, notice: notice}) |> load_accounts()}
-    else
-      {:noreply, socket}
-    end
-  end
-
-  def handle_async({:mail, :credential_check, id, generation, request_id}, result, socket) do
-    mail = socket.assigns.mail
-
-    if mail.scope == :connections && mail.credential_check == {id, generation, request_id} do
-      socket = load_accounts(socket)
-      current = Enum.find(socket.assigns.mail.accounts, &(&1.id == id))
-
-      checks =
-        if current && current.generation == generation && current.status != :disconnected do
-          Map.put(socket.assigns.mail.credential_checks, id, %{
-            generation: generation,
-            status: credential_result(result),
-            checked_at: DateTime.utc_now()
-          })
-        else
-          Map.delete(socket.assigns.mail.credential_checks, id)
-        end
-
-      {:noreply, put(socket, %{credential_check: nil, credential_checks: checks})}
-    else
-      {:noreply, socket}
-    end
-  end
-
-  def handle_async(_, _, socket), do: {:noreply, socket}
 
   defp initial do
     %{
@@ -362,15 +396,19 @@ defmodule LovelaceWeb.HomeMail do
     mail = socket.assigns.mail
     account = Enum.find(mail.accounts, &(&1.id == id && &1.status != :disconnected))
 
-    if mail.scope == :connections && socket.assigns.connection_view == :gmail &&
-         !mail.command && !mail.credential_check && account && connected?(socket) do
-      generation = account.generation
-      request_id = System.unique_integer([:positive, :monotonic])
-      name = {:mail, :credential_check, id, generation, request_id}
+    if credential_check_allowed?(socket, account) do
+      case Mail.request_read(
+             %{account_id: id, generation: account.generation, kind: :credentials, owner: self()},
+             actor: @owner
+           ) do
+        {:ok, %{operation_id: operation}} ->
+          socket
+          |> put(%{credential_check: {id, account.generation, operation}})
+          |> observe_later(operation, 0)
 
-      socket
-      |> put(%{credential_check: {id, generation, request_id}})
-      |> start_async(name, fn -> Mail.check_credentials(id, generation, actor: @owner) end)
+        _ ->
+          put(socket, %{notice: "Credential check could not be queued."})
+      end
     else
       socket
     end
@@ -383,12 +421,20 @@ defmodule LovelaceWeb.HomeMail do
     if mail.scope == :connections && !mail.command && !mail.credential_check &&
          Enum.any?(mail.accounts, &(&1.id == id)) && connected?(socket) do
       socket = clear_view(socket, nil)
-      mail = socket.assigns.mail
-      name = {:mail, :disconnect, mail.workspace_id, id, mail.generation}
 
-      socket
-      |> put(%{command: {id, mail.generation}, notice: "Disconnecting account everywhere…"})
-      |> start_async(name, fn -> Mail.disconnect(id, actor: @owner) end)
+      case Mail.disconnect(id, actor: @owner) do
+        {:ok, %{operation_id: operation, state: :pending}} ->
+          socket
+          |> put(%{command: {id, operation}, notice: "Local account removed; cleanup queued…"})
+          |> observe_later(operation, 0)
+          |> load_accounts()
+
+        {:ok, result} ->
+          socket |> put(%{notice: disconnect_notice({:ok, {:ok, result}})}) |> load_accounts()
+
+        _ ->
+          put(socket, %{notice: disconnect_notice(nil)})
+      end
     else
       socket
     end
@@ -396,48 +442,42 @@ defmodule LovelaceWeb.HomeMail do
 
   defp event(_, _, socket), do: socket
 
+  defp credential_check_allowed?(socket, account) do
+    mail = socket.assigns.mail
+
+    mail.scope == :connections && socket.assigns.connection_view == :gmail &&
+      !mail.command && !mail.credential_check && account && connected?(socket)
+  end
+
   defp request(socket, force) do
     socket = cancel_view(socket)
     mail = socket.assigns.mail
 
     if active?(socket) && connected?(socket) do
-      generation = System.unique_integer([:positive, :monotonic])
-      name = {:mail, :view, mail.workspace_id, mail.account_id, generation}
-      workspace = mail.workspace_id
-      account = mail.account_id
-      thread = mail.thread_id
-      options = %{query: mail.query, page_token: mail.page_token, force: force}
-      scope = mail.scope
-      owner = self()
+      args = %{
+        account_id: mail.account_id,
+        owner: self(),
+        workspace_id: if(mail.scope == :home, do: nil, else: mail.workspace_id),
+        kind: if(mail.thread_id, do: :thread, else: :page),
+        thread_id: mail.thread_id,
+        query: mail.query,
+        page_token: mail.page_token,
+        force: force
+      }
 
-      socket
-      |> put(%{generation: generation, task: name, loading: true, error: nil})
-      |> start_async(name, fn ->
-        protect_result(fetch_mail(scope, workspace, account, thread, options), owner)
-      end)
+      case Mail.request_read(args, actor: @owner) do
+        {:ok, %{operation_id: operation}} ->
+          socket
+          |> put(%{task: operation, loading: true, error: nil})
+          |> observe_later(operation, 0)
+
+        _ ->
+          put(socket, %{task: nil, loading: false, error: :unavailable})
+      end
     else
       put(socket, %{loading: false})
     end
   end
-
-  defp fetch_mail(:home, _workspace, account, nil, options),
-    do: Mail.account_page(account, options, actor: @owner)
-
-  defp fetch_mail(:home, _workspace, account, thread, options),
-    do: Mail.account_thread(account, thread, Map.take(options, [:force]), actor: @owner)
-
-  defp fetch_mail(_scope, workspace, account, nil, options),
-    do: Mail.mail_page(workspace, account, options, actor: @owner)
-
-  defp fetch_mail(_scope, workspace, account, thread, options),
-    do: Mail.thread(workspace, account, thread, Map.take(options, [:force]), actor: @owner)
-
-  # Never return payloads to LiveView: callback/render telemetry receives its socket.
-  defp protect_result({:ok, %{data: data} = result}, owner) when is_map(data) do
-    {:ok, result |> Map.put(:data, nil) |> Map.put(:data_ref, ViewData.put(data, owner))}
-  end
-
-  defp protect_result(result, _owner), do: result
 
   defp apply_result(socket, {:ok, {:ok, %{data_ref: ref} = result}}) when not is_nil(ref) do
     case ViewData.get(ref) do
@@ -485,8 +525,7 @@ defmodule LovelaceWeb.HomeMail do
 
     with {:ok, accounts} <- Mail.list_accounts(actor: @owner),
          {:ok, memberships} <- workspace_memberships(mail) do
-      accounts =
-        Enum.reject(accounts, &(&1.status == :disconnected && &1.last_error != :keychain))
+      accounts = Enum.flat_map(accounts, &visible_account/1)
 
       ids =
         if mail.scope == :home,
@@ -522,6 +561,19 @@ defmodule LovelaceWeb.HomeMail do
         |> subscribe_accounts([])
     end
   end
+
+  defp visible_account(%{status: :disconnected} = account) do
+    case Mail.disconnect_status(account.id, actor: @owner) do
+      {:ok, %{state: state, remote: remote, credentials_removed: removed} = cleanup}
+      when state == :pending or remote != :revoked or not removed ->
+        [Map.put(account, :cleanup, cleanup)]
+
+      _ ->
+        if account.last_error == :keychain, do: [account], else: []
+    end
+  end
+
+  defp visible_account(account), do: [account]
 
   defp clear_view(socket, account_id) do
     socket = cancel_view(socket)
@@ -564,8 +616,12 @@ defmodule LovelaceWeb.HomeMail do
 
   defp cancel_view(socket) do
     case socket.assigns.mail.task do
-      nil -> socket
-      name -> socket |> cancel_async(name) |> put(%{task: nil, loading: false})
+      nil ->
+        socket
+
+      id ->
+        Mail.cancel_read(id, actor: @owner)
+        put(socket, %{task: nil, loading: false})
     end
   end
 
@@ -574,8 +630,9 @@ defmodule LovelaceWeb.HomeMail do
       nil ->
         socket
 
-      {id, generation, request_id} ->
-        cancel_async(socket, {:mail, :credential_check, id, generation, request_id})
+      {_, _, id} ->
+        Mail.cancel_read(id, actor: @owner)
+        put(socket, %{credential_check: nil})
     end
   end
 

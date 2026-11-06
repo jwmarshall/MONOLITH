@@ -2,6 +2,7 @@ defmodule LovelaceWeb.ScenesLiveTest do
   use LovelaceWeb.ConnCase, async: false
   use Oban.Testing, repo: Lovelace.Repo, engine: Oban.Engines.Lite
   import Phoenix.LiveViewTest
+  import Lovelace.TestSupport.BackgroundWork, only: [complete: 1]
 
   alias Lovelace.StageDesigner
   alias Lovelace.StageDesigner.{Attempt, Generation, GenerationWorker, Models, Settings, Storage}
@@ -40,7 +41,7 @@ defmodule LovelaceWeb.ScenesLiveTest do
     render_click(view, "scenes:confirm", %{})
     assert StageDesigner.get_state!(1, actor: @actor) == nil
     view |> element("#show-scenes") |> render_click()
-    render_async(view)
+    complete(view)
     assert has_element?(view, "#show-scenes[aria-current=page]")
     assert has_element?(view, "#directory-heading", "Scenes")
     assert has_element?(view, "#scenes-empty", "No generated scenes yet")
@@ -71,7 +72,7 @@ defmodule LovelaceWeb.ScenesLiveTest do
     render_click(view, "scenes:confirm", %{})
     assert StageDesigner.get_state!(1, actor: @actor) == nil
     view |> form("#scene-generation-settings") |> render_submit()
-    render_async(view)
+    complete(view)
     assert has_element?(view, "#scene-generation-modal[data-modal]", "may incur API charges")
 
     assert has_element?(
@@ -98,7 +99,7 @@ defmodule LovelaceWeb.ScenesLiveTest do
     assert :ok = GeminiVault.put("unused", key)
     digest = publish(settings, @now, PNG.image())
     {:ok, view, _} = live(conn, "/scenes")
-    html = render_async(view)
+    html = complete(view)
 
     refute has_element?(view, "#scene-gemini-setup")
     refute html =~ key
@@ -111,7 +112,7 @@ defmodule LovelaceWeb.ScenesLiveTest do
 
     assert :ok = GeminiVault.delete("unused")
     view |> element("#scenes-refresh") |> render_click()
-    render_async(view)
+    complete(view)
     assert has_element?(view, "#scene-gemini-setup", "No Gemini API key is stored")
     assert_setup_only(view)
     assert StageDesigner.get_state!(1, actor: @actor) == state
@@ -120,7 +121,7 @@ defmodule LovelaceWeb.ScenesLiveTest do
     assert_patch(view, "/connections/gemini")
     assert :ok = GeminiVault.put("unused", key)
     view |> element("#show-scenes") |> render_click()
-    html = render_async(view)
+    html = complete(view)
     refute has_element?(view, "#scene-gemini-setup")
     assert has_element?(view, "#scene-direction-form")
     assert has_element?(view, "#scene-generation-settings")
@@ -146,7 +147,7 @@ defmodule LovelaceWeb.ScenesLiveTest do
       refute has_element?(view, "#scene-gemini-setup", "No Gemini API key is stored")
 
       :ok = :sys.resume(vault)
-      render_async(view)
+      complete(view)
       refute has_element?(view, "#scene-gemini-setup")
       assert has_element?(view, "#scene-direction-form")
       assert has_element?(view, "#scene-generation-settings")
@@ -158,7 +159,7 @@ defmodule LovelaceWeb.ScenesLiveTest do
   test "refresh retains the direction draft while rechecking credentials",
        %{conn: conn} do
     {:ok, view, _} = live(conn, "/scenes")
-    render_async(view)
+    complete(view)
 
     values = %{
       "subject" => "landscape",
@@ -184,7 +185,7 @@ defmodule LovelaceWeb.ScenesLiveTest do
       assert StageDesigner.get_state!(1, actor: @actor) == nil
 
       :ok = :sys.resume(vault)
-      render_async(view)
+      complete(view)
       refute has_element?(view, "#scene-credential-check-signal")
       assert has_element?(view, "#scenes-refresh[aria-disabled=false]")
       assert has_element?(view, "#scene-direction-subject option[value=landscape][selected]")
@@ -199,14 +200,14 @@ defmodule LovelaceWeb.ScenesLiveTest do
   test "rechecking credentials blocks an otherwise eligible clean direction after gallery loading",
        %{conn: conn} do
     {:ok, view, _} = live(conn, "/scenes")
-    render_async(view)
+    complete(view)
     assert has_element?(view, "#scene-generate:not([disabled])")
     vault = Process.whereis(GeminiVault)
     :ok = :sys.suspend(vault)
 
     try do
       view |> element("#scenes-refresh") |> render_click()
-      await_scene_async(view, :scene_gallery)
+      render(view)
 
       assert %{
                scenes: true,
@@ -220,19 +221,19 @@ defmodule LovelaceWeb.ScenesLiveTest do
                scene_direction: %{status: :ready, dirty: false, error: ""}
              } = :sys.get_state(view.pid).socket.assigns
 
-      assert Map.has_key?(:sys.get_state(view.pid).socket.private.live_async, :gemini_status)
+      assert %{id: diagnostic_id} = :sys.get_state(view.pid).socket.assigns.gemini_diagnostic
+      assert_enqueued(worker: Lovelace.ConnectionDiagnostics.Worker, args: %{id: diagnostic_id})
       render_click(view, "scenes:request", %{})
-      await_scene_async(view, :scene_prepare)
+      render(view)
       assert_no_scene_confirmation(view)
       refute has_element?(view, "#scene-generation-modal")
 
       render_click(view, "scenes:confirm", %{})
-      await_scene_async(view, :scene_request)
-      await_scene_async(view, :scene_gallery)
+      render(view)
       assert_no_generation_requested(nil)
 
       :ok = :sys.resume(vault)
-      render_async(view)
+      complete(view)
       assert has_element?(view, "#scene-generate:not([disabled])")
       assert_no_scene_confirmation(view)
       assert_no_generation_requested(nil)
@@ -247,24 +248,24 @@ defmodule LovelaceWeb.ScenesLiveTest do
   } do
     digest = publish(settings, @now, PNG.image())
     {:ok, view, _} = live(conn, "/scenes")
-    render_async(view)
+    complete(view)
     view |> form("#scene-generation-settings") |> render_submit()
-    render_async(view)
+    complete(view)
     assert has_element?(view, "#scene-generation-modal")
     state = StageDesigner.get_state!(1, actor: @actor)
 
     GeminiVault.fail(:unavailable)
     view |> element("#scenes-refresh") |> render_click()
-    render_async(view)
+    complete(view)
     assert_setup_only(view)
     assert has_element?(view, "#scene-gemini-setup", "key availability couldn’t be checked")
     assert has_element?(view, "#workspace-background img[src='#{Storage.url(digest)}']")
 
     render_click(view, "scenes:request", %{})
-    render_async(view)
+    complete(view)
     assert_no_scene_confirmation(view)
     render_click(view, "scenes:confirm", %{})
-    render_async(view)
+    complete(view)
     refute has_element?(view, "#scene-generation-modal")
     assert_no_generation_requested(state)
   end
@@ -272,7 +273,7 @@ defmodule LovelaceWeb.ScenesLiveTest do
   test "unavailable Gemini credentials are not presented as a missing key", %{conn: conn} do
     GeminiVault.fail(:unavailable)
     {:ok, view, _} = live(conn, "/scenes")
-    render_async(view)
+    complete(view)
 
     assert has_element?(view, "#scene-gemini-setup", "key availability couldn’t be checked")
     assert has_element?(view, "#scene-gemini-setup a[href='/connections/gemini']")
@@ -283,7 +284,7 @@ defmodule LovelaceWeb.ScenesLiveTest do
     GeminiVault.fail(:locked)
     view |> element("#scene-gemini-setup a") |> render_click()
     view |> element("#show-scenes") |> render_click()
-    render_async(view)
+    complete(view)
     assert has_element?(view, "#scene-gemini-setup", "keychain is locked or access was denied")
     refute has_element?(view, "#scene-gemini-setup", "No Gemini API key is stored")
     assert_setup_only(view)
@@ -292,7 +293,7 @@ defmodule LovelaceWeb.ScenesLiveTest do
   test "invalid Gemini credentials keep the designer hidden", %{conn: conn} do
     assert :ok = GeminiVault.put("unused", "invalid key with spaces")
     {:ok, view, _} = live(conn, "/scenes")
-    render_async(view)
+    complete(view)
 
     assert has_element?(view, "#scene-gemini-setup", "invalid format")
     assert_setup_only(view)
@@ -302,7 +303,7 @@ defmodule LovelaceWeb.ScenesLiveTest do
   test "a missing Gemini key shows only setup before any generation", %{conn: conn} do
     assert :ok = GeminiVault.delete("unused")
     {:ok, view, _} = live(conn, "/scenes")
-    render_async(view)
+    complete(view)
 
     assert has_element?(view, "#scene-gemini-setup", "No Gemini API key is stored")
 
@@ -323,7 +324,7 @@ defmodule LovelaceWeb.ScenesLiveTest do
     attempt = SceneGeneration.current()
     assert :ok = GeminiVault.delete("unused")
     {:ok, view, _} = live(conn, "/scenes")
-    render_async(view)
+    complete(view)
 
     assert_setup_only(view)
     assert has_element?(view, "#scene-setup-generation-status", "queued locally")
@@ -332,10 +333,10 @@ defmodule LovelaceWeb.ScenesLiveTest do
 
     {:ok, _} = Attempt.record(attempt, %{status: :submitting})
     assert :ok = Generation.perform(attempt.id, :submit)
-    render_async(view)
+    complete(view)
     view |> element("#scene-gemini-setup a") |> render_click()
     view |> element("#show-scenes") |> render_click()
-    render_async(view)
+    complete(view)
 
     assert_setup_only(view)
     assert has_element?(view, "#scene-setup-generation-status", "Generation outcome unconfirmed")
@@ -355,10 +356,10 @@ defmodule LovelaceWeb.ScenesLiveTest do
   } do
     defaults = Models.defaults()
     {:ok, view, _} = live(conn, "/scenes")
-    render_async(view)
+    complete(view)
     choices = %{model: "gemini-3-pro-image", aspect_ratio: "4:3", image_size: "2K"}
     view |> form("#scene-generation-settings", generation: choices) |> render_submit()
-    render_async(view)
+    complete(view)
     assert has_element?(view, "#scene-confirmation-settings", "gemini-3-pro-image")
     assert has_element?(view, "#scene-confirmation-settings", "4:3")
     assert has_element?(view, "#scene-confirmation-settings", "2K")
@@ -366,7 +367,7 @@ defmodule LovelaceWeb.ScenesLiveTest do
     assert has_element?(view, "#scene-generation-modal", "deletion")
     assert StageDesigner.get_state!(1, actor: @actor) == nil
     view |> element("#scene-generation-confirm") |> render_click()
-    render_async(view)
+    complete(view)
     attempt = SceneGeneration.current()
     assert Map.take(attempt, Map.keys(choices)) == choices
     assert attempt.status == :queued
@@ -384,7 +385,7 @@ defmodule LovelaceWeb.ScenesLiveTest do
     {:ok, _} = Attempt.record(attempt, %{status: :submitting})
     assert :ok = Generation.perform(attempt.id, :submit)
     {:ok, view, _} = live(conn, "/scenes")
-    render_async(view)
+    complete(view)
     assert has_element?(view, "#scene-generate[disabled]")
     view |> element("#scene-current-acknowledge-#{attempt.id}") |> render_click()
     assert has_element?(view, "#scene-acknowledgement-modal", "may still incur charges")
@@ -392,14 +393,14 @@ defmodule LovelaceWeb.ScenesLiveTest do
     assert SceneGeneration.current().status == :unknown
     view |> element("#scene-current-acknowledge-#{attempt.id}") |> render_click()
     view |> element("#scene-acknowledgement-confirm") |> render_click()
-    render_async(view)
+    complete(view)
     assert SceneGeneration.current().status == :abandoned
     assert has_element?(view, "#scene-generate:not([disabled])")
     refute has_element?(view, "#scene-generation-modal")
     refute has_element?(view, "#scene-global-activity")
     assert has_element?(view, "#scene-history-#{attempt.id}", "acknowledged")
     view |> form("#scene-generation-settings") |> render_submit()
-    render_async(view)
+    complete(view)
     assert has_element?(view, "#scene-generation-modal")
     assert SceneGeneration.current().id == attempt.id
   end
@@ -419,22 +420,22 @@ defmodule LovelaceWeb.ScenesLiveTest do
     end
 
     {:ok, view, _} = live(conn, "/scenes")
-    render_async(view)
+    complete(view)
     assert has_element?(view, "#scene-attempts-older:not([disabled])")
     view |> element("#scene-attempts-older") |> render_click()
     assert_patch(view, "/scenes?attempt_page=2")
-    render_async(view)
+    complete(view)
     assert has_element?(view, "#scene-attempt-pagination", "Attempts page 2")
     assert length(:sys.get_state(view.pid).socket.assigns.scene_data.attempts) == 1
     {:ok, reloaded, _} = live(conn, "/scenes?attempt_page=2")
-    render_async(reloaded)
+    complete(reloaded)
     assert has_element?(reloaded, "#scene-attempt-pagination", "Attempts page 2")
     assert StageDesigner.get_state!(1, actor: @actor) == nil
   end
 
   test "guided direction previews, saves and survives reload without generating", %{conn: conn} do
     {:ok, view, _} = live(conn, "/scenes")
-    render_async(view)
+    complete(view)
     assert has_element?(view, "#scene-direction-form")
     assert has_element?(view, "#scene-prompt-preview summary", "View generation prompt")
     assert has_element?(view, "#scene-direction-prompt", Settings.get().prompt)
@@ -456,7 +457,7 @@ defmodule LovelaceWeb.ScenesLiveTest do
     assert prompt != Settings.get().prompt
 
     view |> element("#scenes-refresh") |> render_click()
-    render_async(view)
+    complete(view)
     assert :sys.get_state(view.pid).socket.assigns.scene_direction.prompt == prompt
     assert has_element?(view, "#scene-direction-subject option[value=landscape][selected]")
     render_click(view, "scenes:request", %{})
@@ -474,11 +475,11 @@ defmodule LovelaceWeb.ScenesLiveTest do
     assert has_element?(view, "#scene-generate:not([disabled])")
     assert StageDesigner.get_state!(1, actor: @actor) == nil
     {:ok, reloaded, _} = live(conn, "/scenes")
-    render_async(reloaded)
+    complete(reloaded)
     assert has_element?(reloaded, "#scene-direction-subject option[value=landscape][selected]")
     assert :sys.get_state(reloaded.pid).socket.assigns.scene_direction.prompt == prompt
     reloaded |> form("#scene-generation-settings") |> render_submit()
-    render_async(reloaded)
+    complete(reloaded)
     assert has_element?(reloaded, "#scene-confirmation-prompt", prompt)
     assert StageDesigner.get_state!(1, actor: @actor) == nil
   end
@@ -487,7 +488,7 @@ defmodule LovelaceWeb.ScenesLiveTest do
     conn: conn
   } do
     {:ok, view, _} = live(conn, "/scenes")
-    render_async(view)
+    complete(view)
     original = :sys.get_state(view.pid).socket.assigns.scene_direction.prompt
 
     values = %{
@@ -513,9 +514,9 @@ defmodule LovelaceWeb.ScenesLiveTest do
 
   test "a direction changed after cost confirmation refuses generation", %{conn: conn} do
     {:ok, view, _} = live(conn, "/scenes")
-    render_async(view)
+    complete(view)
     view |> form("#scene-generation-settings") |> render_submit()
-    render_async(view)
+    complete(view)
 
     StageDesigner.save_scene_direction!(
       %{subject: "abstract", setting: "forest", light: "moonlight", palette: "mist"},
@@ -523,7 +524,7 @@ defmodule LovelaceWeb.ScenesLiveTest do
     )
 
     view |> element("#scene-generation-confirm") |> render_click()
-    render_async(view)
+    complete(view)
     assert has_element?(view, "#scenes-panel", "saved direction changed")
     assert StageDesigner.get_state!(1, actor: @actor) == nil
   end
@@ -534,11 +535,11 @@ defmodule LovelaceWeb.ScenesLiveTest do
     Phoenix.PubSub.subscribe(Lovelace.PubSub, "stage_designer")
     {:ok, view, _} = live(conn, "/")
     view |> element("#show-scenes") |> render_click()
-    render_async(view)
+    complete(view)
     view |> form("#scene-generation-settings") |> render_submit()
-    render_async(view)
+    complete(view)
     view |> element("#scene-generation-confirm") |> render_click()
-    render_async(view)
+    complete(view)
     assert_receive {:stage_background, %{status: :queued}}, 1_000
     assert SceneGeneration.current().status == :queued
     assert has_element?(view, "#scene-generate[disabled]")
@@ -547,7 +548,7 @@ defmodule LovelaceWeb.ScenesLiveTest do
     assert :ok = Generation.perform(SceneGeneration.current().id, :submit)
     assert_receive {:stage_background, %{status: :failed}}, 1_000
     assert :ok = GeminiVault.put("unused", "synthetic-scenes-key")
-    render_async(view)
+    complete(view)
     assert has_element?(view, "#scenes-panel", "generation failed")
     assert has_element?(view, "#scene-generate:not([disabled])")
     refute has_element?(view, "#scene-generation-availability")
@@ -556,11 +557,11 @@ defmodule LovelaceWeb.ScenesLiveTest do
     state = StageDesigner.get_state!(1, actor: @actor)
     assert state.status == :failed
     render_click(view, "scenes:confirm", %{})
-    render_async(view)
+    complete(view)
     assert StageDesigner.get_state!(1, actor: @actor) == state
 
     view |> form("#scene-generation-settings") |> render_submit()
-    render_async(view)
+    complete(view)
     assert has_element?(view, "#scene-generation-modal")
     view |> element("#scene-generation-cancel") |> render_click()
     assert StageDesigner.get_state!(1, actor: @actor) == state
@@ -575,12 +576,12 @@ defmodule LovelaceWeb.ScenesLiveTest do
     {:ok, view, _} = live(conn, "/")
     {:ok, other, _} = live(conn, "/")
     view |> element("#show-scenes") |> render_click()
-    render_async(view)
+    complete(view)
     assert has_element?(view, "#scene-#{latest}[data-active=true]", "Current")
     assert has_element?(view, "#scene-preview-#{first}[phx-hook=StageBackground]")
     assert has_element?(view, "#scene-#{first} time", "2026-01-01 12:00 UTC")
     view |> element("#use-scene-#{first}") |> render_click()
-    render_async(view)
+    complete(view)
     assert has_element?(view, "#scene-#{first}[data-active=true]", "In use")
     assert has_element?(other, "#workspace-background img[src='#{Storage.url(first)}']")
     assert StageDesigner.get_state!(1, actor: @actor).history == [latest, first]
@@ -601,7 +602,7 @@ defmodule LovelaceWeb.ScenesLiveTest do
     assert state.status == :ready
     {:ok, view, _} = live(conn, "/")
     view |> element("#show-scenes") |> render_click()
-    render_async(view)
+    complete(view)
     assert has_element?(view, "#scene-generate:not([disabled])")
     refute has_element?(view, "#scene-generation-availability")
     refute has_element?(view, "#scenes-panel", "Next eligible")
@@ -610,7 +611,7 @@ defmodule LovelaceWeb.ScenesLiveTest do
     assert has_element?(view, ".scene-status time")
     assert has_element?(view, ".scene-status", "Last attempt:")
     view |> form("#scene-generation-settings") |> render_submit()
-    render_async(view)
+    complete(view)
     assert has_element?(view, "#scene-generation-modal")
     assert StageDesigner.get_state!(1, actor: @actor) == state
     view |> element("#scene-generation-cancel") |> render_click()
@@ -628,18 +629,18 @@ defmodule LovelaceWeb.ScenesLiveTest do
     File.write!(Path.join(directory, digest <> ".png"), "damaged synthetic image")
     {:ok, view, _} = live(conn, "/")
     view |> element("#show-scenes") |> render_click()
-    render_async(view)
+    complete(view)
     assert has_element?(view, "#scene-generate:not([disabled])")
     assert has_element?(view, "#use-scene-#{digest}[disabled]")
     assert has_element?(view, "#scene-#{digest}", "Local image unavailable")
     refute has_element?(view, "#scene-preview-#{digest}")
     view |> form("#scene-generation-settings") |> render_submit()
-    render_async(view)
+    complete(view)
     assert has_element?(view, "#scene-generation-modal")
     view |> element("#scene-generation-cancel") |> render_click()
     assert StageDesigner.get_state!(1, actor: @actor) == state
     render_click(view, "scenes:select", %{"digest" => String.duplicate("a", 64)})
-    render_async(view)
+    complete(view)
     assert has_element?(view, "#scenes-panel", "could not be selected")
     assert StageDesigner.get_state!(1, actor: @actor).history == [digest]
   end
@@ -654,7 +655,7 @@ defmodule LovelaceWeb.ScenesLiveTest do
 
     {:ok, view, _} = live(conn, "/")
     view |> element("#show-scenes") |> render_click()
-    render_async(view)
+    complete(view)
     assert has_element?(view, "#scene-generate[disabled]")
 
     assert has_element?(
@@ -666,10 +667,10 @@ defmodule LovelaceWeb.ScenesLiveTest do
     render_click(view, "scenes:request", %{})
     refute has_element?(view, "#scene-generation-modal")
     render_click(view, "scenes:confirm", %{})
-    render_async(view)
+    complete(view)
     assert_same_persisted_state(reserved)
     view |> element("#scenes-refresh") |> render_click()
-    render_async(view)
+    complete(view)
     assert has_element?(view, "#scene-generate[disabled]")
     assert_same_persisted_state(reserved)
 
@@ -680,7 +681,7 @@ defmodule LovelaceWeb.ScenesLiveTest do
       StageDesigner.background!()
     })
 
-    render_async(view)
+    complete(view)
     assert has_element?(view, "#scene-generate:not([disabled])")
     assert has_element?(view, "#scenes-panel", "generation failed")
     assert_same_persisted_state(failed)
@@ -700,11 +701,11 @@ defmodule LovelaceWeb.ScenesLiveTest do
 
     {:ok, view, _} = live(conn, "/")
     view |> element("#show-scenes") |> render_click()
-    render_async(view)
+    complete(view)
     assert has_element?(view, "#scene-generate:not([disabled])")
     assert has_element?(view, "#scenes-panel", "generation failed")
     view |> element("#scenes-refresh") |> render_click()
-    render_async(view)
+    complete(view)
     assert StageDesigner.get_state!(1, actor: @actor) == failed
     view |> element("#home-link") |> render_click()
     assert has_element?(view, "#home-overview")
@@ -712,13 +713,13 @@ defmodule LovelaceWeb.ScenesLiveTest do
     view |> element("#show-workspaces") |> render_click()
     view |> element("#show-connections") |> render_click()
     view |> element("#show-scenes") |> render_click()
-    render_async(view)
+    complete(view)
     assert has_element?(view, "#scene-generate:not([disabled])")
     refute has_element?(view, "#scene-generation-modal")
     assert StageDesigner.get_state!(1, actor: @actor) == failed
     {:ok, reloaded, _} = live(conn, "/")
     reloaded |> element("#show-scenes") |> render_click()
-    render_async(reloaded)
+    complete(reloaded)
     assert has_element?(reloaded, "#scene-generate:not([disabled])")
     assert StageDesigner.get_state!(1, actor: @actor) == failed
   end
@@ -735,42 +736,26 @@ defmodule LovelaceWeb.ScenesLiveTest do
     oldest = hd(digests)
     {:ok, view, _} = live(conn, "/")
     view |> element("#show-scenes") |> render_click()
-    render_async(view)
+    complete(view)
     assert has_element?(view, "#scenes-panel[data-page='1']")
     assert has_element?(view, "#scene-pagination", "Page 1")
     assert length(:sys.get_state(view.pid).socket.assigns.scene_data.scenes) == 20
     refute has_element?(view, "#scene-#{oldest}")
     view |> element("#scenes-older") |> render_click()
-    render_async(view)
+    complete(view)
     assert has_element?(view, "#scenes-panel[data-page='2']")
     assert length(:sys.get_state(view.pid).socket.assigns.scene_data.scenes) == 3
     assert has_element?(view, "#scenes-older[disabled]")
     assert has_element?(view, "#use-scene-#{oldest}:not([disabled])")
     view |> element("#use-scene-#{oldest}") |> render_click()
-    render_async(view)
+    complete(view)
     assert has_element?(view, "#scene-#{oldest}[data-active=true]", "Current")
     assert has_element?(view, "#workspace-background img[src='#{Storage.url(oldest)}']")
     view |> element("#scenes-newer") |> render_click()
-    render_async(view)
+    complete(view)
     assert has_element?(view, "#scenes-panel[data-page='1']")
     assert has_element?(view, "#scenes-newer[disabled]")
     assert StageDesigner.background!().url == Storage.url(oldest)
-  end
-
-  defp await_scene_async(view, name) do
-    # Like render_async/1, monitor the real task and render after it exits, but
-    # leave the deliberately suspended credential check running.
-    case Map.get(:sys.get_state(view.pid).socket.private.live_async, name) do
-      {_ref, pid, :start} ->
-        monitor = Process.monitor(pid)
-        assert_receive {:DOWN, ^monitor, :process, ^pid, _reason}, 1_000
-
-      nil ->
-        :ok
-    end
-
-    render(view)
-    refute Map.has_key?(:sys.get_state(view.pid).socket.private.live_async, name)
   end
 
   defp assert_no_scene_confirmation(view) do

@@ -5,13 +5,55 @@ defmodule Lovelace.StageDesigner.GenerationFailuresTest do
   import ExUnit.CaptureLog
 
   alias Lovelace.{Repo, StageDesigner}
-  alias Lovelace.StageDesigner.{Attempt, Generation, GenerationWorker, Scene, Settings, Storage}
+
+  alias Lovelace.StageDesigner.{
+    Attempt,
+    DirectionOptions,
+    Generation,
+    GenerationWorker,
+    RecoveryWorker,
+    Scene,
+    Settings,
+    Storage
+  }
+
   alias Lovelace.TestSupport.{PNG, SceneGeneration}
 
   @owner %{role: :local_owner}
   @service %{role: :stage_designer}
   @provider_id "interaction_failure_recovery"
   @private "private-provider-output-never-persist"
+
+  defmodule PaidRenderFake do
+    @behaviour Lovelace.StageDesigner.PaidRender
+    alias Lovelace.TestSupport.SceneGeneration
+
+    @impl true
+    def create(request, _options), do: respond(:create, request)
+
+    @impl true
+    def get(id, _options), do: respond(:get, id)
+
+    @impl true
+    def delete(id, _options), do: respond(:delete, id)
+
+    def configure(operation, outcome) do
+      Application.put_env(:lovelace, __MODULE__, {self(), operation, outcome})
+    end
+
+    defp respond(operation, payload) do
+      {observer, expected, outcome} = Application.fetch_env!(:lovelace, __MODULE__)
+      status = SceneGeneration.current().status
+      send(observer, {:paid_call, operation, payload, status})
+
+      case {operation == expected, outcome} do
+        {true, {:raise, secret}} -> raise secret
+        {true, {:throw, secret}} -> throw({:private_adapter_failure, secret})
+        {true, {:return, result}} -> result
+        _ -> raise "unexpected paid-render operation"
+      end
+    end
+  end
 
   setup {Req.Test, :verify_on_exit!}
 
@@ -180,6 +222,82 @@ defmodule Lovelace.StageDesigner.GenerationFailuresTest do
     assert current().status == :completed
     assert {:ok, [_]} = Attempt.page(1)
     assert_calls(["POST"])
+  end
+
+  test "startup and recovery admission refuse success when their jobs cannot be persisted" do
+    Application.put_env(:lovelace, :stage_designer, %{Settings.get() | enabled: true})
+    reject_writes("BEFORE INSERT ON oban_jobs")
+    assert {:ok, :unavailable} = StageDesigner.generate_on_startup(actor: @service)
+    assert {:error, _} = StageDesigner.schedule_recovery(actor: @service)
+    assert state() == nil
+    assert {:ok, []} = Attempt.page(1)
+    assert all_enqueued(worker: GenerationWorker) == []
+    assert all_enqueued(worker: Lovelace.StageDesigner.RecoveryWorker) == []
+    drop_rejection()
+
+    assert {:ok, :started} = StageDesigner.generate_on_startup(actor: @service)
+    attempt = current()
+    assert attempt.source == :startup
+    assert attempt.status == :queued
+    assert_enqueued(worker: GenerationWorker, args: %{id: attempt.id, operation: "submit"})
+    assert {:ok, :scheduled} = StageDesigner.schedule_recovery(actor: @service)
+    refute_received {:provider_call, _}
+  end
+
+  test "recovery exposes storage failure while still repairing safe authorized jobs" do
+    attempt = reserve()
+    Repo.delete_all(Oban.Job)
+    settings = Settings.get()
+    unavailable = Path.join(settings.storage_dir, "synthetic-unavailable-root")
+    File.write!(unavailable, "not a directory")
+    Application.put_env(:lovelace, :stage_designer, %{settings | storage_dir: unavailable})
+
+    assert {:error, _} = StageDesigner.recover(actor: @service)
+
+    assert {:error, :background_unavailable} =
+             RecoveryWorker.perform(%Oban.Job{})
+
+    assert current().status == :queued
+    assert_enqueued(worker: GenerationWorker, args: %{id: attempt.id, operation: "submit"})
+    refute_received {:provider_call, _}
+
+    Application.put_env(:lovelace, :stage_designer, settings)
+    assert :ok = RecoveryWorker.perform(%Oban.Job{})
+    assert current().status == :queued
+    refute_received {:provider_call, _}
+  end
+
+  test "recovery reports unqueueable work without consuming or reopening its permanent claim" do
+    attempt = reserve()
+    Repo.delete_all(Oban.Job)
+    reject_writes("BEFORE INSERT ON oban_jobs")
+
+    assert {:error, :background_unavailable} = Generation.reconcile()
+    assert {:error, _} = StageDesigner.recover(actor: @service)
+
+    assert {:error, :background_unavailable} =
+             RecoveryWorker.perform(%Oban.Job{})
+
+    assert current().status == :queued
+    assert all_enqueued(worker: GenerationWorker) == []
+    drop_rejection()
+
+    assert :ok = RecoveryWorker.perform(%Oban.Job{})
+    assert_enqueued(worker: GenerationWorker, args: %{id: attempt.id, operation: "submit"})
+    assert {:ok, claimed} = Attempt.record(current(), %{status: :submitting})
+    Repo.delete_all(Oban.Job)
+    Repo.query!("UPDATE stage_designer_attempts SET updated_at = '2000-01-01 00:00:00.000000'")
+    reject_writes("BEFORE UPDATE OF status ON stage_designer_attempts")
+
+    assert {:error, :background_unavailable} = Generation.reconcile()
+    assert current().status == claimed.status
+    assert all_enqueued(worker: GenerationWorker) == []
+    drop_rejection()
+
+    assert :ok = RecoveryWorker.perform(%Oban.Job{})
+    assert current().status == :unknown
+    assert all_enqueued(worker: GenerationWorker) == []
+    refute_received {:provider_call, _}
   end
 
   test "an acknowledged request's late ID is saved as evidence without reactivating or deleting it" do
@@ -423,6 +541,231 @@ defmodule Lovelace.StageDesigner.GenerationFailuresTest do
     assert :ok = Generation.perform(completed.id, :submit, provider())
     assert :ok = Generation.perform(completed.id, :cleanup, provider())
     assert_calls(["POST", "DELETE", "DELETE"])
+  end
+
+  test "a malformed submission result remains unknown and never authorizes another paid call" do
+    use_paid_render()
+    attempt = reserve()
+    PaidRenderFake.configure(:create, {:return, {:unexpected, @private}})
+
+    log = capture_log(fn -> assert %{success: 1, failure: 0} = drain_one() end)
+    assert_received {:paid_call, :create, _, :submitting}
+    unknown = current()
+    assert unknown.status == :unknown
+    assert unknown.provider_id == nil
+    assert unknown.digest == nil
+    refute StageDesigner.list_scenes!(actor: @owner).eligible
+    assert_private_failure(unknown, @private, log)
+
+    Repo.delete_all(Oban.Job)
+    assert :ok = Generation.reconcile()
+    assert :ok = Generation.perform(attempt.id, :submit)
+    assert current() == unknown
+    assert all_enqueued(worker: GenerationWorker) == []
+    refute_received {:paid_call, _, _, _}
+  end
+
+  test "checking an unknown attempt never admits recovery or provider work" do
+    assert {:ok, :unavailable} =
+             StageDesigner.check_scene_attempt(%{id: Ash.UUID.generate()}, actor: @owner)
+
+    assert {:ok, []} = Attempt.page(1)
+    assert all_enqueued(worker: GenerationWorker) == []
+  end
+
+  for kind <- [:raise, :throw] do
+    test "a #{kind} during paid submission records an unknown one-shot outcome without private errors" do
+      use_paid_render()
+      secret = @private <> "-submit-" <> Atom.to_string(unquote(kind))
+
+      Application.put_env(:lovelace, :stage_designer, %{
+        Settings.get()
+        | prompt: secret <> "-brief"
+      })
+
+      attempt = reserve()
+      PaidRenderFake.configure(:create, {unquote(kind), secret})
+
+      log =
+        capture_log(fn ->
+          assert %{success: 1, failure: 0} = drain_one()
+        end)
+
+      assert_received {:paid_call, :create, request, :submitting}
+      assert request.input == attempt.prompt
+      assert request.background
+      assert request.store
+      unknown = current()
+      assert unknown.status == :unknown
+      assert unknown.provider_id == nil
+      assert unknown.completed_at == nil
+      assert unknown.digest == nil
+      assert unknown.cleanup == :none
+      assert unknown.failure =~ "sensitive details were withheld"
+      assert state().status == :generating
+      assert StageDesigner.background!().status == :uncertain
+      refute StageDesigner.list_scenes!(actor: @owner).eligible
+      assert [%Oban.Job{state: "completed", errors: []}] = Repo.all(Oban.Job)
+      assert_private_failure(unknown, secret, log)
+
+      Repo.delete_all(Oban.Job)
+      assert :ok = Generation.reconcile()
+      assert :ok = Generation.perform(attempt.id, :submit)
+      assert :ok = Generation.perform(attempt.id, :poll)
+      assert :ok = Generation.perform(attempt.id, :cleanup)
+      assert current() == unknown
+      assert all_enqueued(worker: GenerationWorker) == []
+      refute_received {:paid_call, _, _, _}
+    end
+
+    test "a #{kind} during known-ID polling preserves the ID and only retries retrieval" do
+      use_paid_render()
+
+      assert {:ok, _} =
+               StageDesigner.save_scene_direction(
+                 DirectionOptions.defaults(),
+                 actor: @owner
+               )
+
+      attempt = reserve()
+
+      PaidRenderFake.configure(
+        :create,
+        {:return, {:ok, %{id: @provider_id, status: :in_progress}}}
+      )
+
+      assert %{success: 1, failure: 0} = drain_one()
+      assert_received {:paid_call, :create, _, :submitting}
+      reserved = state()
+      secret = @private <> "-poll-" <> Atom.to_string(unquote(kind))
+      PaidRenderFake.configure(:get, {unquote(kind), secret})
+
+      log =
+        capture_log(fn ->
+          assert %{success: 1, failure: 0} = drain_one()
+        end)
+
+      assert_received {:paid_call, :get, @provider_id, :rendering}
+      tracking = current()
+      assert tracking.status == :rendering
+      assert tracking.provider_id == @provider_id
+      assert tracking.tracking_errors == 1
+      assert tracking.last_checked_at
+      assert tracking.digest == nil
+      assert tracking.cleanup == :none
+      assert tracking.failure =~ "sensitive details were withheld"
+      assert state() == reserved
+      refute StageDesigner.list_scenes!(actor: @owner).eligible
+      assert_private_failure(tracking, secret, log)
+      direction = StageDesigner.get_direction!(1, actor: @service)
+      refute inspect(direction, limit: :infinity) =~ tracking.prompt
+      refute inspect(state(), limit: :infinity) =~ tracking.prompt
+      assert :ok = Generation.perform(attempt.id, :submit)
+      refute_received {:paid_call, _, _, _}
+
+      bytes = PNG.image(17, 3)
+
+      PaidRenderFake.configure(
+        :get,
+        {:return, {:ok, %{id: @provider_id, status: :completed, images: [bytes]}}}
+      )
+
+      assert %{success: 1, failure: 0} = drain_one()
+      assert_received {:paid_call, :get, @provider_id, :rendering}
+      assert current().status == :completed
+      assert current().provider_id == @provider_id
+      assert current().failure == nil
+      assert state().selected_digest == hash(bytes)
+      assert {:ok, ^bytes} = Storage.read(Settings.get(), hash(bytes))
+      refute_received {:paid_call, _, _, _}
+    end
+
+    test "a #{kind} during remote cleanup keeps committed publication and records a safe job error" do
+      completed = publish_baseline()
+      published = state()
+      Repo.delete_all(Oban.Job)
+      use_paid_render()
+      secret = @private <> "-cleanup-" <> Atom.to_string(unquote(kind))
+      PaidRenderFake.configure(:delete, {unquote(kind), secret})
+      assert {:ok, job} = GenerationWorker.enqueue(completed.id, :cleanup)
+
+      log =
+        capture_log(fn ->
+          assert %{success: 0, failure: 1} = drain_one()
+        end)
+
+      assert_received {:paid_call, :delete, @provider_id, :completed}
+      failed_cleanup = current()
+      assert failed_cleanup.status == :completed
+      assert failed_cleanup.digest == completed.digest
+      assert failed_cleanup.completed_at == completed.completed_at
+      assert failed_cleanup.provider_id == @provider_id
+      assert failed_cleanup.cleanup == :failed
+      assert failed_cleanup.cleanup_error =~ "sensitive details were withheld"
+      assert state() == published
+      assert StageDesigner.background!().url == Storage.url(completed.digest)
+      assert {:ok, true} = Scene.registered(completed.digest)
+      assert {:ok, _} = Storage.read(Settings.get(), completed.digest)
+      recorded_job = Repo.get!(Oban.Job, job.id)
+      assert recorded_job.state == "retryable"
+      assert [%{"error" => error}] = recorded_job.errors
+      assert error =~ "remote_cleanup_unavailable"
+      assert_private_failure(failed_cleanup, secret, log)
+      assert :ok = Generation.perform(completed.id, :submit)
+      assert :ok = Generation.perform(completed.id, :poll)
+      refute_received {:paid_call, _, _, _}
+
+      PaidRenderFake.configure(:delete, {:return, :ok})
+      assert :ok = Generation.perform(completed.id, :cleanup)
+      assert_received {:paid_call, :delete, @provider_id, :completed}
+      assert current().cleanup == :completed
+      assert current().cleanup_error == nil
+      assert state() == published
+      refute_received {:paid_call, _, _, _}
+    end
+  end
+
+  defp use_paid_render do
+    previous = Application.fetch_env(:lovelace, :paid_render_provider)
+    previous_fake = Application.fetch_env(:lovelace, PaidRenderFake)
+    Application.put_env(:lovelace, :paid_render_provider, PaidRenderFake)
+
+    on_exit(fn ->
+      for {key, value} <- [
+            {:paid_render_provider, previous},
+            {PaidRenderFake, previous_fake}
+          ] do
+        restore_env(key, value)
+      end
+    end)
+  end
+
+  defp restore_env(key, {:ok, value}), do: Application.put_env(:lovelace, key, value)
+  defp restore_env(key, :error), do: Application.delete_env(:lovelace, key)
+
+  defp drain_one do
+    Oban.drain_queue(queue: :gemini, with_scheduled: true, with_limit: 1)
+  end
+
+  defp assert_private_failure(attempt, secret, log) do
+    public = Generation.public(attempt)
+    refute Map.has_key?(public, :prompt)
+    refute Map.has_key?(public, :provider_id)
+
+    surfaces = [
+      log,
+      inspect(attempt, limit: :infinity),
+      inspect(public, limit: :infinity),
+      inspect(StageDesigner.list_scenes!(actor: @owner), limit: :infinity),
+      inspect(state(), limit: :infinity),
+      inspect(Repo.all(Oban.Job), limit: :infinity)
+    ]
+
+    for surface <- surfaces do
+      refute surface =~ secret
+      refute surface =~ attempt.prompt
+      refute surface =~ @provider_id
+    end
   end
 
   defp reserve do

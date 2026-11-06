@@ -101,8 +101,10 @@ resource and same-process raw deletion; monitors are not a replacement.
 
 ## Publication and cleanup ordering
 
-1. Startup initializes/reads state and attempts graceful orphan reconciliation.
-   Reconciliation failure warns safely but does not reset or bypass cooldowns.
+1. Startup admission only reserves durable intent and its ID-only submission job.
+   The protected Oban recovery worker reads existing state and attempts graceful orphan
+   reconciliation. Reconciliation failure never resets or bypasses cooldowns; provider
+   calls remain outside storage exclusion.
 2. Ash's optimistic reservation commits **before HTTP**. HTTP holds neither the
    sidecar nor a main-database transaction and performs no automatic retry.
 3. On provider success, `Storage.store_and_publish/4` takes the sidecar lock and
@@ -115,7 +117,7 @@ resource and same-process raw deletion; monitors are not a replacement.
 4. The main publication transaction commits and the private sidecar handle closes.
    **Nothing is pruned in this transaction.** A failed/rolled-back publication
    leaves an orphan at worst, never deletion of files a rolled-back manifest needs.
-5. Startup calls `Storage.prune/2` separately after publication returns committed.
+5. The publication operation calls `Storage.prune/2` separately after publication returns committed.
    Cleanup reacquires the sidecar and checks the authoritative catalog **inside
    the lock**. Its caller's recent list is compatibility-only and ignored. Published
    scenes are never evicted; a delayed cleanup cannot delete an older or newer catalog
@@ -167,9 +169,10 @@ successfully after release. Both had generation disabled, HTTP/distribution off,
 and synthetic disposable state/storage. This confirms cross-BEAM lock contention,
 not a second execution of the complete publication interleaving.
 
-G8 pauses a fake provider plug in Gemini's actual Task, reads the reserved row
-through the independent Repo, and acquires/releases the sidecar through that Repo
-before allowing the response. This proves independent committed reservation
-visibility and absence of storage exclusion spanning fake HTTP. The sidecar
-probe is not an independent main-database writer test; absence of a main Repo
-transaction across HTTP is also supported by the inspected startup call ordering.
+G8 pauses a fake provider plug in the Interactions client's bounded transport helper
+Task, reads the reserved row through the independent Repo, and acquires/releases the
+sidecar through that Repo before allowing the response. This proves independent committed
+reservation visibility and absence of storage exclusion spanning fake HTTP. The sidecar
+probe is not an independent main-database writer test; no main Repo transaction spans
+HTTP in the admitted scenery worker. The helper only bounds one owned request; startup
+and recovery orchestration do not use application Tasks.

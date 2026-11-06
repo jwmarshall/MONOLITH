@@ -2,23 +2,27 @@ defmodule Lovelace.StageDesigner.Generation do
   @moduledoc "Ash-owned paid submission intent, recoverable read-only tracking and post-publication cleanup."
   use Ash.Resource.Actions.Implementation
 
-  alias Lovelace.Integrations.Gemini.Interactions
   alias Lovelace.Repo
   alias Lovelace.StageDesigner
 
   alias Lovelace.StageDesigner.{
     Attempt,
+    Confirmation,
     Diagnostics,
     Directions,
     GenerationWorker,
     Models,
+    PaidRender,
     Settings,
     Startup,
     Storage
   }
 
+  defp provider do
+    Application.fetch_env!(:lovelace, :paid_render_provider)
+  end
+
   @actor %{role: :stage_designer}
-  @salt "scene-generation-v1"
   @public [
     :id,
     :status,
@@ -59,15 +63,16 @@ defmodule Lovelace.StageDesigner.Generation do
           timeout_seconds: settings.timeout_seconds
         })
 
-      {:ok,
-       Map.put(snapshot, :confirmation, Phoenix.Token.sign(LovelaceWeb.Endpoint, @salt, snapshot))}
+      with {:ok, token} <- Confirmation.sign(snapshot) do
+        {:ok, Map.put(snapshot, :confirmation, token)}
+      end
     else
       _ -> {:error, :invalid_settings}
     end
   end
 
   defp manual(token, now) do
-    with {:ok, snapshot} <- Phoenix.Token.verify(LovelaceWeb.Endpoint, @salt, token, max_age: 600),
+    with {:ok, snapshot} <- Confirmation.verify(token),
          :ok <- Models.validate(snapshot) do
       case Attempt.get(snapshot.id) do
         {:ok, %Attempt{}} -> :started
@@ -218,13 +223,13 @@ defmodule Lovelace.StageDesigner.Generation do
        when status in [:rendering, :tracking_paused] and is_binary(id) do
     handle_poll(
       attempt,
-      Interactions.get(id, Keyword.put(opts, :timeout_seconds, attempt.timeout_seconds))
+      provider().get(id, Keyword.put(opts, :timeout_seconds, attempt.timeout_seconds))
     )
   end
 
   defp work(%{status: :completed, cleanup: cleanup, provider_id: id} = attempt, :cleanup, opts)
        when cleanup in [:pending, :failed] and is_binary(id) do
-    case Interactions.delete(id, opts) do
+    case provider().delete(id, opts) do
       :ok ->
         Attempt.record(attempt, %{cleanup: :completed, cleanup_error: nil})
         Startup.notify()
@@ -259,7 +264,7 @@ defmodule Lovelace.StageDesigner.Generation do
     }
 
     result =
-      Interactions.create(request, Keyword.put(opts, :timeout_seconds, claimed.timeout_seconds))
+      provider().create(request, Keyword.put(opts, :timeout_seconds, claimed.timeout_seconds))
 
     case Attempt.get(claimed.id) do
       {:ok, %Attempt{} = fresh} -> accept_submission(fresh, result)
@@ -281,29 +286,12 @@ defmodule Lovelace.StageDesigner.Generation do
   end
 
   defp accept_submission(attempt, {:error, reason}) do
-    if definite_rejection?(reason),
+    if PaidRender.submission_outcome(reason) == :rejected,
       do: fail(attempt, :provider, reason),
       else: unknown(attempt, reason)
   end
 
   defp accept_submission(attempt, _), do: unknown(attempt, :invalid_response)
-
-  # HTTP rejection and local preflight failures are known not to be a successful
-  # generation. Transport/protocol failures may have lost an accepted request.
-  defp definite_rejection?({:http_error, status, _}) when status in [400, 401, 403, 404, 429],
-    do: true
-
-  defp definite_rejection?(reason),
-    do:
-      reason in [
-        :missing_api_key,
-        :keychain_unavailable,
-        :invalid_settings,
-        :invalid_options,
-        :invalid_request,
-        :request_too_large,
-        :client_configuration_error
-      ]
 
   defp handle_poll(attempt, {:ok, %{status: :completed, images: [bytes]}}) do
     publish(attempt, bytes)
@@ -378,9 +366,14 @@ defmodule Lovelace.StageDesigner.Generation do
     do: finish(attempt, :unknown, Diagnostics.describe(:provider, reason))
 
   defp finish(attempt, status, failure) do
-    Repo.transaction(fn -> finish_transaction(attempt, status, failure) end)
-    Startup.notify()
-    :ok
+    case Repo.transaction(fn -> finish_transaction(attempt, status, failure) end) do
+      {:ok, _} ->
+        Startup.notify()
+        :ok
+
+      _ ->
+        {:error, :attempt_update_unavailable}
+    end
   end
 
   defp finish_transaction(attempt, status, failure) do
@@ -511,14 +504,24 @@ defmodule Lovelace.StageDesigner.Generation do
   defp check_attempt(_), do: :unavailable
 
   def reconcile do
-    with {:ok, attempts} <- Attempt.recoverable() do
-      Enum.each(attempts, &reconcile_attempt/1)
-    end
+    case Attempt.recoverable() do
+      {:ok, attempts} ->
+        Enum.reduce(attempts, :ok, fn attempt, result ->
+          merge_recovery_result(reconcile_attempt(attempt), result)
+        end)
 
-    :ok
+      _ ->
+        {:error, :background_unavailable}
+    end
   rescue
-    _ -> :ok
+    _ -> {:error, :background_unavailable}
+  catch
+    _, _ -> {:error, :background_unavailable}
   end
+
+  defp merge_recovery_result(:ok, result), do: result
+  defp merge_recovery_result({:ok, _job}, result), do: result
+  defp merge_recovery_result(_, _result), do: {:error, :background_unavailable}
 
   defp reconcile_attempt(attempt) do
     age = DateTime.diff(DateTime.utc_now(), attempt.updated_at)

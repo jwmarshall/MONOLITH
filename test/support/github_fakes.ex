@@ -1,7 +1,7 @@
 defmodule Lovelace.TestGitHub do
   @moduledoc false
   use Agent
-  @behaviour Lovelace.Integrations.GitHub
+  @behaviour Lovelace.GitHub.Provider
 
   def start_link(options \\ []) do
     Agent.start_link(
@@ -79,8 +79,8 @@ defmodule Lovelace.TestGitHub do
   end
 
   @impl true
-  def pull_requests(token, owner) do
-    record({:pull_requests, token, owner})
+  def installation_snapshot(token, owner) do
+    record({:installation_snapshot, token, owner})
 
     respond(
       state().response,
@@ -109,6 +109,11 @@ defmodule Lovelace.TestGitHub do
     receive do
       :continue -> response
     end
+  end
+
+  defp respond({:delay, milliseconds}, default) when milliseconds in 0..5_000 do
+    Process.sleep(milliseconds)
+    default
   end
 
   defp respond(response, _default), do: response

@@ -1,10 +1,9 @@
 defmodule Lovelace.Calendar.Operations do
   @moduledoc false
   use Ash.Resource.Actions.Implementation
-  alias Lovelace.Calendar.{Payload, PollWorker, Snapshot, State, Window}
+  alias Lovelace.Calendar.{Catalog, Payload, PollWorker, Snapshot, State, Window}
+  alias Lovelace.Google.Access
   alias Lovelace.Mail
-  alias Lovelace.Mail.Connections
-  alias Lovelace.Mail.Operations, as: MailOperations
   alias Lovelace.Security.Vault
   @owner %{role: :local_owner}
   @fields [
@@ -42,11 +41,24 @@ defmodule Lovelace.Calendar.Operations do
   end
 
   defp failure(:snapshot), do: {:ok, Snapshot.failure()}
+  defp failure(:catalog), do: {:ok, Catalog.failure()}
   defp failure(_), do: {:ok, Snapshot.metadata(nil, false, :unavailable)}
+
+  defp execute(:catalog, args, _) do
+    Access.serial(args.account_id, fn ->
+      cached =
+        State
+        |> Ash.Query.for_read(:read, %{account_id: args.account_id}, actor: @owner)
+        |> Ash.Query.select(Catalog.fields())
+        |> Ash.read_one!()
+
+      {:ok, Catalog.build(account(args.account_id), cached)}
+    end)
+  end
 
   defp execute(:snapshot, args, _) do
     with {:ok, window} <- Window.parse(args.from_iso, args.to_iso, args.local_date) do
-      Connections.serial(args.account_id, fn ->
+      Access.serial(args.account_id, fn ->
         {:ok, Snapshot.build(account(args.account_id), state(args.account_id), window)}
       end)
     end
@@ -55,18 +67,18 @@ defmodule Lovelace.Calendar.Operations do
   defp execute(:prepare, args, _) do
     with {:ok, window} <- Window.parse(args.from_iso, args.to_iso, args.local_date),
          true <- Window.fresh?(window) and Window.timezone?(args.timezone) do
-      Connections.serial(args.account_id, fn -> prepare_current(args, window) end)
+      Access.serial(args.account_id, fn -> prepare_current(args, window) end)
     else
       _ -> {:error, :invalid_window}
     end
   end
 
   defp execute(:select_calendars, args, _) do
-    Connections.serial(args.account_id, fn -> select_current(args) end)
+    Access.serial(args.account_id, fn -> select_current(args) end)
   end
 
   defp execute(:refresh, args, _) do
-    Connections.serial(args.account_id, fn ->
+    Access.serial(args.account_id, fn ->
       account = account(args.account_id)
       current = state(args.account_id)
 
@@ -85,6 +97,11 @@ defmodule Lovelace.Calendar.Operations do
     else
       {:ok, %{skipped: true}}
     end
+  end
+
+  defp execute(:sweep, _, _) do
+    sweep()
+    {:ok, %{swept: true}}
   end
 
   defp permitted_poll?(%{role: :local_owner}, _), do: true
@@ -162,7 +179,7 @@ defmodule Lovelace.Calendar.Operations do
 
   defp valid_selection?(account, state, ids) do
     Snapshot.current?(account, state) && Snapshot.recent?(state.catalog_at) &&
-      length(ids) <= 20 && known_ids?(state.calendars, ids)
+      length(ids) <= Catalog.selection_limit() && known_ids?(state.calendars, ids)
   end
 
   defp known_ids?(calendars, ids) do
@@ -171,7 +188,7 @@ defmodule Lovelace.Calendar.Operations do
   end
 
   defp fetch(account, state, args) do
-    with {:ok, token} <- Connections.access_token(account),
+    with {:ok, token} <- Access.access_token(account),
          :ok <- admission(args),
          {:ok, response} <- provider().calendars(token),
          {:ok, calendars, truncated} <- Payload.calendars(response) do
@@ -227,7 +244,7 @@ defmodule Lovelace.Calendar.Operations do
   defp bounded_result(error, _, _, _), do: error
 
   defp publish(args, result) do
-    Connections.serial(args.account_id, fn -> publish_current(args, result) end)
+    Access.serial(args.account_id, fn -> publish_current(args, result) end)
   end
 
   # Admission evidence belongs to the account generation, not a browser-day or
@@ -311,10 +328,10 @@ defmodule Lovelace.Calendar.Operations do
   defp result_changes(_, state), do: result_changes({:error, :provider}, state)
 
   defp admit(args) do
-    Connections.serial(args.account_id, fn ->
+    Access.serial(args.account_id, fn ->
       with {:ok, account, state} <- current(args),
            false <- cooldown?(state),
-           false <- MailOperations.cooldown?(account) do
+           false <- Access.cooldown?(account) do
         {:ok, account, state}
       else
         _ -> {:error, :cooldown}
@@ -343,7 +360,7 @@ defmodule Lovelace.Calendar.Operations do
   defp queue(state) do
     account = account(state.account_id)
 
-    if Window.fresh?(state) and not cooldown?(state) and not MailOperations.cooldown?(account),
+    if Window.fresh?(state) and not cooldown?(state) and not Access.cooldown?(account),
       do: insert_job(state),
       else: state
   end
@@ -375,7 +392,7 @@ defmodule Lovelace.Calendar.Operations do
     end
   end
 
-  def sweep do
+  defp sweep do
     read_states(:expired) |> Enum.each(&prune_expired/1)
     read_states(:due) |> Enum.each(&queue_due/1)
     :ok
@@ -385,7 +402,7 @@ defmodule Lovelace.Calendar.Operations do
     do: State |> Ash.Query.for_read(action, %{}, actor: @owner) |> Ash.read!()
 
   defp queue_due(state) do
-    Connections.serial(state.account_id, fn ->
+    Access.serial(state.account_id, fn ->
       state |> Map.take([:account_id, :generation, :revision]) |> current() |> queue_current_due()
     end)
   end
@@ -397,7 +414,7 @@ defmodule Lovelace.Calendar.Operations do
   defp queue_current_due(_), do: :ok
 
   defp prune_expired(expired) do
-    Connections.serial(expired.account_id, fn -> prune_current(state(expired.account_id)) end)
+    Access.serial(expired.account_id, fn -> prune_current(state(expired.account_id)) end)
   end
 
   defp prune_current(nil), do: :ok

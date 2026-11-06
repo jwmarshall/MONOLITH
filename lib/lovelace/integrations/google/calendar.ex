@@ -6,10 +6,12 @@ defmodule Lovelace.Integrations.Google.Calendar do
   All-day end dates retain Google's exclusive-end semantics. Text is untrusted plain text.
   """
 
+  @behaviour Lovelace.Calendar.Provider
+  alias Lovelace.Calendar.Provider
   alias Lovelace.Integrations.Google
 
-  @spec calendars(binary()) ::
-          {:ok, %{calendars: [map()], truncated: boolean()}} | Google.failure()
+  @impl true
+  @spec calendars(binary()) :: {:ok, Provider.catalog_page()} | Provider.failure()
   def calendars(token) do
     query = [
       {"maxResults", "100"},
@@ -23,8 +25,9 @@ defmodule Lovelace.Integrations.Google.Calendar do
     end
   end
 
+  @impl true
   @spec events(binary(), binary(), binary(), binary()) ::
-          {:ok, %{events: [map()], truncated: boolean()}} | Google.failure()
+          {:ok, Provider.event_page()} | Provider.failure()
   def events(token, calendar_id, from_iso, to_iso) do
     with true <- identifier?(calendar_id),
          {:ok, from} <- timestamp(from_iso),

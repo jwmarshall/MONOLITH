@@ -23,7 +23,7 @@ defmodule Lovelace.Integrations.GitHubTest do
   use ExUnit.Case, async: false
   import Kernel, except: [node: 0, node: 1]
   import ExUnit.CaptureLog
-  alias Lovelace.GitHub.Auth
+  @callback_uri "http://localhost:4321/auth/github/callback"
   alias Lovelace.Integrations.GitHub
   alias Lovelace.Integrations.GitHubTest.Transport
 
@@ -154,7 +154,7 @@ defmodule Lovelace.Integrations.GitHubTest do
       "scope" => ""
     }
 
-  defp exchange(code \\ "synthetic_code", uri \\ Auth.callback_url()) do
+  defp exchange(code \\ "synthetic_code", uri \\ @callback_uri) do
     GitHub.exchange_code(
       "Iv1.synthetic",
       "synthetic_secret",
@@ -176,7 +176,7 @@ defmodule Lovelace.Integrations.GitHubTest do
              "client_secret" => "synthetic_secret",
              "code" => "synthetic_code",
              "code_verifier" => String.duplicate("v", 43),
-             "redirect_uri" => Auth.callback_url()
+             "redirect_uri" => @callback_uri
            }
 
     refute List.keymember?(request.headers, "authorization", 0)
@@ -233,6 +233,14 @@ defmodule Lovelace.Integrations.GitHubTest do
              GitHub.refresh_token("Iv1.synthetic", "synthetic_secret", "ghr_old")
   end
 
+  test "exchange accepts the caller's approved localhost port without discovering Auth configuration" do
+    callback = "http://localhost:54321/auth/github/callback"
+    enqueue([response(token_bundle())])
+    assert {:ok, %{access_token: "ghu_synthetic"}} = exchange("synthetic_code", callback)
+    assert [%{body: body}] = requests()
+    assert URI.decode_query(body)["redirect_uri"] == callback
+  end
+
   test "invalid credentials callback or verifier never reach the transport" do
     assert {:error, :configuration} = exchange("bad\r\ncode")
 
@@ -245,7 +253,7 @@ defmodule Lovelace.Integrations.GitHubTest do
                "synthetic_secret",
                "synthetic_code",
                "short",
-               Auth.callback_url()
+               @callback_uri
              )
 
     assert {:error, :reconnect} =
@@ -328,7 +336,7 @@ defmodule Lovelace.Integrations.GitHubTest do
     enqueue(snapshot_responses(graph()))
 
     assert {:ok, %{pull_requests: [row], total_count: 1, truncated: false}} =
-             GitHub.pull_requests("ghu_synthetic", owner())
+             GitHub.installation_snapshot("ghu_synthetic", owner())
 
     assert row["url"] == "https://github.com/Acme/example1/pull/42"
     assert row["checks"] == "SUCCESS"
@@ -355,7 +363,7 @@ defmodule Lovelace.Integrations.GitHubTest do
     enqueue(snapshot_responses(body, selected))
 
     assert {:ok, %{pull_requests: [result], total_count: 1}} =
-             GitHub.pull_requests("ghu_synthetic", selected)
+             GitHub.installation_snapshot("ghu_synthetic", selected)
 
     assert result["repository"] == "Acme/example1"
   end
@@ -369,7 +377,7 @@ defmodule Lovelace.Integrations.GitHubTest do
           [%{owner() | installation_id: 456}]
         ] do
       enqueue([response(installations(accessible))])
-      assert {:error, :reconnect} = GitHub.pull_requests("ghu_synthetic", owner())
+      assert {:error, :reconnect} = GitHub.installation_snapshot("ghu_synthetic", owner())
     end
 
     refute Enum.any?(requests(), &(&1.path == "/graphql"))
@@ -378,9 +386,9 @@ defmodule Lovelace.Integrations.GitHubTest do
   test "installation removal or repository selection change during reads cannot publish public PRs" do
     initial = Enum.take(snapshot_responses(graph()), 4)
     enqueue(initial ++ [response(installations([]))])
-    assert {:error, :reconnect} = GitHub.pull_requests("ghu_synthetic", owner())
+    assert {:error, :reconnect} = GitHub.installation_snapshot("ghu_synthetic", owner())
     enqueue(initial ++ [response(installations([owner()])), response(repositories([]))])
-    assert {:error, :reconnect} = GitHub.pull_requests("ghu_synthetic", owner())
+    assert {:error, :reconnect} = GitHub.installation_snapshot("ghu_synthetic", owner())
   end
 
   test "repository listings are bounded and immutable owner-bound before GraphQL" do
@@ -392,7 +400,7 @@ defmodule Lovelace.Integrations.GitHubTest do
           repositories([repository(owner()), repository(owner())])
         ] do
       enqueue([response(installations([owner()])), response(body)])
-      assert {:error, :provider} = GitHub.pull_requests("ghu_synthetic", owner())
+      assert {:error, :provider} = GitHub.installation_snapshot("ghu_synthetic", owner())
     end
 
     refute Enum.any?(requests(), &(&1.path == "/graphql"))
@@ -407,7 +415,7 @@ defmodule Lovelace.Integrations.GitHubTest do
     ])
 
     assert {:ok, %{pull_requests: [], total_count: 0, truncated: false}} =
-             GitHub.pull_requests("ghu_synthetic", owner())
+             GitHub.installation_snapshot("ghu_synthetic", owner())
 
     refute Enum.any?(requests(), &(&1.path == "/graphql"))
   end
@@ -455,7 +463,7 @@ defmodule Lovelace.Integrations.GitHubTest do
 
     assert {:ok,
             %{pull_requests: rows, total_count: 75, truncated: true, partial_reasons: reasons}} =
-             GitHub.pull_requests("ghu_synthetic", selected)
+             GitHub.installation_snapshot("ghu_synthetic", selected)
 
     assert length(rows) == 50
     assert hd(rows)["repository"] == "Acme/example25"
@@ -478,7 +486,7 @@ defmodule Lovelace.Integrations.GitHubTest do
       enqueue(snapshot_responses(body))
 
       assert {:ok, %{truncated: true, partial_reasons: reasons}} =
-               GitHub.pull_requests("ghu_synthetic", owner())
+               GitHub.installation_snapshot("ghu_synthetic", owner())
 
       assert reason in reasons
     end
@@ -494,7 +502,7 @@ defmodule Lovelace.Integrations.GitHubTest do
               total_count: 1_200,
               truncated: true,
               partial_reasons: reasons
-            }} = GitHub.pull_requests("ghu_synthetic", owner())
+            }} = GitHub.installation_snapshot("ghu_synthetic", owner())
 
     assert length(results) == 50
     assert "first_50" in reasons
@@ -521,7 +529,7 @@ defmodule Lovelace.Integrations.GitHubTest do
           ])
         ] do
       enqueue(snapshot_responses(body))
-      assert {:error, :provider} = GitHub.pull_requests("ghu_synthetic", owner())
+      assert {:error, :provider} = GitHub.installation_snapshot("ghu_synthetic", owner())
     end
   end
 
@@ -536,7 +544,7 @@ defmodule Lovelace.Integrations.GitHubTest do
           {302, [{"location", "https://evil.invalid/"}], :provider}
         ] do
       enqueue([response("synthetic_secret", status, headers)])
-      assert {:error, ^expected} = GitHub.pull_requests("ghu_synthetic", owner())
+      assert {:error, ^expected} = GitHub.installation_snapshot("ghu_synthetic", owner())
     end
 
     enqueue([response(String.duplicate("x", 2 * 1024 * 1024 + 1))])
@@ -548,7 +556,7 @@ defmodule Lovelace.Integrations.GitHubTest do
       response(Map.put(graph(), "errors", [%{"type" => "RATE_LIMITED"}]))
     ])
 
-    assert {:error, :rate_limited} = GitHub.pull_requests("ghu_synthetic", owner())
+    assert {:error, :rate_limited} = GitHub.installation_snapshot("ghu_synthetic", owner())
     enqueue([{:error, %{private_detail: "synthetic_secret"}}])
 
     logs =
@@ -578,7 +586,7 @@ defmodule Lovelace.Integrations.GitHubTest do
 
     enqueue(replies)
 
-    assert {:ok, snapshot} = GitHub.pull_requests("ghu_synthetic", owner())
+    assert {:ok, snapshot} = GitHub.installation_snapshot("ghu_synthetic", owner())
 
     assert snapshot.repositories == [
              %{"id" => "REPO_1", "name" => "example1", "full_name" => "Acme/example1"}
@@ -624,7 +632,7 @@ defmodule Lovelace.Integrations.GitHubTest do
 
     replies = snapshot_responses(body) |> List.replace_at(3, response("synthetic_secret", 403))
     enqueue(replies)
-    assert {:ok, snapshot} = GitHub.pull_requests("ghu_synthetic", owner())
+    assert {:ok, snapshot} = GitHub.installation_snapshot("ghu_synthetic", owner())
     assert length(snapshot.pull_requests) == 1
     assert length(snapshot.repositories) == 1
     refute snapshot.truncated
@@ -645,7 +653,7 @@ defmodule Lovelace.Integrations.GitHubTest do
       ])
 
     enqueue(snapshot_responses(body))
-    assert {:ok, snapshot} = GitHub.pull_requests("ghu_synthetic", owner())
+    assert {:ok, snapshot} = GitHub.installation_snapshot("ghu_synthetic", owner())
     assert [%{"author" => nil}] = snapshot.issues
     assert snapshot.issue_count == 1
     assert snapshot.issues_truncated
@@ -657,7 +665,7 @@ defmodule Lovelace.Integrations.GitHubTest do
     nodes = Enum.map(1..50, &issue_node(%{"number" => &1}))
     body = put_in(graph(), ["data", "r0", "issues"], issue_connection(nodes, 120, true))
     enqueue(snapshot_responses(body))
-    assert {:ok, snapshot} = GitHub.pull_requests("ghu_synthetic", owner())
+    assert {:ok, snapshot} = GitHub.installation_snapshot("ghu_synthetic", owner())
     assert length(snapshot.issues) == 50
     assert snapshot.issue_count == 120
     assert snapshot.issues_truncated
@@ -674,7 +682,7 @@ defmodule Lovelace.Integrations.GitHubTest do
           issue_connection([put_in(issue_node(), ["repository", "owner", "id"], "OTHER_OWNER")])
         ] do
       enqueue(snapshot_responses(put_in(graph(), ["data", "r0", "issues"], issues)))
-      assert {:error, :provider} = GitHub.pull_requests("ghu_synthetic", owner())
+      assert {:error, :provider} = GitHub.installation_snapshot("ghu_synthetic", owner())
     end
   end
 
@@ -692,7 +700,7 @@ defmodule Lovelace.Integrations.GitHubTest do
         List.replace_at(replies, 3, response(%{"total_count" => 1, "workflow_runs" => [invalid]}))
       )
 
-      assert {:ok, snapshot} = GitHub.pull_requests("ghu_synthetic", owner())
+      assert {:ok, snapshot} = GitHub.installation_snapshot("ghu_synthetic", owner())
       assert snapshot.workflow_runs == []
       assert snapshot.actions_truncated
       assert "actions_unavailable" in snapshot.partial_reasons
@@ -713,7 +721,7 @@ defmodule Lovelace.Integrations.GitHubTest do
       )
 
     enqueue(replies)
-    assert {:ok, snapshot} = GitHub.pull_requests("ghu_synthetic", owner())
+    assert {:ok, snapshot} = GitHub.installation_snapshot("ghu_synthetic", owner())
     assert length(snapshot.workflow_runs) == 10
 
     assert Enum.all?(
@@ -754,7 +762,7 @@ defmodule Lovelace.Integrations.GitHubTest do
         [response(installations([selected])), response(repositories(repos))]
     )
 
-    assert {:ok, snapshot} = GitHub.pull_requests("ghu_synthetic", selected)
+    assert {:ok, snapshot} = GitHub.installation_snapshot("ghu_synthetic", selected)
     assert length(snapshot.repositories) == 11
     assert length(snapshot.workflow_runs) == 50
     assert snapshot.actions_truncated
@@ -766,7 +774,7 @@ defmodule Lovelace.Integrations.GitHubTest do
   test "rate-limited Actions are explicitly partial rather than a successful zero" do
     replies = snapshot_responses(graph()) |> List.replace_at(3, response("private", 429))
     enqueue(replies)
-    assert {:ok, snapshot} = GitHub.pull_requests("ghu_synthetic", owner())
+    assert {:ok, snapshot} = GitHub.installation_snapshot("ghu_synthetic", owner())
     assert snapshot.workflow_runs == []
     assert snapshot.actions_truncated
     assert "actions_rate_limited" in snapshot.partial_reasons
@@ -783,7 +791,7 @@ defmodule Lovelace.Integrations.GitHubTest do
       |> List.replace_at(4, response(installations([])))
 
     enqueue(replies)
-    assert {:error, :reconnect} = GitHub.pull_requests("ghu_synthetic", owner())
+    assert {:error, :reconnect} = GitHub.installation_snapshot("ghu_synthetic", owner())
   end
 
   defp issue_node(overrides \\ %{}) do

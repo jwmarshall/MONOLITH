@@ -1,8 +1,10 @@
 defmodule LovelaceWeb.GeminiConnectionLiveTest do
   use LovelaceWeb.ConnCase, async: false
   import Phoenix.LiveViewTest
+  import Lovelace.TestSupport.BackgroundWork, only: [complete: 1]
   alias Lovelace.Integrations.Google.ClientCredentials
   alias Lovelace.TestSupport.{GeminiVault, OnboardingKeychain}
+  alias LovelaceWeb.GeminiComponents
 
   setup %{conn: conn} do
     start_supervised!(GeminiVault)
@@ -34,6 +36,15 @@ defmodule LovelaceWeb.GeminiConnectionLiveTest do
     %{conn: authenticate_owner(conn)}
   end
 
+  test "rechecking is an active pending state and disables another keychain check" do
+    html = render_component(&GeminiComponents.connection/1, status: :rechecking)
+    document = LazyHTML.from_fragment(html)
+
+    assert html =~ "Rechecking Keychain"
+    refute html =~ "Keychain unavailable"
+    assert Enum.count(LazyHTML.query(document, "[phx-click='gemini:check'][disabled]")) == 1
+  end
+
   test "Connections separates app-wide Gemini from Gmail and uses non-LiveView credential forms",
        %{conn: conn} do
     {:ok, view, _} = live(conn, "/")
@@ -44,7 +55,7 @@ defmodule LovelaceWeb.GeminiConnectionLiveTest do
     assert :sys.get_state(view.pid).socket.assigns.gemini_status == :unknown
     assert has_element?(view, "#connections-gmail[aria-current=page]")
     view |> element("#connections-gemini") |> render_click()
-    render_async(view)
+    complete(view)
     assert has_element?(view, "#gemini-status", "No API key stored")
     refute has_element?(view, "#connections-panel")
     assert has_element?(view, "#connections-gemini[aria-current=page]")
@@ -68,7 +79,7 @@ defmodule LovelaceWeb.GeminiConnectionLiveTest do
 
     GeminiVault.put("unused", "synthetic-key-never-rendered")
     view |> element("[phx-click='gemini:check']") |> render_click()
-    html = render_async(view)
+    html = complete(view)
     assert has_element?(view, "#gemini-status", "API key stored · Google access not verified")
     assert has_element?(view, "#gemini-remove-form[method=post]")
     refute html =~ "synthetic-key-never-rendered"
@@ -93,14 +104,14 @@ defmodule LovelaceWeb.GeminiConnectionLiveTest do
     view |> element("#open-connection-gmail") |> render_click()
     render_click(view, "select_connection", %{"provider" => "unknown"})
     assert has_element?(view, "#connections-gmail[aria-current=page]")
-    render_async(view)
+    complete(view)
     view |> element("#new-gmail-connection") |> render_click()
     # Same-provider selection cannot discard an open form/draft.
     view |> element("#connections-gmail") |> render_click()
     assert has_element?(view, "#gmail-connection-modal")
     view |> element("#gmail-connection-modal button[type=button]") |> render_click()
     view |> element("#connections-gemini") |> render_click()
-    render_async(view)
+    complete(view)
     assert has_element?(view, "#connections-gemini[aria-current=page]")
     view |> element("#show-connections") |> render_click()
     assert_patch(view, "/connections")
@@ -124,7 +135,7 @@ defmodule LovelaceWeb.GeminiConnectionLiveTest do
   } do
     GeminiVault.fail(:locked)
     {:ok, view, _} = live(conn, "/connections/gemini?gemini=saved")
-    render_async(view)
+    complete(view)
     assert has_element?(view, "#directory-heading", "Connections")
     assert has_element?(view, "#connections-gemini[aria-current=page]")
     refute has_element?(view, "#connections-panel")

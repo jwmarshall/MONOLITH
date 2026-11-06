@@ -1,7 +1,7 @@
 defmodule Lovelace.Calendar.Snapshot do
   @moduledoc false
   alias Lovelace.Calendar.{Payload, Window}
-  alias Lovelace.Mail.Operations, as: MailOperations
+  alias Lovelace.Google.Access
   @event_fields [:id, :title, :start, :end, :all_day, :url, :calendar_id, :calendar_name]
 
   def build(account, state, window) do
@@ -12,7 +12,7 @@ defmodule Lovelace.Calendar.Snapshot do
     result = metadata(state, enabled)
 
     result =
-      if enabled and MailOperations.cooldown?(account),
+      if enabled and Access.cooldown?(account),
         do: %{result | error: :rate_limited, loading: false},
         else: result
 

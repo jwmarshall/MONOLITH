@@ -6,6 +6,7 @@ defmodule Lovelace.Calendar do
     resource Lovelace.Calendar.State
 
     resource Lovelace.Calendar.Operation do
+      define :catalog, action: :catalog, args: [:account_id]
       define :snapshot, action: :snapshot, args: [:account_id, :from_iso, :to_iso, :local_date]
 
       define :prepare,
@@ -15,10 +16,10 @@ defmodule Lovelace.Calendar do
       define :select_calendars, action: :select_calendars, args: [:account_id, :ids]
       define :refresh, action: :refresh, args: [:account_id]
       define :poll, action: :poll, args: [:account_id, :generation, :revision]
+      define :sweep, action: :sweep
     end
   end
 
-  @doc "Internal lifecycle reset; caller must already hold Connections.serial(account_id)."
+  @doc "Internal lifecycle reset; caller must already hold Google.Access.serial(account_id)."
   defdelegate clear(account_id), to: Lovelace.Calendar.Operations
-  defdelegate sweep(), to: Lovelace.Calendar.Operations
 end

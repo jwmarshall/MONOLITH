@@ -21,7 +21,16 @@ expandable exact prompt, the retained local gallery, permanent paginated generat
 history, current phase, safe failure details and manual eligibility; unknown legacy image
 dates are labelled. Saving a key does not probe Google or generate a scene.
 A dedicated Oban SQLite queue submits authorized work, polls saved Google interaction IDs and
-cleans up remote results. A recovery sweep repairs existing work; it never schedules new scenes.
+cleans up remote results. On unlock, bounded service-authorized Ash admission commits the
+startup reservation, permanent attempt and ID-only submission job together. No startup
+application Task or provider request runs in the vault manager. A separately admitted
+ID-only recovery worker and periodic sweep repair existing work and reconcile orphan
+files under the vault lease; they never authorize a new scene. First-unlock startup
+authorization remains distinct from later unlock/restart recovery.
+Recovery reports success only when storage reconciliation and every required repair
+succeed. Partial repair returns a sanitized failure for bounded safe retries; successful
+repairs remain committed. Failed reads, job insertion or unknown-outcome persistence
+never reopen a permanent submission claim or authorize another paid request.
 Generation phase changes broadcast updates to connected LiveViews; a quiet global signal links
 to Scenes for active work or unacknowledged failure/unknown outcomes. An operator invocation
 in a separate BEAM process updates files/SQLite but not the running server's local PubSub;
@@ -73,11 +82,36 @@ tier, not full desktop-native resolution or a visual-quality guarantee.
   Publication commits before a separate pruning critical section, so rollback cannot
   resurrect references to deleted files. HTTP remains outside both sections.
 - Stale unreferenced generated images and interrupted temporary writes are reconciled
-  on eligible/cached startup checks after a five-minute grace period. Active writes
+  by the protected recovery worker after a five-minute grace period. Active writes
   are protected by exclusion, not age guesses. Brief extra files can exist during
   publication/recovery. See [storage coordination](STORAGE_COORDINATION.md): keep
   the private `.stage-coordination.sqlite3` identity for the lifetime of a shared root;
   never unlink/replace it while any LOVELACE process may use that root.
+
+### Application boundaries
+
+`StageDesigner.Generation` owns workflow policy and the permanent one-shot claim.
+`StageDesigner.Confirmation` owns the signing capability contract; composition supplies
+`{LovelaceWeb.SceneConfirmation, []}` through `:scene_confirmation`. Only that web adapter
+knows Phoenix's Endpoint signing context. Missing configuration fails closed. Purpose,
+ten-minute expiry, full-request binding, version fences and single-use attempt IDs remain
+mandatory regardless of adapter.
+
+`StageDesigner.PaidRender` is the application-owned, Gemini-specific submission/tracking/
+cleanup contract. Its concrete `Integrations.Gemini.Interactions` adapter performs wire
+validation and HTTP; `:paid_render_provider` can select a contract-implementing synthetic
+fake in tests. Finite safe errors explicitly distinguish rejected submissions from unknown
+outcomes. Tracking observes only known IDs; neither safe tracking nor idempotent deletion
+authorizes another paid POST. Unsupported/oversized results fail rather than silently
+truncating or falling back to a different model.
+
+The Interactions client's helper Task is a narrow in-operation transport deadline and
+secret-safe crash-isolation mechanism, not application scheduling: it is linked, catches
+failures inside the helper, acquires a vault lease, and is synchronously joined or killed
+within 120 seconds. It cannot outlive the owning admitted operation/lease or schedule
+independent work. The obsolete `generateContent` implementation and transport shim are
+removed; actual transport regressions exercise the supported Interactions path.
+
 
 ## Saved scene direction
 
@@ -224,8 +258,10 @@ the application. Startup remains locked. The first ordinary unlock may authorize
 startup generation; `LOVELACE_STAGE_ENABLED=false` blocks new automatic generations,
 not already authorized durable jobs once unlocked. Unlock can resume queued submission,
 retrieval or deletion even with startup opt-in disabled. Maintenance requiring no provider
-calls must keep the vault locked or use no-start terminal tooling. Test runtime disables
-startup generation and real provider transport, regardless of the flag.
+calls must keep the vault locked, use no-start terminal tooling, or use the explicit
+maintenance unlock mode that does not activate Oban queues. Stopping queues—not merely
+disabling startup generation—is required. Test runtime disables real provider transport,
+and starts no queues; synthetic tests must admit/execute jobs explicitly.
 Production still needs `DATABASE_PATH`, `SECRET_KEY_BASE`, `PHX_SERVER=true`, and built
 assets. Encrypted schema maintenance must use the vault-aware terminal workflow.
 
@@ -287,8 +323,8 @@ determine encoding. Both original JPEG and PNG bytes remain supported.
 
 See [background execution](https://ai.google.dev/gemini-api/docs/background-execution) for
 `store=true` requirements and retrieval/deletion semantics. Unsupported model/configuration
-responses are surfaced, not retried against another model. Existing legacy `generateContent`
-client coverage remains as transport/image-validation regression protection, not the scenery job path.
+responses are surfaced, not retried against another model. Transport and image-validation
+regressions use Interactions; legacy `generateContent` routes are rejected before connecting.
 
 [PNG section 11.2.3](https://www.w3.org/TR/png-3/#11IDAT) instructs decoders to ignore unused
 bytes after the compressed stream in the final IDAT chunk. The validator now uses OTP's
@@ -340,6 +376,8 @@ phase/timestamps, provider IDs, allowlisted failure descriptions and cleanup sta
 payloads or credentials. Oban arguments contain identifiers/operation only, and Oban errors are
 sanitized. History reads are bounded to 20 attempts per page; job pruning never deletes this history.
 Discarded details from older attempts cannot be recovered retrospectively.
+Attempt prompts and provider IDs are sensitive Ash attributes, omitted from resource inspection
+and public attempt/history read models even when an adapter raises or throws private details.
 
 For example, `provider: HTTP 429 (resource_exhausted)` means Google rejected the request
 for quota/rate limits. Check API billing and this model's quota for the project associated

@@ -1,6 +1,8 @@
 defmodule LovelaceWeb.GoogleOAuthTest do
   use LovelaceWeb.ConnCase
-  alias Lovelace.Mail.{Connections, OAuth}
+  alias Lovelace.Google.Access
+  alias Lovelace.Mail.OAuth
+  alias Lovelace.TestSupport.OAuthJobs
   @owner %{role: :local_owner}
 
   setup %{conn: conn} do
@@ -28,8 +30,8 @@ defmodule LovelaceWeb.GoogleOAuthTest do
   test "state is one-use, owner-session bound and expires", %{workspace: w} do
     assert {:ok, state, verifier} = OAuth.begin(w.id, "first")
     assert byte_size(verifier) == 43
-    assert {:error, :invalid_state} = OAuth.take(state, "second")
-    assert {:error, :invalid_state} = OAuth.take(state, "first")
+    assert {:error, :invalid_state} = OAuth.cancel(state, "second")
+    assert {:error, :invalid_state} = OAuth.cancel(state, "first")
     {:ok, state, _} = OAuth.begin(w.id, "first")
 
     :sys.replace_state(OAuth, fn attempts ->
@@ -38,7 +40,7 @@ defmodule LovelaceWeb.GoogleOAuthTest do
       end)
     end)
 
-    assert {:error, :invalid_state} = OAuth.take(state, "first")
+    assert {:error, :invalid_state} = OAuth.cancel(state, "first")
   end
 
   test "connection start requires an unlocked session", %{workspace: w} do
@@ -69,7 +71,7 @@ defmodule LovelaceWeb.GoogleOAuthTest do
     {:ok, normal_state, _} = OAuth.begin(w.id, session)
 
     response =
-      get(
+      OAuthJobs.get(
         conn,
         "/oauth/google/callback?" <>
           URI.encode_query(%{
@@ -82,10 +84,10 @@ defmodule LovelaceWeb.GoogleOAuthTest do
       )
 
     assert redirected_to(response, 303) == "/onboarding/connect?notice=connection_failed"
-    assert {:error, :invalid_state} = OAuth.take(setup_state, session)
+    assert {:error, :invalid_state} = OAuth.cancel(setup_state, session)
 
     response =
-      get(
+      OAuthJobs.get(
         conn,
         "/oauth/google/callback?" <>
           URI.encode_query(%{state: normal_state, error: "access_denied", origin: "onboarding"})
@@ -94,7 +96,7 @@ defmodule LovelaceWeb.GoogleOAuthTest do
     assert_failure(response, "consent", "denied")
 
     response =
-      get(
+      OAuthJobs.get(
         conn,
         "/oauth/google/callback?" <>
           URI.encode_query(%{
@@ -125,7 +127,10 @@ defmodule LovelaceWeb.GoogleOAuthTest do
       )
 
     response =
-      get(conn, "/oauth/google/callback?" <> URI.encode_query(%{code: "fake-code", state: state}))
+      OAuthJobs.get(
+        conn,
+        "/oauth/google/callback?" <> URI.encode_query(%{code: "fake-code", state: state})
+      )
 
     assert redirected_to(response, 303) == "/onboarding/calendar"
 
@@ -162,13 +167,16 @@ defmodule LovelaceWeb.GoogleOAuthTest do
     on_exit(fn -> :telemetry.detach(handler) end)
 
     conn =
-      get(conn, "/oauth/google/callback?" <> URI.encode_query(%{code: "fake-code", state: state}))
+      OAuthJobs.get(
+        conn,
+        "/oauth/google/callback?" <> URI.encode_query(%{code: "fake-code", state: state})
+      )
 
     assert redirected_to(conn, 303) == "/workspaces/#{w.id}?gmail=connected"
     assert get_resp_header(conn, "cache-control") == ["no-store"]
     assert [%{subject: "new-subject"}] = Lovelace.Mail.list_accounts!(actor: @owner)
     refute_receive {:observed, _, _}
-    assert {:error, :invalid_state} = OAuth.take(state, session)
+    assert {:error, :invalid_state} = OAuth.cancel(state, session)
   end
 
   test "reconnect cannot silently replace an account with another Google subject", %{
@@ -176,16 +184,26 @@ defmodule LovelaceWeb.GoogleOAuthTest do
     workspace: w
   } do
     {:ok, original} =
-      Connections.accept(
+      Access.accept(
         w.id,
         %{subject: "original", email: "original@example.invalid"},
         "original-refresh"
       )
 
-    {:ok, state, _} = OAuth.begin(w.id, get_session(conn, :owner_session_token), original.id)
+    {:ok, state, _} =
+      OAuth.begin(
+        w.id,
+        get_session(conn, :owner_session_token),
+        original.id,
+        :gmail,
+        original.generation
+      )
 
     conn =
-      get(conn, "/oauth/google/callback?" <> URI.encode_query(%{code: "fake-code", state: state}))
+      OAuthJobs.get(
+        conn,
+        "/oauth/google/callback?" <> URI.encode_query(%{code: "fake-code", state: state})
+      )
 
     assert_failure(conn, "account_binding", "wrong_account")
     assert [%{subject: "original"}] = Lovelace.Mail.list_accounts!(actor: @owner)
@@ -197,7 +215,10 @@ defmodule LovelaceWeb.GoogleOAuthTest do
     {:ok, state, _} = OAuth.begin(w.id, get_session(conn, :owner_session_token))
 
     conn =
-      get(conn, "/oauth/google/callback?" <> URI.encode_query(%{code: "fake-code", state: state}))
+      OAuthJobs.get(
+        conn,
+        "/oauth/google/callback?" <> URI.encode_query(%{code: "fake-code", state: state})
+      )
 
     assert_failure(conn, "keychain", "locked")
     refute redirected_to(conn, 303) =~ "fake-code"
@@ -211,7 +232,10 @@ defmodule LovelaceWeb.GoogleOAuthTest do
     Lovelace.Owner.logout!(session)
 
     conn =
-      get(conn, "/oauth/google/callback?" <> URI.encode_query(%{code: "fake-code", state: state}))
+      OAuthJobs.get(
+        conn,
+        "/oauth/google/callback?" <> URI.encode_query(%{code: "fake-code", state: state})
+      )
 
     assert_failure(conn, "session", "unavailable")
     assert Lovelace.Mail.list_accounts!(actor: @owner) == []
@@ -245,7 +269,13 @@ defmodule LovelaceWeb.GoogleOAuthTest do
   test "callback path aliases stay in the early boundary", %{conn: conn, workspace: w} do
     for path <- ["/oauth/google/callback/", "/oauth//google/callback", "/oauth/%67oogle/callback"] do
       {:ok, state, _} = OAuth.begin(w.id, get_session(conn, :owner_session_token))
-      response = get(conn, path <> "?" <> URI.encode_query(%{code: "fake-code", state: state}))
+
+      response =
+        OAuthJobs.get(
+          conn,
+          path <> "?" <> URI.encode_query(%{code: "fake-code", state: state})
+        )
+
       assert redirected_to(response, 303) == "/workspaces/#{w.id}?gmail=connected"
     end
   end

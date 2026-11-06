@@ -8,7 +8,17 @@ defmodule Lovelace.Integrations.GitHub.Transport do
   Test builds categorically refuse the production connector.
   """
 
-  alias Lovelace.GitHub.Auth
+  # Only the application decides which configured callback belongs to an attempt.
+  # The wire boundary independently rejects noncanonical or unrelated destinations.
+  def valid_callback_uri?(value) when is_binary(value) do
+    uri = URI.parse(value)
+
+    uri.scheme == "http" and uri.host == "localhost" and uri.port in 1..65_535 and
+      uri.path == "/auth/github/callback" and uri.userinfo == nil and
+      uri.query == nil and uri.fragment == nil
+  end
+
+  def valid_callback_uri?(_), do: false
 
   @callback request(map(), keyword()) ::
               {:ok, %{status: integer(), headers: list(), body: binary()}} | {:error, atom()}
@@ -137,7 +147,7 @@ defmodule Lovelace.Integrations.GitHub.Transport do
           map_size(params) == 5 and
             Regex.match?(~r/\A[A-Za-z0-9_-]{1,1024}\z/, code) and
             Regex.match?(~r/\A[A-Za-z0-9_-]{43}\z/, verifier) and
-            is_binary(uri) and uri == Auth.callback_url()
+            valid_callback_uri?(uri)
 
         _ ->
           false

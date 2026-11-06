@@ -321,8 +321,9 @@ Use the same hierarchy on static setup/unlock pages and authenticated views.
   Connections → GitHub owns the inline registration/permissions/callback guide, native
   client ID/secret/slug POST form, session-bound OAuth browser sign-in and account disconnect.
   Saving settings is local-only, never provider verification. Secrets are never prefilled
-  or returned. Hide sign-in while settings are missing, checking or unavailable; failed
-  sign-in remains a usable recovery page. OAuth uses single-use state and PKCE.
+  or returned. Hide sign-in while settings are missing, checking, locked or unavailable;
+  locked/unavailable reads show an actionable keychain warning, never missing-settings setup.
+  Failed sign-in remains a usable recovery page. OAuth uses single-use state and PKCE.
   Do not mount setup/editor disclosures until the local settings check settles: missing
   settings start open; stored settings start collapsed, preserving later user toggles.
   Saved app settings without an authorized account explicitly show that sign-in is still

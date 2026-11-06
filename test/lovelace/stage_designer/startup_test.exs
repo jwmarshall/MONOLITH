@@ -258,9 +258,10 @@ defmodule Lovelace.StageDesigner.StartupTest do
     assert response(get(conn, expected), 200)
   end
 
-  test "cached startup reconciles stale orphan images and temporary files without requesting", %{
-    directory: directory
-  } do
+  test "startup admission leaves reconciliation to protected recovery without provider requests",
+       %{
+         directory: directory
+       } do
     Req.Test.expect(__MODULE__, &respond(&1, PNG.image()))
     assert {:ok, :generated} = startup(@now)
     current = StageDesigner.background!().url
@@ -274,11 +275,13 @@ defmodule Lovelace.StageDesigner.StartupTest do
     end
 
     for name <- [orphan, temporary, "user-file.txt"] do
-      File.touch!(Path.join(directory, name), DateTime.to_unix(@now) - 600)
+      File.touch!(Path.join(directory, name), System.system_time(:second) - 600)
     end
 
-    File.touch!(Path.join(directory, recent), DateTime.to_unix(@now))
+    File.touch!(Path.join(directory, recent), System.system_time(:second))
     assert {:ok, :cached} = startup(DateTime.add(@now, 1))
+    assert File.exists?(Path.join(directory, orphan))
+    assert {:ok, :recovered} = StageDesigner.recover(actor: @actor)
     assert StageDesigner.background!().url == current
     assert File.exists?(Path.join(directory, retained <> ".png"))
     refute File.exists?(Path.join(directory, orphan))

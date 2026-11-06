@@ -1,6 +1,8 @@
 defmodule LovelaceWeb.GoogleCalendarOAuthTest do
   use LovelaceWeb.ConnCase
-  alias Lovelace.Mail.{Connections, OAuth}
+  alias Lovelace.Google.Access
+  alias Lovelace.Mail.{DisconnectWorker, OAuth}
+  alias Lovelace.TestSupport.OAuthJobs
   @owner %{role: :local_owner}
   @scopes [
     "https://www.googleapis.com/auth/gmail.readonly",
@@ -115,7 +117,7 @@ defmodule LovelaceWeb.GoogleCalendarOAuthTest do
     workspace = Lovelace.Workspaces.get_workspace!(workspace_id, actor: @owner)
 
     {:ok, account} =
-      Connections.accept(
+      Access.accept(
         workspace.id,
         %{subject: "calendar-sub", email: "calendar@example.invalid"},
         "prior-refresh"
@@ -159,7 +161,7 @@ defmodule LovelaceWeb.GoogleCalendarOAuthTest do
     assert [%{capability: :calendar} = params] =
              for({:authorization, p} <- Lovelace.TestMail.calls(), do: p)
 
-    assert {:ok, attempt} = OAuth.take(params.state, get_session(conn, :owner_session_token))
+    assert {:ok, attempt} = OAuth.cancel(params.state, get_session(conn, :owner_session_token))
     assert attempt.capability == :calendar
     assert attempt.expected_account_id == account.id
     assert attempt.workspace_id == w.id
@@ -175,7 +177,7 @@ defmodule LovelaceWeb.GoogleCalendarOAuthTest do
     assert redirected_to(response, 303) =~ "https://accounts.google.com/"
     assert [{:authorization, params} | _] = Lovelace.TestMail.calls()
     assert params.capability == :gmail
-    assert {:ok, attempt} = OAuth.take(params.state, get_session(conn, :owner_session_token))
+    assert {:ok, attempt} = OAuth.cancel(params.state, get_session(conn, :owner_session_token))
     assert attempt.capability == :gmail
     assert {:error, :invalid_request} = OAuth.begin(w.id, "session", nil, :calendar)
   end
@@ -210,7 +212,7 @@ defmodule LovelaceWeb.GoogleCalendarOAuthTest do
     assert [{:authorization, params} | _] = Lovelace.TestMail.calls()
     assert params.capability == :calendar
 
-    response = get(conn, callback_url(params.state))
+    response = OAuthJobs.get(conn, callback_url(params.state))
     assert redirected_to(response, 303) == "/onboarding/calendar"
 
     assert {:ok, %{step: :calendar, finished: false}} =
@@ -225,7 +227,7 @@ defmodule LovelaceWeb.GoogleCalendarOAuthTest do
     assert only.id == account.id
 
     assert {:error, :invalid_state} =
-             OAuth.take(params.state, get_session(conn, :owner_session_token))
+             OAuth.cancel(params.state, get_session(conn, :owner_session_token))
   end
 
   test "setup Calendar callback cannot update a replacement guide workspace", %{
@@ -253,7 +255,7 @@ defmodule LovelaceWeb.GoogleCalendarOAuthTest do
       actor: @owner
     )
 
-    response = get(conn, callback_url(state))
+    response = OAuthJobs.get(conn, callback_url(state))
     assert redirected_to(response, 303) == "/onboarding/calendar?notice=calendar_failed"
 
     assert {:ok, %{step: :project, workspace_id: saved_workspace}} =
@@ -282,7 +284,7 @@ defmodule LovelaceWeb.GoogleCalendarOAuthTest do
       response =
         case result do
           :denied ->
-            get(
+            OAuthJobs.get(
               conn,
               "/oauth/google/callback?" <>
                 URI.encode_query(%{
@@ -294,7 +296,7 @@ defmodule LovelaceWeb.GoogleCalendarOAuthTest do
 
           :missing_scopes ->
             Lovelace.TestMail.response({:ok, Map.delete(tokens(), :scopes)})
-            get(conn, callback_url(state))
+            OAuthJobs.get(conn, callback_url(state))
         end
 
       assert redirected_to(response, 303) == "/onboarding/calendar?notice=calendar_failed"
@@ -307,7 +309,7 @@ defmodule LovelaceWeb.GoogleCalendarOAuthTest do
       assert saved.generation == account.generation
       refute saved.calendar_enabled
       assert {:ok, "prior-refresh"} = Lovelace.TestMailVault.get(account.id)
-      assert {:error, :invalid_state} = OAuth.take(state, session)
+      assert {:error, :invalid_state} = OAuth.cancel(state, session)
 
       if result == :denied, do: refute(:exchange in Lovelace.TestMail.calls())
     end
@@ -361,13 +363,16 @@ defmodule LovelaceWeb.GoogleCalendarOAuthTest do
       OAuth.begin(w.id, session, account.id, :calendar, account.generation)
 
     response =
-      get(conn, callback_url(normal_state) <> "&origin=onboarding&return_to=/onboarding/complete")
+      OAuthJobs.get(
+        conn,
+        callback_url(normal_state) <> "&origin=onboarding&return_to=/onboarding/complete"
+      )
 
     assert redirected_to(response, 303) == "/connections/calendar?calendar=connected"
     assert {:ok, %{step: :calendar}} = Lovelace.Onboarding.progress(actor: @owner)
 
     response =
-      get(
+      OAuthJobs.get(
         conn,
         "/oauth/google/callback?" <>
           URI.encode_query(%{state: setup_state, error: "access_denied", origin: "connections"})
@@ -387,7 +392,7 @@ defmodule LovelaceWeb.GoogleCalendarOAuthTest do
 
     for attempt_state <- [state, "unknown-state"] do
       response =
-        get(
+        OAuthJobs.get(
           conn,
           callback_url(attempt_state) <>
             "&origin=onboarding&capability=calendar&return_to=/onboarding/complete"
@@ -396,7 +401,7 @@ defmodule LovelaceWeb.GoogleCalendarOAuthTest do
       assert_failure(response, "state", "invalid_state")
     end
 
-    assert {:error, :invalid_state} = OAuth.take(state, get_session(conn, :owner_session_token))
+    assert {:error, :invalid_state} = OAuth.cancel(state, get_session(conn, :owner_session_token))
     refute :exchange in Lovelace.TestMail.calls()
     assert {:ok, saved} = Lovelace.Mail.get_account(account.id, actor: @owner)
     refute saved.calendar_enabled
@@ -420,13 +425,13 @@ defmodule LovelaceWeb.GoogleCalendarOAuthTest do
       )
 
     {:ok, current} =
-      Connections.accept(
+      Access.accept(
         w.id,
         %{subject: account.subject, email: account.email},
         "reconnected-refresh"
       )
 
-    response = get(conn, callback_url(state))
+    response = OAuthJobs.get(conn, callback_url(state))
     assert redirected_to(response, 303) == "/onboarding/calendar?notice=calendar_failed"
     assert {:ok, %{step: :calendar}} = Lovelace.Onboarding.progress(actor: @owner)
     assert {:ok, saved} = Lovelace.Mail.get_account(account.id, actor: @owner)
@@ -447,7 +452,7 @@ defmodule LovelaceWeb.GoogleCalendarOAuthTest do
     {:ok, state, _} =
       OAuth.begin(w.id, session, account.id, :calendar, account.generation, :onboarding)
 
-    response = get(conn, callback_url(state))
+    response = OAuthJobs.get(conn, callback_url(state))
     assert redirected_to(response, 303) == "/onboarding/calendar?notice=calendar_failed"
     assert {:ok, %{step: :calendar}} = Lovelace.Onboarding.progress(actor: @owner)
     assert {:ok, saved} = Lovelace.Mail.get_account(account.id, actor: @owner)
@@ -479,7 +484,7 @@ defmodule LovelaceWeb.GoogleCalendarOAuthTest do
 
   test "Calendar callback cannot select a different Google identity", %{conn: conn, workspace: w} do
     {:ok, other} =
-      Connections.accept(
+      Access.accept(
         w.id,
         %{subject: "other-sub", email: "other@example.invalid"},
         "other-refresh"
@@ -511,24 +516,32 @@ defmodule LovelaceWeb.GoogleCalendarOAuthTest do
     {:ok, state, _} =
       OAuth.begin(w.id, "different-session", account.id, :calendar, account.generation)
 
-    response = get(conn, callback_url(state))
+    response = OAuthJobs.get(conn, callback_url(state))
     assert_failure(response, "state", "invalid_state")
-    assert {:error, :invalid_state} = OAuth.take(state, session)
+    assert {:error, :invalid_state} = OAuth.cancel(state, session)
     refute :exchange in Lovelace.TestMail.calls()
   end
 
   test "Gmail reconnect disables Calendar locally even if returned token still includes Calendar scopes",
        %{conn: conn, workspace: w, account: account} do
-    {:ok, _} =
-      Connections.accept(
+    {:ok, current} =
+      Access.accept(
         w.id,
         %{subject: account.subject, email: account.email},
         "prior-refresh",
         :calendar
       )
 
-    {:ok, state, _} = OAuth.begin(w.id, get_session(conn, :owner_session_token), account.id)
-    response = get(conn, callback_url(state))
+    {:ok, state, _} =
+      OAuth.begin(
+        w.id,
+        get_session(conn, :owner_session_token),
+        current.id,
+        :gmail,
+        current.generation
+      )
+
+    response = OAuthJobs.get(conn, callback_url(state))
     assert redirected_to(response, 303) == "/workspaces/#{w.id}?gmail=connected"
     assert {:ok, saved} = Lovelace.Mail.get_account(account.id, actor: @owner)
     refute saved.calendar_enabled
@@ -549,13 +562,13 @@ defmodule LovelaceWeb.GoogleCalendarOAuthTest do
       )
 
     {:ok, current} =
-      Connections.accept(
+      Access.accept(
         w.id,
         %{subject: account.subject, email: account.email},
         "reconnected-refresh"
       )
 
-    response = get(conn, callback_url(state))
+    response = OAuthJobs.get(conn, callback_url(state))
     assert_failure(response, "account_binding", "wrong_account")
     assert {:ok, "reconnected-refresh"} = Lovelace.TestMailVault.get(account.id)
     assert Lovelace.Mail.get_account!(account.id, actor: @owner).generation == current.generation
@@ -575,9 +588,15 @@ defmodule LovelaceWeb.GoogleCalendarOAuthTest do
         account.generation
       )
 
-    assert {:ok, _} = Lovelace.Mail.disconnect(account.id, actor: @owner)
-    response = get(conn, callback_url(state))
+    assert {:ok, operation} = Lovelace.Mail.disconnect(account.id, actor: @owner)
+    response = OAuthJobs.get(conn, callback_url(state))
     assert_failure(response, "account_binding", "wrong_account")
+
+    assert :ok =
+             DisconnectWorker.perform(%Oban.Job{
+               args: %{"operation_id" => operation.operation_id}
+             })
+
     assert {:error, :not_found} = Lovelace.TestMailVault.get(account.id)
     assert Lovelace.Mail.get_account!(account.id, actor: @owner).status == :disconnected
 
@@ -608,7 +627,7 @@ defmodule LovelaceWeb.GoogleCalendarOAuthTest do
       Task.async(fn ->
         send(owner, :reconnect_started)
 
-        Connections.accept(
+        Access.accept(
           w.id,
           %{subject: account.subject, email: account.email},
           "race-refresh"
@@ -636,7 +655,7 @@ defmodule LovelaceWeb.GoogleCalendarOAuthTest do
     task = Task.async(fn -> callback(conn, w.id, account.id) end)
     assert_receive {:identity_waiting, worker}
 
-    assert {:ok, "rotated-access"} = Connections.access_token(account)
+    assert {:ok, "rotated-access"} = Access.access_token(account)
     assert Lovelace.Mail.get_account!(account.id, actor: @owner).generation == account.generation
     assert {:ok, "rotated-refresh"} = Lovelace.TestMailVault.get(account.id)
     send(worker, :continue)
@@ -679,7 +698,7 @@ defmodule LovelaceWeb.GoogleCalendarOAuthTest do
         current.generation
       )
 
-    get(conn, callback_url(state))
+    OAuthJobs.get(conn, callback_url(state))
   end
 
   defp callback_url(state),

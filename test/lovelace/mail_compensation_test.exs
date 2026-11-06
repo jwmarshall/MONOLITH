@@ -47,8 +47,9 @@ defmodule Lovelace.MailCompensationTest do
   use Oban.Testing, repo: Lovelace.Repo, engine: Oban.Engines.Lite
 
   alias Ecto.Adapters.SQL
+  alias Lovelace.Google.Access
   alias Lovelace.Mail
-  alias Lovelace.Mail.{Connections, PollWorker}
+  alias Lovelace.Mail.PollWorker
   alias Lovelace.MailCompensationTest.Vault
 
   @owner %{role: :local_owner}
@@ -73,7 +74,7 @@ defmodule Lovelace.MailCompensationTest do
     other = Lovelace.Workspaces.create_workspace!("Shared compensation fixture", actor: @owner)
 
     {:ok, account} =
-      Connections.accept(
+      Access.accept(
         workspace.id,
         %{subject: "compensation-subject", email: "compensation@example.invalid"},
         "synthetic-prior"
@@ -95,7 +96,7 @@ defmodule Lovelace.MailCompensationTest do
     %{workspace: workspace, account: account} = context
 
     assert {:error, :unavailable} =
-             Connections.accept(
+             Access.accept(
                workspace.id,
                %{subject: account.subject, email: nil},
                "synthetic-replacement"
@@ -117,7 +118,7 @@ defmodule Lovelace.MailCompensationTest do
     assert :ok = Vault.delete(account.id)
 
     assert {:error, :unavailable} =
-             Connections.accept(
+             Access.accept(
                workspace.id,
                %{subject: account.subject, email: nil},
                "synthetic-replacement"
@@ -136,7 +137,7 @@ defmodule Lovelace.MailCompensationTest do
   test "a failed first connection leaves neither a new identity nor an orphan credential",
        context do
     assert {:error, :unavailable} =
-             Connections.accept(
+             Access.accept(
                context.workspace.id,
                %{subject: "new-invalid-identity", email: nil},
                "synthetic-new"
@@ -153,7 +154,7 @@ defmodule Lovelace.MailCompensationTest do
 
     reject_membership(fn ->
       assert {:error, :unavailable} =
-               Connections.accept(
+               Access.accept(
                  destination.id,
                  %{subject: context.account.subject, email: "changed@example.invalid"},
                  "synthetic-replacement"
@@ -177,7 +178,7 @@ defmodule Lovelace.MailCompensationTest do
 
     reject_membership(fn ->
       assert {:error, :unavailable} =
-               Connections.accept(
+               Access.accept(
                  destination.id,
                  %{subject: "valid-new-identity", email: "new-identity@example.invalid"},
                  "synthetic-new"
@@ -231,7 +232,7 @@ defmodule Lovelace.MailCompensationTest do
 
   defp assert_rollback_failure(context) do
     assert {:error, {:keychain, :rollback_failed}} =
-             Connections.accept(
+             Access.accept(
                context.workspace.id,
                %{subject: context.account.subject, email: nil},
                "synthetic-replacement"

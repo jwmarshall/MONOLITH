@@ -32,10 +32,10 @@ defmodule Lovelace.Integrations.Gemini.Transport do
   prompt, body or result in an event. Timings are numeric. HTTP provider diagnostic
   codes are separately allowlisted by Gemini, never emitted here.
 
-  Production accepts only fixed HTTPS Google Interactions create/get/delete and
-  legacy generateContent paths, with peer
-  and hostname verification, SNI and the system CA store. Request/body/header caps,
-  a monotonic overall deadline, socket timeouts and Gemini's outer task deadline
+  Production accepts only fixed HTTPS Google Interactions create/get/delete paths,
+  with peer and hostname verification, SNI and the system CA store.
+  Request/body/header caps, a monotonic overall deadline, socket timeouts and
+  the Interactions outer task deadline
   bound work. Body bytes are counted independently of Content-Length, including
   streamed error responses; response headers/trailers are bounded too. Connections
   close on completion, halts, errors and exceptions; task death also closes owned
@@ -43,7 +43,7 @@ defmodule Lovelace.Integrations.Gemini.Transport do
 
   Test builds alone expose an internal loopback seam. It changes only the physical
   connection to 127.0.0.1, never the logical Google URL, and is not available through
-  Gemini.generate options, application settings, environment variables or releases.
+  Interactions client options, application settings, environment variables or releases.
   Tests exercise the same send/receive/parser/callback/instrumentation code as
   production without contacting Google. Test builds reject the ordinary production
   connector entirely, so missing fake-plug wiring cannot become a billable request.
@@ -149,9 +149,6 @@ defmodule Lovelace.Integrations.Gemini.Transport do
   end
 
   defp valid_route?(:post, "/v1beta/interactions"), do: true
-
-  defp valid_route?(:post, path),
-    do: Regex.match?(~r/\A\/v1beta\/models\/[a-z0-9][a-z0-9.-]{0,99}:generateContent\z/, path)
 
   defp valid_route?(method, "/v1beta/interactions/" <> id) when method in [:get, :delete],
     do: valid_id?(id)

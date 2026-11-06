@@ -19,11 +19,23 @@ defmodule Lovelace.Mail do
     end
 
     resource Lovelace.Mail.CacheEntry
+    resource Lovelace.Mail.Disconnection
+    resource Lovelace.Mail.ReadRequest
+
+    resource Lovelace.Mail.Summary do
+      define :home_summary, action: :home_summary
+    end
 
     resource Lovelace.Mail.Operation do
       define :link, action: :link, args: [:workspace_id, :account_id]
       define :unlink, action: :unlink, args: [:workspace_id, :account_id]
       define :disconnect, action: :disconnect, args: [:account_id]
+      define :disconnect_status, action: :disconnect_status, args: [:account_id]
+      define :finish_disconnect, action: :finish_disconnect, args: [:operation_id]
+      define :request_read, action: :request_read
+      define :read_status, action: :read_status, args: [:operation_id]
+      define :cancel_read, action: :cancel_read, args: [:operation_id]
+      define :perform_read, action: :perform_read, args: [:operation_id]
       define :check_credentials, action: :check_credentials, args: [:account_id, :generation]
       define :mail_page, action: :page, args: [:workspace_id, :account_id]
       define :thread, action: :thread, args: [:workspace_id, :account_id, :thread_id]

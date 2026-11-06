@@ -1,13 +1,7 @@
 defmodule Lovelace.Integrations.GitHub do
   @moduledoc "Read-only GitHub App web authorization and installation-scoped snapshots."
-  alias Lovelace.GitHub.Auth
-
-  @callback exchange_code(binary(), binary(), binary(), binary(), binary()) ::
-              {:ok, map()} | {:error, atom()}
-  @callback refresh_token(binary(), binary(), binary()) :: {:ok, map()} | {:error, atom()}
-  @callback user(binary()) :: {:ok, map()} | {:error, atom()}
-  @callback installations(binary()) :: {:ok, [map()]} | {:error, atom()}
-  @callback pull_requests(binary(), map()) :: {:ok, map()} | {:error, atom()}
+  @behaviour Lovelace.GitHub.Provider
+  alias Lovelace.Integrations.GitHub.Transport
 
   @login ~r/\A[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?\z/
   @repository ~r/\A[A-Za-z0-9_.-]{1,100}\z/
@@ -17,10 +11,11 @@ defmodule Lovelace.Integrations.GitHub do
   @batch_size 20
   @actions_repositories 10
 
+  @impl true
   def exchange_code(client_id, client_secret, code, verifier, redirect_uri) do
     if valid_secret?(client_secret) and valid_secret?(code) and
          is_binary(verifier) and Regex.match?(~r/\A[A-Za-z0-9_-]{43}\z/, verifier) and
-         redirect_uri == Auth.callback_url() do
+         Transport.valid_callback_uri?(redirect_uri) do
       case oauth("/login/oauth/access_token", client_id, %{
              client_secret: client_secret,
              code: code,
@@ -36,6 +31,7 @@ defmodule Lovelace.Integrations.GitHub do
   end
 
   # The caller durably reserves the old pair before this one-shot rotation request.
+  @impl true
   def refresh_token(client_id, client_secret, refresh) do
     if valid_secret?(client_secret) and valid_secret?(refresh) and
          byte_size(refresh) > 4 and String.starts_with?(refresh, "ghr_") do
@@ -52,6 +48,7 @@ defmodule Lovelace.Integrations.GitHub do
     end
   end
 
+  @impl true
   def user(token) do
     with {:ok, body} <- api("GET", "/user", token),
          %{"type" => "User", "id" => id, "node_id" => node_id, "login" => login} <- body,
@@ -63,6 +60,7 @@ defmodule Lovelace.Integrations.GitHub do
     end
   end
 
+  @impl true
   def installations(token), do: installation_pages(token, 1, nil, [], now() + 60_000)
 
   defp installation_pages(token, page, expected, acc, deadline) do
@@ -141,7 +139,8 @@ defmodule Lovelace.Integrations.GitHub do
 
   defp identity(_), do: {:error, :provider}
 
-  def pull_requests(token, owner) do
+  @impl true
+  def installation_snapshot(token, owner) do
     deadline = now() + 60_000
 
     with true <- valid_owner?(owner),

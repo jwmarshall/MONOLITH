@@ -6,6 +6,7 @@ defmodule LovelaceWeb.HomeOverviewLiveTest do
   alias Lovelace.Integrations.Google.ClientCredentials
   alias Lovelace.Mail
   alias Lovelace.Mail.Operations
+  alias Lovelace.TestSupport.BackgroundWork
   alias Lovelace.Workspaces
 
   @owner %{role: :local_owner}
@@ -17,8 +18,11 @@ defmodule LovelaceWeb.HomeOverviewLiveTest do
 
   defmodule Provider do
     @moduledoc false
-    def refresh(token), do: {:ok, %{access_token: token}}
+    @spec refresh(binary()) :: {:ok, Lovelace.Google.OAuthProvider.tokens()}
+    def refresh(token), do: {:ok, %{access_token: token, expires_in: 3600}}
 
+    @spec inbox(binary(), Lovelace.Mail.Provider.page_token()) ::
+            {:ok, Lovelace.Mail.Provider.page()}
     def inbox(token, _page) do
       send(Application.fetch_env!(:lovelace, :home_test_owner), {:home_fetch, token})
       {:ok, %{threads: [], next_page_token: nil}}
@@ -64,7 +68,7 @@ defmodule LovelaceWeb.HomeOverviewLiveTest do
 
     view |> element("#show-connections") |> render_click()
     view |> element("#open-connection-gmail") |> render_click()
-    render_async(view)
+    BackgroundWork.complete(view)
     assert has_element?(view, "#new-gmail-connection[disabled]")
     render_click(view, "mail:new_connection")
     refute has_element?(view, "#gmail-connection-modal")
@@ -76,9 +80,9 @@ defmodule LovelaceWeb.HomeOverviewLiveTest do
       )
 
     view |> element("#gmail-google-prerequisite a") |> render_click()
-    render_async(view)
+    BackgroundWork.complete(view)
     view |> element("#connections-gmail") |> render_click()
-    render_async(view)
+    BackgroundWork.complete(view)
     assert has_element?(view, "#new-gmail-connection:not([disabled])")
     view |> element("#new-gmail-connection") |> render_click()
 
@@ -151,7 +155,7 @@ defmodule LovelaceWeb.HomeOverviewLiveTest do
     account = account("unattached", 7)
     {:ok, view, _html} = live(conn, ~p"/")
     view |> element("#open-home-account-#{account.id}") |> render_click()
-    render_async(view)
+    BackgroundWork.complete(view)
     assert_receive {:home_fetch, token}
     assert token == "synthetic-" <> account.id
     assert has_element?(view, "#home-inbox .mail-inbox-heading #mail-heading", account.email)
@@ -198,7 +202,7 @@ defmodule LovelaceWeb.HomeOverviewLiveTest do
     second = account("second", 3)
     {:ok, view, _html} = live(conn, ~p"/")
     view |> element("#open-home-account-#{first.id}") |> render_click()
-    render_async(view)
+    BackgroundWork.complete(view)
     assert_receive {:home_fetch, _}
 
     Operations.broadcast(second.id)
@@ -207,7 +211,7 @@ defmodule LovelaceWeb.HomeOverviewLiveTest do
 
     view |> element("#home-link") |> render_click()
     view |> element("#open-home-account-#{second.id}") |> render_click()
-    render_async(view)
+    BackgroundWork.complete(view)
     assert_receive {:home_fetch, token}
     assert token == "synthetic-" <> second.id
     assert has_element?(view, "#mail-heading", second.email)
@@ -234,7 +238,7 @@ defmodule LovelaceWeb.HomeOverviewLiveTest do
     assert has_element?(view, "#flash-error", "unavailable")
 
     view |> element("#open-home-account-#{account.id}") |> render_click()
-    render_async(view)
+    BackgroundWork.complete(view)
 
     assert has_element?(
              view,

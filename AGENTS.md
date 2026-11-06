@@ -67,7 +67,7 @@ Stack: Phoenix LiveView, Ash/AshSqlite over Ecto/SQLite, and Tailwind.
   Keep early credential POST boundaries, HTTP/LiveView session guards and revocation intact.
 - Production/dev storage uses SQLCipher 4.20.0 and a dedicated password-unlocked macOS
   file keychain, not the login keychain. Use `bin/lovelace setup` / `server` for development
-  and `bin/lovelace mix TASK` for other Mix tasks; the launcher configures SQLCipher internally.
+  and `bin/lovelace mix TASK` for other Mix tasks.
   Startup is locked; explicit global Lock stops protected Repo/queues/provider work.
   Detected native keychain authorization/access failures also trigger global Lock;
   a missing individual credential is not a keychain-access failure.
@@ -78,10 +78,15 @@ Stack: Phoenix LiveView, Ash/AshSqlite over Ecto/SQLite, and Tailwind.
   separate explicit deletion approval. See docs/DEVELOPMENT.md and docs/GMAIL.md.
 - Tidewave is dev-only code/SQL execution. Never enable remote access or expose it via tunnels.
   No separate SPA, PostgreSQL, Redis, or unnecessary infrastructure.
-- Keep business logic under `lib/lovelace/` and UI under `lib/lovelace_web/`.
-  Keep provider HTTP/OAuth and long-running work out of LiveView callbacks.
-- Oban 2.24's bundled SQLite Lite engine handles account-scoped polling.
-  The dedicated keychain holds refresh tokens and OAuth client credentials. See docs/GMAIL.md and docs/CALENDAR.md before changing grants/cache/jobs.
+- Ash domain actions are inbound use-case APIs; provider contracts belong to the application,
+  adapters implement them, and web code consumes public capabilities/read models. Core use
+  cases must not discover Endpoint/signing configuration or borrow another domain's private
+  persistence/lock identity. See docs/DEVELOPMENT.md for exact composition exceptions.
+- Oban owns application background/async work: authorized atomic admission, ID-only jobs,
+  generation/request fences, bounded retention and honest observed outcomes. UI lifetime
+  must not own accepted cleanup. Keep only named OTP/security/timeout/observation exceptions
+  documented in docs/DEVELOPMENT.md. Credentials remain in the dedicated keychain.
+  See docs/GMAIL.md and docs/CALENDAR.md before changing grants/cache/jobs.
 - No external telemetry exporter. Stock Bandit's in-process conn metadata is an explicit
   user-accepted local exception; never add payload logging/export without privacy review.
 - Scenery is app-wide, not account-owned. Gemini generation is opt-in and potentially billable;
@@ -112,7 +117,11 @@ Stack: Phoenix LiveView, Ash/AshSqlite over Ecto/SQLite, and Tailwind.
 
 ## Verification
 
-Run `bin/lovelace check` (format/compile/Credo/AshCredo/Sobelow/tests/assets)
+Load `lovelace-architecture-development` for boundary changes and `lovelace-oban-workflows`
+for async/background changes; invoke the corresponding hexagonal-boundary/background-work
+reviewer before completion. See docs/REVIEWERS.md for discovery, fallback and specialist routing.
+
+Run `bin/lovelace check` (format/compile/Credo/AshCredo/architecture/Sobelow/tests/assets)
 and `bin/lovelace audit` (online advisories/retired packages). For UI
 changes also run `bin/lovelace mix test.ui` (installed Chrome/Chromium; see docs/DEVELOPMENT.md). `mix lint` compiles in test for AshCredo introspection.
 Keep durable decisions here and operational contracts in the relevant docs. Do not maintain
