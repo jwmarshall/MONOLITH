@@ -519,6 +519,45 @@ defmodule Lovelace.MailReadTest do
     assert %{state: :complete} = Mail.read_status!(id, actor: @owner)
   end
 
+  test "another view cannot commit or roll back a pending replacement or inspect private results",
+       context do
+    previous = request(context, :page)
+    assert :ok = perform_job(ReadWorker, %{operation_id: previous})
+    prior_result = RequestOwners.result(previous)
+    replacement = Ash.UUID.generate()
+    assert {:ok, ^previous} = RequestOwners.register(replacement, self())
+    private_result = {:ok, %{private: "distinctive-private-staged-mail-result"}}
+    assert :ok = RequestOwners.stage(replacement, private_result)
+
+    observer = self()
+
+    {view, monitor} =
+      spawn_monitor(fn ->
+        send(observer, {
+          :foreign_admission,
+          RequestOwners.commit(replacement),
+          RequestOwners.rollback(replacement),
+          RequestOwners.result(replacement)
+        })
+      end)
+
+    assert_receive {:foreign_admission, :expired, :expired, nil}
+    assert_receive {:DOWN, ^monitor, :process, ^view, :normal}
+    assert RequestOwners.owner(replacement) == self()
+    assert RequestOwners.result(replacement) == private_result
+
+    refute inspect(:sys.get_status(RequestOwners), limit: :infinity) =~
+             "distinctive-private-staged-mail-result"
+
+    assert RequestOwners.result(replacement) == private_result
+
+    assert :ok = RequestOwners.rollback(replacement)
+    assert RequestOwners.owner(replacement) == nil
+    assert RequestOwners.owner(previous) == self()
+    assert RequestOwners.result(previous) == prior_result
+    assert %{state: :complete, result: ^prior_result} = Mail.read_status!(previous, actor: @owner)
+  end
+
   @doc false
   def pause_read_completion(_event, _measurements, metadata, {worker, observer, short_name}) do
     if self() == worker and metadata[:action] == :settle and

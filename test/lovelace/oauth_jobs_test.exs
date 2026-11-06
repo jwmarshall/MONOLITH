@@ -323,6 +323,69 @@ defmodule Lovelace.OAuthJobsTest do
     assert count(:google) == 1
   end
 
+  test "a changed callback destination invalidates queued consent before sending its code",
+       context do
+    {_holder, admit, _cancel} = attempt(:google, context)
+    assert {:ok, reference} = admit.()
+    previous = Application.fetch_env(:lovelace, :gmail)
+
+    on_exit(fn ->
+      case previous do
+        {:ok, value} -> Application.put_env(:lovelace, :gmail, value)
+        :error -> Application.delete_env(:lovelace, :gmail)
+      end
+    end)
+
+    settings = Application.get_env(:lovelace, :gmail, [])
+
+    Application.put_env(
+      :lovelace,
+      :gmail,
+      Keyword.put(settings, :redirect_uri, "http://localhost:4000/changed-synthetic-callback")
+    )
+
+    job = Lovelace.Repo.get!(Oban.Job, reference.job_id)
+    assert :ok = Worker.perform(job)
+    assert {:ok, %{status: :failed, outcome: :reauthorize}} = Exchange.get(reference.id)
+    assert count(:google) == 0
+    assert Mail.list_accounts!(actor: @owner) == []
+    assert :ok = Worker.perform(job)
+    assert count(:google) == 0
+  end
+
+  test "overlapping Google credential changes cannot enter or release another mutation",
+       context do
+    assert :finished =
+             OAuth.client_change(fn ->
+               assert {:error, :unavailable} =
+                        OAuth.client_change(fn -> flunk("overlapping mutation was entered") end)
+
+               assert {:error, :busy} = OAuth.begin(context.workspace.id, context.session)
+               :finished
+             end)
+
+    assert {:ok, state, _verifier} = OAuth.begin(context.workspace.id, context.session)
+    assert {:ok, _} = OAuth.cancel(state, context.session)
+  end
+
+  test "OTP diagnostics hide queued authorization secrets without consuming consent", context do
+    {:ok, state, verifier} = OAuth.begin(context.workspace.id, context.session)
+    code = "fake-code"
+
+    assert {:ok, reference} =
+             OAuth.admit(state, context.session, %{"code" => code, "state" => state})
+
+    diagnostics = inspect(:sys.get_status(OAuth), limit: :infinity)
+    for secret <- [code, verifier, context.session], do: refute(diagnostics =~ secret)
+    assert :pending = OAuth.result(reference.id)
+    assert :ok = Worker.perform(Lovelace.Repo.get!(Oban.Job, reference.job_id))
+    assert {:ok, %{status: :completed, outcome: :connected}} = Exchange.get(reference.id)
+    assert count(:google) == 1
+
+    assert {:error, :invalid_state} = OAuth.cancel(state, context.session)
+    assert [%{status: :ready}] = Mail.list_accounts!(actor: @owner)
+  end
+
   defp google_account(context) do
     Access.accept(
       context.workspace.id,
