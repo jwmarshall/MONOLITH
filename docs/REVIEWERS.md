@@ -95,9 +95,9 @@ palettes, navigation or identity. The authorized whole-application identity targ
 is MONOLITH prose/UI, `:monolith` OTP/config, `Monolith`/`MonolithWeb` modules,
 `monolith` project-owned libraries, paths, commands, tooling, keychain/storage
 identifiers and `MONOLITH_*` environment variables; third-party names stay unchanged.
-This preparation does not rename application source or assert target paths/commands
-already exist. Acquire current owners (`lib/lovelace/`, `lib/lovelace_web/`,
-`bin/lovelace`) until actual cutover. There are no users and existing data is
+Current codebase/runtime owners are `lib/monolith/`, `lib/monolith_web/` and
+`bin/monolith`. Phase 1 deliberately preserves browser-visible LOVELACE copy, artwork
+and presentation; no visual surface is selected by this identity cutover. There are no users and existing data is
 replaceable: no rebrand-specific preservation, backward-compatibility, aliases,
 credential transfer or data-migration requirement. This does not authorize private
 state reads, storage wipes/resets, provider calls or other side effects during
@@ -203,9 +203,9 @@ Project grounding to embed without frozen capability or version inventories:
 - The authorized whole-app identity target is MONOLITH prose/UI, :monolith OTP/config,
   Monolith/MonolithWeb modules, monolith project-owned libraries/paths/commands/tooling/
   keychain/storage identifiers and MONOLITH_* environment variables. Third-party
-  names stay unchanged. Existing code still uses Lovelace/LovelaceWeb, :lovelace,
-  lib/lovelace/, lib/lovelace_web/ and bin/lovelace: inspect actual current owners,
-  not nonexistent target files. This preparation does not perform application cutover.
+  names stay unchanged. Current code uses Monolith/MonolithWeb, :monolith,
+  lib/monolith/, lib/monolith_web/ and bin/monolith. Browser-visible LOVELACE copy
+  and artwork remain in phase 1; inspect actual owners and selected visual scope.
   No users or data-preservation/backcompat/migration requirement exists for rebranding;
   do not invent aliases, credential transfer or backup/restore gates. Ordinary
   side-effect authorization still applies: no private state reads, wipes/resets,
@@ -222,8 +222,8 @@ Project grounding to embed without frozen capability or version inventories:
   testing duties. Identity cutover is authorized across the application, not automatic
   implementation of every visual surface or a waiver of security/product boundaries.
 - Business behavior belongs in Ash domains/resources/actions/policies, UI in the web
-  layer. Acquire current lib/lovelace/ and lib/lovelace_web/ owners until cutover to
-  lib/monolith/ and lib/monolith_web/. No parallel hand-written Ecto contexts.
+  layer. Acquire current lib/monolith/ and lib/monolith_web/ owners.
+  No parallel hand-written Ecto contexts.
 - Verify schemas, provider authorization, credential storage, jobs, owner authentication
   and stage behavior in current code. Installed packages alone do not establish
   configured or operational behavior; do not embed a frozen capabilities list.
@@ -682,9 +682,8 @@ Use reused IDs across two accounts for isolation. No unrequested features or bla
 
 Reject removal/bypass of relevant gates or claims they passed without matching
 evidence. Inspect current aliases, launcher and CI rather than freezing a gate
-inventory. Acquire the current bin/lovelace check and bin/lovelace audit entry points
-until cutover; the target names are bin/monolith check and bin/monolith audit, not
-commands asserted to exist already. mix lint compiles in test for AshCredo. Trace
+inventory. Acquire the current bin/monolith check and bin/monolith audit entry points.
+`mix lint` compiles in test for AshCredo. Trace
 checks, Node-test inclusion and nonzero exit propagation. Hex audit does not cover
 all vendored/native dependencies. Never weaken gates; preserve runtime targets.
 
@@ -696,8 +695,7 @@ E: Map changed invariants to exact test assertions and list material gaps.
 Distinguish tests present, check artifacts inspected, and checks not verified;
 historical handoff results are not fresh evidence for a new change. Source-only
 approval can cover test design while explicitly stating execution unverified.
-Recommend parent-run current-owner checks (bin/lovelace check/bin/lovelace audit
-until cutover, then bin/monolith equivalents) and relevant targeted UI/release checks;
+Recommend parent-run current-owner checks (bin/monolith check/bin/monolith audit) and relevant targeted UI/release checks;
 this reviewer runs none of them. No new tooling mandate without
 a concrete unmet need.
 D: Apply the shared read-only verdict/failure contract. Do not invent a coverage
@@ -823,10 +821,10 @@ the following current acquisition paths (use actual renamed owners after cutover
 
 ```text
 <target_files>
-lib/lovelace/stage_designer/startup.ex
-lib/lovelace/stage_designer/gemini.ex
-lib/lovelace/stage_designer/storage.ex
-test/lovelace/stage_designer/startup_test.exs
+lib/monolith/stage_designer/startup.ex
+lib/monolith/stage_designer/gemini.ex
+lib/monolith/stage_designer/storage.ex
+test/monolith/stage_designer/startup_test.exs
 </target_files>
 <review_context>
 Current-state review of durable startup authorization, one-shot submission and
@@ -839,6 +837,6 @@ shared contract, its specialty criteria, correct canonical output path, no model
 pin, no secret acquisition and only read/search/list tool permissions. If creation
 happens in a new session, paste the shared setup again. Reviewers return findings;
 the development caller makes changes, runs the current project check/audit entry
-points (`bin/lovelace` until actual cutover, then `bin/monolith`) as applicable,
+points (`bin/monolith`) as applicable,
 collects required release/browser evidence, and requests re-review. An
 `[APPROVED]` source review never substitutes for those checks.

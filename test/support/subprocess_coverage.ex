@@ -1,4 +1,4 @@
-defmodule Lovelace.TestSupport.SubprocessCoverage do
+defmodule Monolith.TestSupport.SubprocessCoverage do
   @moduledoc false
 
   if Process.whereis(Mix.State), do: Mix.ensure_application!(:tools)
@@ -9,7 +9,7 @@ defmodule Lovelace.TestSupport.SubprocessCoverage do
   def cmd(executable, arguments, options) do
     if Process.whereis(:cover_server) && :cover.modules() != [] do
       directory =
-        Path.join(System.tmp_dir!(), "lovelace-cover-#{System.unique_integer([:positive])}")
+        Path.join(System.tmp_dir!(), "monolith-cover-#{System.unique_integer([:positive])}")
 
       File.mkdir_p!(directory)
       manifest = Path.join(directory, "modules.term")
@@ -44,7 +44,7 @@ defmodule Lovelace.TestSupport.SubprocessCoverage do
   end
 
   def start do
-    if manifest = System.get_env("LOVELACE_COVER_MANIFEST") do
+    if manifest = System.get_env("MONOLITH_COVER_MANIFEST") do
       Mix.Task.run("loadpaths")
       Mix.ensure_application!(:tools)
       Mix.ensure_application!(:crypto)
@@ -67,7 +67,7 @@ defmodule Lovelace.TestSupport.SubprocessCoverage do
         do: raise("Subprocess coverage compilation failed: #{inspect(results)}")
 
       System.at_exit(fn _ ->
-        path = System.fetch_env!("LOVELACE_COVER_COUNTERS")
+        path = System.fetch_env!("MONOLITH_COVER_COUNTERS")
         :ok = :cover.export(String.to_charlist(path))
       end)
     end
@@ -76,5 +76,5 @@ defmodule Lovelace.TestSupport.SubprocessCoverage do
   end
 
   defp coverage_env(manifest, counters),
-    do: [{"LOVELACE_COVER_MANIFEST", manifest}, {"LOVELACE_COVER_COUNTERS", counters}]
+    do: [{"MONOLITH_COVER_MANIFEST", manifest}, {"MONOLITH_COVER_COUNTERS", counters}]
 end

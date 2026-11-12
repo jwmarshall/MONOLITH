@@ -1,7 +1,7 @@
-defmodule Lovelace.TestSupport.GeminiVault do
+defmodule Monolith.TestSupport.GeminiVault do
   @moduledoc false
   use Agent
-  @behaviour Lovelace.Integrations.Google.Keychain
+  @behaviour Monolith.Integrations.Google.Keychain
 
   def start_link(opts),
     do: Agent.start_link(fn -> %{value: nil, error: nil} end, name: opts[:name] || __MODULE__)

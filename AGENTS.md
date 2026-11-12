@@ -5,11 +5,11 @@ The full rebrand includes `:monolith` for the OTP application/configuration,
 `Monolith`/`MonolithWeb` modules, `monolith` project-owned libraries, paths,
 commands, database/keychain identifiers and tooling, and `MONOLITH_*` environment
 variables. Third-party dependencies retain their upstream names.
-The current application source still uses LOVELACE identifiers until its codebase
-cutover; inspect actual owners rather than assuming target paths already exist.
+Phase 1 uses the MONOLITH codebase/runtime identity. Browser-visible LOVELACE
+copy, artwork and presentation remain unchanged until the separately authorized UI phase.
 There are no users and existing local data is replaceable: this pre-user rebrand
 requires no data migration, preservation, backward compatibility or legacy aliases.
-Preparing enforcement artifacts does not itself rename source or reset local state.
+The identity cutover does not authorize accessing, resetting or deleting private local state.
 
 Stack: Phoenix LiveView, Ash/AshSqlite over Ecto/SQLite, and Tailwind.
 
@@ -73,8 +73,8 @@ Stack: Phoenix LiveView, Ash/AshSqlite over Ecto/SQLite, and Tailwind.
   Initial browser owner setup requires single-use terminal pairing; it is not public signup.
   Keep early credential POST boundaries, HTTP/LiveView session guards and revocation intact.
 - Production/dev storage uses SQLCipher 4.20.0 and a dedicated password-unlocked macOS
-  file keychain, not the login keychain. Use `bin/lovelace setup` / `server` for development
-  and `bin/lovelace mix TASK` for other Mix tasks.
+  file keychain, not the login keychain. Use `bin/monolith setup` / `server` for development
+  and `bin/monolith mix TASK` for other Mix tasks.
   Startup is locked; explicit global Lock stops protected Repo/queues/provider work.
   Detected native keychain authorization/access failures also trigger global Lock;
   a missing individual credential is not a keychain-access failure.
@@ -104,9 +104,9 @@ Stack: Phoenix LiveView, Ash/AshSqlite over Ecto/SQLite, and Tailwind.
   resume only retrieval of known IDs, and delete remote results after committed local publication.
   Unknown submissions require explicit charge/overlap acknowledgement before fresh confirmation;
   safe polling/cleanup retries never authorize another generation. Keep permanent attempt history.
-  Gemini keys are managed in Connections and stored separately in the dedicated LOVELACE keychain;
+  Gemini keys are managed in Connections and stored separately in the dedicated MONOLITH keychain;
   no environment-key fallback or provider probe/generation on credential saves.
-  Force `LOVELACE_STAGE_ENABLED=false` for maintenance; it blocks new startup generations,
+  Force `MONOLITH_STAGE_ENABLED=false` for maintenance; it blocks new startup generations,
   not already authorized jobs. No-provider maintenance must also avoid starting Oban queues;
   see docs/STAGE_DESIGNER.md.
 - Clearly label placeholders; do not imply disconnected integrations are operational.
@@ -135,11 +135,10 @@ target and migration boundary. Invoke `monolith-visual-system-reviewer` and
 The rebrand includes application/runtime/library/tooling identity, not just display
 strings. Preserve product/security behavior rather than importing the study simulator.
 
-Run `bin/lovelace check` (format/compile/Credo/AshCredo/architecture/Sobelow/tests/assets)
-and `bin/lovelace audit` (online advisories/retired packages). For UI
-changes also run `bin/lovelace mix test.ui` (installed Chrome/Chromium; see docs/DEVELOPMENT.md). `mix lint` compiles in test for AshCredo introspection.
-These are current wrapper paths until the codebase cutover; migrate commands and
-their callers to `bin/monolith` with the application, then use the renamed wrappers.
+Run `bin/monolith check` (format/compile/Credo/AshCredo/architecture/Sobelow/tests/assets)
+and `bin/monolith audit` (online advisories/retired packages). For UI
+changes also run `bin/monolith mix test.ui` (installed Chrome/Chromium; see docs/DEVELOPMENT.md). `mix lint` compiles in test for AshCredo introspection.
+Use the renamed wrappers; no legacy command or environment-variable aliases are provided.
 Keep durable decisions here and operational contracts in the relevant docs. Do not maintain
 handoff documents, completion histories or speculative backlogs. Choose future work from the
 current user request; retired plans are not obligations. Verify implementation in code and

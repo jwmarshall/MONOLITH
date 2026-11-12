@@ -1,6 +1,6 @@
 # Vendored Topbar 3.0.0
 
-LOVELACE bundles `assets/vendor/topbar.js` through the existing relative import in
+MONOLITH bundles `assets/vendor/topbar.js` through the existing relative import in
 `assets/js/app.js` for LiveView navigation/form progress. No npm installation,
 CDN, runtime download, provider call, or application configuration change is needed.
 
@@ -19,7 +19,7 @@ Development-only public HTTPS retrieval established all of the following:
   https://raw.githubusercontent.com/buunguyen/topbar/0f262ab7864ef6601b51102d068281982c8cfc8d/topbar.js
   byte-for-byte: **4,391 bytes**, SHA-256
   `5683ab34a4fa482d9bc1227a539c445fd5dc934530a05b68f03d00cd97cae2a0`.
-- The existing LOVELACE source matched those same upstream bytes exactly before
+- The existing MONOLITH source matched those same upstream bytes exactly before
   adding the full legal comment described below. No executable code was changed.
   Use this commit, not an assumed `3.0.0` Git tag (none was present).
 
@@ -56,7 +56,7 @@ No separate runtime request for a license or script is introduced.
 | `topbar.upstream-package.json` | Unmodified `package/package.json` (no final newline) | `30d5483d3e1d2c5021b3b5bcefee2dde0e5e176cf3a0fc57eb899c88198ec768` |
 | `topbar.LICENSE.txt` | Complete MIT text and retained upstream notices | `c4ad21361d61199361282d25950da9ad9b60a2f8476d4524c4f95524b5278990` |
 
-`test/lovelace_web/vendor_assets_test.exs` intentionally pins all three files,
+`test/monolith_web/vendor_assets_test.exs` intentionally pins all three files,
 checks metadata/license/import agreement, checks that the full notice is in the
 legal comment, and separately pins the unchanged upstream bytes without that
 comment. Unexpected bytes must fail rather than silently becoming approved.
@@ -78,7 +78,7 @@ comment. Unexpected bytes must fail rather than silently becoming approved.
    relabel their licenses or replace their pins during a Topbar update.
 4. Run the focused vendor and font/shell tests with generation disabled and a
    disposable test database, then the full quality gate. For this remediation:
-   `LOVELACE_TEST_DATABASE=/tmp/lovelace-remediation-tests/topbar.db LOVELACE_STAGE_ENABLED=false mix test test/lovelace_web/vendor_assets_test.exs test/lovelace_web/live/home_live_test.exs`.
+   `MONOLITH_TEST_DATABASE=/tmp/monolith-remediation-tests/topbar.db MONOLITH_STAGE_ENABLED=false mix test test/monolith_web/vendor_assets_test.exs test/monolith_web/live/home_live_test.exs`.
    Ensure the parent directory exists; never use the user's private database.
 5. Build minified assets into disposable output and check that the **complete**
    notice survives in the shipped JavaScript (or shipped legal sidecar if changed).

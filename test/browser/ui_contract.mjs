@@ -10,7 +10,7 @@ import path from "node:path"
 const [browser, root, origin, workspaceId, accountId, unattachedId, mode] = process.argv.slice(2)
 // Keep disposable-fixture and bundled-public-artwork evidence outside the app root removed by the BEAM
 // fixture. A fresh owner-only directory avoids overwriting any existing files.
-const artifacts = await mkdtemp(path.join(tmpdir(), "lovelace-ui-artifacts-"))
+const artifacts = await mkdtemp(path.join(tmpdir(), "monolith-ui-artifacts-"))
 await chmod(artifacts, 0o700)
 assert.ok(path.relative(root, artifacts).startsWith(`..${path.sep}`), "screenshots survive disposable-root cleanup")
 console.log(`UI screenshot directory (disposable fixtures and bundled artwork): ${artifacts}`)
@@ -709,7 +709,7 @@ async function verifyThemes() {
       const expected = getComputedStyle(probe).color;
       probe.remove();
       return {theme: document.documentElement.dataset.theme,
-        saved: localStorage.getItem('lovelace:theme'),
+        saved: localStorage.getItem('monolith:theme'),
         actual: getComputedStyle(element).color, expected,
         primary: root.getPropertyValue('--color-primary').trim(),
         base: root.getPropertyValue('--color-base-100').trim(),
@@ -949,9 +949,9 @@ try {
   assert.equal(await evaluate("document.querySelector('#main-content').dataset.entered ?? 'false'"), "false")
   assert.equal(await evaluate("document.querySelector('#workspace-content').inert"), true)
   assert.equal(await evaluate("document.querySelector('#workspace-controls').inert"), true)
-  await waitFor("document.querySelector('#lovelace-letter-7').style.opacity === '1' && document.querySelector('#main-content').dataset.entered !== 'true'", "completed wordmark before exit")
-  await waitFor("Number(document.querySelector('#lovelace-letter-0').style.opacity) < Number(document.querySelector('#lovelace-letter-7').style.opacity)", "left-to-right letter exit")
-  await waitFor("parseFloat(document.querySelector('#lovelace-monogram-stroke').style.strokeDashoffset) < 0 && Number(document.querySelector('#lovelace-letter-0').style.opacity) < 1", "opposite-end erase before handoff")
+  await waitFor("document.querySelector('#monolith-letter-7').style.opacity === '1' && document.querySelector('#main-content').dataset.entered !== 'true'", "completed wordmark before exit")
+  await waitFor("Number(document.querySelector('#monolith-letter-0').style.opacity) < Number(document.querySelector('#monolith-letter-7').style.opacity)", "left-to-right letter exit")
+  await waitFor("parseFloat(document.querySelector('#monolith-monogram-stroke').style.strokeDashoffset) < 0 && Number(document.querySelector('#monolith-letter-0').style.opacity) < 1", "opposite-end erase before handoff")
   assert.equal(await evaluate("getComputedStyle(document.querySelector('#owner-lock-form')).visibility"), "hidden")
   assert.equal(await evaluate("getComputedStyle(document.querySelector('#home-link')).visibility"), "hidden")
   await focused()

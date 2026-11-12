@@ -23,7 +23,7 @@ erl_crash.dump
 /tmp/
 
 # Ignore package tarball (built via "mix hex.build").
-lovelace-*.tar
+monolith-*.tar
 
 # Ignore assets that are produced by build tools.
 /priv/static/assets/
@@ -58,8 +58,8 @@ npm-debug.log
 .DS_Store
 
 # Explicitly built local macOS Keychain helper.
-/priv/native/lovelace-keychain
-/priv/native/lovelace-vault
+/priv/native/*-keychain
+/priv/native/*-vault
 
 # Dedicated credential vaults, migration journals and private rollback copies.
 *.vault/

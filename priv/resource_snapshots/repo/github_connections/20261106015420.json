@@ -169,7 +169,7 @@
       "index_name": "github_connections_github_user_index"
     }
   ],
-  "repo": "Elixir.Lovelace.Repo",
+  "repo": "Elixir.Monolith.Repo",
   "strict?": false,
   "base_filter": null,
   "custom_indexes": [],

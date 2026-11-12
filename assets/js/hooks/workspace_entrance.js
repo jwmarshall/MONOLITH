@@ -20,7 +20,7 @@ export default {
     this.handleEvent("workspace:focus-heading", () => {
       this.el.querySelector("[data-workspace-heading]")?.focus({preventScroll: true})
     })
-    this.el.addEventListener("lovelace:brand-complete", this.onComplete)
+    this.el.addEventListener("monolith:brand-complete", this.onComplete)
     this.el.addEventListener("focusin", this.onFocus)
     // A server-authorized return skips only the visual entrance, once per mount.
     if (this.el.getAttribute("data-enter-on-return") === "true") {
@@ -30,7 +30,7 @@ export default {
   },
 
   destroyed() {
-    this.el.removeEventListener("lovelace:brand-complete", this.onComplete)
+    this.el.removeEventListener("monolith:brand-complete", this.onComplete)
     this.el.removeEventListener("focusin", this.onFocus)
   },
 }

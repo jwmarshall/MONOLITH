@@ -1,6 +1,6 @@
-defmodule Lovelace.TestSupport.GitHubDiscovery do
+defmodule Monolith.TestSupport.GitHubDiscovery do
   @moduledoc false
-  alias Lovelace.GitHub
+  alias Monolith.GitHub
   @owner %{role: :local_owner}
 
   def discover(id) do

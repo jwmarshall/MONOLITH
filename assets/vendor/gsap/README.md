@@ -1,6 +1,6 @@
 # Vendored GSAP 3.15.0
 
-LOVELACE bundles GSAP locally with its existing Mix/esbuild pipeline. No npm install,
+MONOLITH bundles GSAP locally with its existing Mix/esbuild pipeline. No npm install,
 CDN, runtime download, or additional plugin is required.
 
 ## Provenance and integrity
@@ -41,7 +41,7 @@ building a visual animation-authoring tool.
 Download an explicitly versioned registry tarball, verify its SHA-512 against that
 version's registry metadata, and extract only the required distribution and package
 metadata. Review upstream changes and licensing, refresh the checksums here and in
-`test/lovelace_web/vendor_assets_test.exs`, then run `mix check` and browser animation
+`test/monolith_web/vendor_assets_test.exs`, then run `mix check` and browser animation
 checks under the production CSP. Never edit `gsap.js` locally or replace it with a
 runtime CDN import. `mix audit` covers Hex dependencies, not this vendored JavaScript;
 review GSAP advisories separately when updating.

@@ -2,10 +2,10 @@
 # native credential creation or export. Reuse the hidden-input terminal fixture.
 Code.require_file("vault_maintenance.exs", __DIR__)
 
-defmodule Mix.Tasks.Lovelace.SyntheticBoundaries do
+defmodule Mix.Tasks.Monolith.SyntheticBoundaries do
   use Mix.Task
   import ExUnit.Assertions
-  alias Lovelace.TestSupport.SubprocessCoverage
+  alias Monolith.TestSupport.SubprocessCoverage
 
   def run([mode, root]) do
     SubprocessCoverage.start()
@@ -16,7 +16,7 @@ defmodule Mix.Tasks.Lovelace.SyntheticBoundaries do
     {task, input, expected} = prepare(mode, source)
     before = files(root)
     leader = Process.group_leader()
-    terminal = Lovelace.SyntheticMaintenanceIO.start(input, self())
+    terminal = Monolith.SyntheticMaintenanceIO.start(input, self())
     Process.group_leader(self(), terminal)
 
     try do
@@ -51,36 +51,36 @@ defmodule Mix.Tasks.Lovelace.SyntheticBoundaries do
       end
 
     assert reads == expected_reads
-    refute File.exists?(source <> ".vault/lovelace.keychain-db")
+    refute File.exists?(source <> ".vault/monolith.keychain-db")
     refute File.exists?(source <> ".vault/migration/encrypted.sqlite3")
-    assert Process.whereis(Lovelace.Repo) == nil
-    assert Process.whereis(Lovelace.Security.Vault) == nil
+    assert Process.whereis(Monolith.Repo) == nil
+    assert Process.whereis(Monolith.Security.Vault) == nil
     IO.puts("Terminal boundary #{mode}: originals retained; no credentials or export created")
   end
 
   defp prepare("owner_mismatch", _source),
     do:
-      {"lovelace.owner.setup", ["synthetic owner password\n", "different password\n"],
+      {"monolith.owner.setup", ["synthetic owner password\n", "different password\n"],
        ~r/Passwords did not match/}
 
   defp prepare("owner_short", _source),
-    do: {"lovelace.owner.setup", ["short\n", "short\n"], ~r/12–1024 characters/}
+    do: {"monolith.owner.setup", ["short\n", "short\n"], ~r/12–1024 characters/}
 
   defp prepare("owner_cancel", _source),
-    do: {"lovelace.owner.setup", [], ~r/Password input cancelled/}
+    do: {"monolith.owner.setup", [], ~r/Password input cancelled/}
 
   defp prepare("google_cancel", _source),
-    do: {"lovelace.google.configure", [], ~r/Credential input cancelled/}
+    do: {"monolith.google.configure", [], ~r/Credential input cancelled/}
 
   defp prepare("migration_cancel", source) do
     File.write!(source, "synthetic retained original")
-    {"lovelace.vault.migrate", ["NO\n"], ~r/Cancelled/}
+    {"monolith.vault.migrate", ["NO\n"], ~r/Cancelled/}
   end
 
   defp prepare("migration_auth", source) do
     File.write!(source, "synthetic invalid database; never export")
 
-    {"lovelace.vault.migrate", ["STOPPED\n", "synthetic password\n"],
+    {"monolith.vault.migrate", ["STOPPED\n", "synthetic password\n"],
      ~r/Owner authentication failed/}
   end
 
@@ -110,7 +110,7 @@ defmodule Mix.Tasks.Lovelace.SyntheticBoundaries do
         do: ~r/Unsafe migration journal/,
         else: ~r/Invalid migration journal/
 
-    {"lovelace.vault.migrate", ["STOPPED\n"], expected}
+    {"monolith.vault.migrate", ["STOPPED\n"], expected}
   end
 
   defp terminal_reads(count \\ 0) do

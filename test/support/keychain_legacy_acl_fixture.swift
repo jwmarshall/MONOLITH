@@ -28,7 +28,7 @@ func restrictToOwner(_ item: SecKeychainItem) {
           let owner = owner else { finish(false) }
     var access: SecAccess?
     // A nonempty, explicit owner list; nil would default to the creating application.
-    guard SecAccessCreate("LOVELACE synthetic legacy owner" as CFString, [owner] as CFArray, &access) == errSecSuccess,
+    guard SecAccessCreate("MONOLITH synthetic legacy owner" as CFString, [owner] as CFArray, &access) == errSecSuccess,
           let access = access, SecKeychainItemSetAccess(item, access) == errSecSuccess else { finish(false) }
 }
 
@@ -52,7 +52,7 @@ guard !text.isEmpty, text.utf8.count <= 16 * 1024,
 let target = (request["target"] as? String) ?? "legacy"
 guard target == "legacy" || target == "destination" else { finish(false) }
 let directory = target == "legacy" ? root + "/legacy" : root
-let path = directory + "/lovelace.keychain-db"
+let path = directory + "/monolith.keychain-db"
 guard privatePath(directory, directory: true), privatePath(path, directory: false) else { finish(false) }
 guard ["add", "verify"].contains(operation) else { finish(false) }
 inputDeadline.cancel()
@@ -60,7 +60,7 @@ DispatchQueue.global().asyncAfter(deadline: .now() + 30) { _exit(124) }
 var opened: SecKeychain?
 guard SecKeychainOpen(path, &opened) == errSecSuccess, let keychain = opened else { finish(false) }
 let account = "11234567-89ab-cdef-0123-456789abcdef"
-let service = "LOVELACE Gmail"
+let service = "MONOLITH Gmail"
 let value = Data(text.utf8)
 if operation == "add" {
     var item: SecKeychainItem?

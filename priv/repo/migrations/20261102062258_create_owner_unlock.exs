@@ -1,4 +1,4 @@
-defmodule Lovelace.Repo.Migrations.CreateOwnerUnlock do
+defmodule Monolith.Repo.Migrations.CreateOwnerUnlock do
   @moduledoc """
   Updates resources based on their most recent snapshots.
 

@@ -2,7 +2,7 @@ import {createBrandReveal} from "./hooks/brand_reveal.js"
 
 // This tab-session boolean is presentation state only. A previous installation
 // on the same origin must not suppress a fresh session's introduction.
-const SEEN_KEY = "lovelace:first-run-entrance:session:v1"
+const SEEN_KEY = "monolith:first-run-entrance:session:v1"
 
 function claimEntrance(view) {
   try {
@@ -32,7 +32,7 @@ export function initFirstRunEntrance(document = window.document) {
   let finished = false
   const wasInert = main.hasAttribute("inert")
   const cleanup = () => {
-    brand.removeEventListener("lovelace:brand-complete", onComplete)
+    brand.removeEventListener("monolith:brand-complete", onComplete)
     view.removeEventListener("keydown", onKeydown)
     view.removeEventListener("pagehide", onPagehide)
     animation?.destroy()
@@ -59,7 +59,7 @@ export function initFirstRunEntrance(document = window.document) {
 
   try {
     animation = createBrandReveal(brand)
-    brand.addEventListener("lovelace:brand-complete", onComplete)
+    brand.addEventListener("monolith:brand-complete", onComplete)
     view.addEventListener("keydown", onKeydown)
     view.addEventListener("pagehide", onPagehide)
     main.setAttribute("inert", "")

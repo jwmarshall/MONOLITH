@@ -85,7 +85,7 @@ function workspace(t, minutes = "3") {
       assert.ok(["focus-command", "reset-command"].includes(command))
       stickyPressed = command === "focus-command" ? "true" : "false"
       pane.setAttribute("aria-pressed", stickyPressed)
-      brandEvents.push(command === "focus-command" ? "lovelace:brand-focus" : "lovelace:brand-reset")
+      brandEvents.push(command === "focus-command" ? "monolith:brand-focus" : "monolith:brand-reset")
     }}),
   })
   hook.mounted()
@@ -106,7 +106,7 @@ test("three-minute deadline resets both focal plane and brand without blurring c
   clock.advance(1)
   assert.equal(pane.getAttribute("aria-pressed"), "false")
   assert.deepEqual(commands, ["reset-command"])
-  assert.deepEqual(brandEvents, ["lovelace:brand-reset"])
+  assert.deepEqual(brandEvents, ["monolith:brand-reset"])
   assert.equal(document.activeElement, control)
 })
 
@@ -144,7 +144,7 @@ test("click and keyboard wake even when controls retained focus, without consumi
       const event = document.emit(type, {key: "a", target: control})
       assert.equal(event.defaultPrevented, undefined)
       assert.equal(pane.getAttribute("aria-pressed"), "true")
-      assert.deepEqual(brandEvents, ["lovelace:brand-reset", "lovelace:brand-focus"])
+      assert.deepEqual(brandEvents, ["monolith:brand-reset", "monolith:brand-focus"])
       assert.equal(document.activeElement, control)
       clock.advance(180_000)
       assert.equal(pane.getAttribute("aria-pressed"), "false")
@@ -189,7 +189,7 @@ test("visibility elapsed time counts even when hidden timers were throttled", t 
   document.hidden = false
   document.emit("visibilitychange")
   assert.equal(pane.getAttribute("aria-pressed"), "false")
-  assert.deepEqual(brandEvents, ["lovelace:brand-reset"])
+  assert.deepEqual(brandEvents, ["monolith:brand-reset"])
   document.emit("click")
   assert.equal(pane.getAttribute("aria-pressed"), "true")
 })
@@ -209,7 +209,7 @@ test("first input after sleep resets then replays brand even before a timer call
   const {clock, document, brandEvents} = workspace(t)
   clock.advance(300_000, false)
   document.emit("keydown", {key: "a"})
-  assert.deepEqual(brandEvents, ["lovelace:brand-reset", "lovelace:brand-focus"])
+  assert.deepEqual(brandEvents, ["monolith:brand-reset", "monolith:brand-focus"])
 })
 
 test("patches preserve activity deadline and sticky idle/focus state", t => {
@@ -257,7 +257,7 @@ test("an open modal suspends scenery resets across deadlines, patches, sleep and
   assert.deepEqual(commands, [])
   assert.equal(clock.timers.size, 0, "overdue modal does not spin a one-millisecond timer")
   root.modal = null
-  document.emit("lovelace:modal-closed")
+  document.emit("monolith:modal-closed")
   clock.advance(179_999)
   assert.deepEqual(commands, [])
   clock.advance(1)

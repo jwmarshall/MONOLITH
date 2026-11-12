@@ -1,5 +1,5 @@
 @import "tailwindcss" source(none);
-@import "phoenix-colocated/lovelace/colocated.css";
+@import "phoenix-colocated/monolith/colocated.css";
 @import "./themes.css";
 @import "./mail.css";
 @import "./workspaces.css";
@@ -12,8 +12,8 @@
 @import "./onboarding.css";
 @source "../css";
 @source "../js";
-@source "../../lib/lovelace_web";
-@source "../../_build/dev/phoenix-colocated/lovelace/*/";
+@source "../../lib/monolith_web";
+@source "../../_build/dev/phoenix-colocated/monolith/*/";
 
 @plugin "../vendor/heroicons";
 

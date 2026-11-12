@@ -4,7 +4,7 @@
 
 The expanded [MONOLITH study](../design-concepts/monolith-study/index.html) is the approved visual/content target. [README](../README.md#monolith-designer-study) commits the redesign and rebrand; the original ten concepts are alternatives, not additional requirements. This document distills that target into implementation rules. It does not migrate the application or authorize provider work.
 
-The approved rebrand is the full application identity: MONOLITH in prose/UI, `:monolith` for OTP/configuration, `Monolith`/`MonolithWeb` modules, `monolith` project-owned libraries, paths, commands, storage/keychain names and tooling, and `MONOLITH_*` environment variables. Third-party names remain upstream-owned. Current source still uses LOVELACE identifiers until the implementation cutover; inspect real current owners, then migrate every affected caller to the target. Old names are current evidence, not a permanent requirement.
+The approved rebrand is the full application identity: MONOLITH in prose/UI, `:monolith` for OTP/configuration, `Monolith`/`MonolithWeb` modules, `monolith` project-owned libraries, paths, commands, storage/keychain names and tooling, and `MONOLITH_*` environment variables. Third-party names remain upstream-owned. Phase 1 uses the MONOLITH codebase/runtime identifiers while preserving browser-visible LOVELACE copy, artwork and presentation. No visual surface is selected by the codebase-only cutover.
 
 There are no users and existing local data is replaceable. This pre-user cutover requires no data-preservation migration, credential transfer, backward compatibility or legacy aliases. Preparing enforcement artifacts does not rename application source or perform storage operations. Ordinary security and authorization requirements still apply to actual effects; preserve authentication, safe requested destinations, account/generation fences, durable-work ownership and provider consent.
 
@@ -122,7 +122,7 @@ Prove keyboard access, visible focus, 320px layout, 200% text zoom and 400% page
 
 ## Conflicts and non-rules
 
-- `voice.js:30,49` still describes study-only naming. That wording is stale: the approved target includes the full application/runtime/library/tooling rename, not only display identity. Current LOVELACE source paths and commands remain acquisition pointers until cutover, not normative exceptions to the target.
+- `voice.js:30,49` still describes study-only naming. That wording is stale: the approved target includes the full application/runtime/library/tooling rename, not only display identity. Application source paths and commands now use MONOLITH; browser presentation remains intentionally unmigrated in phase 1.
 - Old UI contract palettes, top navigation, old identity/motion, unknown-signal visuals and workspace management presentation conflict with the target. Replace only the selected presentation; keep security/state invariants, including no implication that unknown means an active check. Do not require both old and new visuals simultaneously.
 - Generic no-arrow guidance conflicts with arrows in identity/unlock examples. Follow explicit ordinary-navigation guidance; do not invent a universal icon ban or mechanically enforce every specimen string. Native modal shadow/backdrop is a scoped source exception, not a content-card convention.
 - Combined proof/sidebar Escape has a source mismatch: `study.js:552–556` cancels active Identity playback and returns before collapsing expanded navigation, while Components requires sidebar collapse/focus return. Preserve both cancellation and navigation requirements when implementing that combined state; do not copy the early-return conflict. This source finding is not a browser-certified failure on Home/Workspaces, where proof playback is absent.
@@ -139,7 +139,7 @@ Use `monolith-rebrand-implementation` before a scoped cutover and `monolith-desi
 | Source review | Target and standard `file:line`, concrete failure scenario, severity, rule coverage checked/not applicable/unresolved; no fabricated baseline |
 | Runtime acceptance | Exercise the changed surface: actual routes/states/output modes and browser evidence for UI; real module/configuration/command behavior for codebase-only changes. No browser gate for a nonvisual-only change |
 | Regression paths | Sidebar/Escape precedence, modal restoration, deep links/history, first-input wake/drafts, honest unknown/stale/failure, account-switch fences, teardown as affected |
-| Project checks | Inspect actual wrappers: currently `bin/lovelace check`, `bin/lovelace audit`, UI `bin/lovelace mix test.ui`; the codebase cutover must migrate these and their callers to `bin/monolith`. Report failures/unrun checks separately |
+| Project checks | Use `bin/monolith check`, `bin/monolith audit`, and, for affected UI behavior, `bin/monolith mix test.ui`. Report failures/unrun checks separately |
 
 Acceptance requires no confirmed mandatory-rule violations and no unresolved verdict-essential evidence within the selected scope. Subjective polish is advisory; do not invent pixel tolerances or demand unrelated rebrand completion. Missing browser evidence prevents a visual-verification pass, not a scoped source-only verdict when source evidence is complete.
 

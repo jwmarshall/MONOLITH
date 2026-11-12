@@ -1,10 +1,10 @@
-defmodule Lovelace.TestSupport.SceneGeneration do
+defmodule Monolith.TestSupport.SceneGeneration do
   @moduledoc "Explicit fake-provider execution for manually queued scenery jobs."
 
   import ExUnit.Assertions
 
-  alias Lovelace.StageDesigner
-  alias Lovelace.StageDesigner.{Attempt, Generation, Image, Models}
+  alias Monolith.StageDesigner
+  alias Monolith.StageDesigner.{Attempt, Generation, Image, Models}
 
   @service %{role: :stage_designer}
   @owner %{role: :local_owner}

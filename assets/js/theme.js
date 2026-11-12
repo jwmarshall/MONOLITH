@@ -1,4 +1,4 @@
-export const THEME_KEY = "lovelace:theme"
+export const THEME_KEY = "monolith:theme"
 export const THEME_NAMES = Object.freeze({
   charcoal: "Charcoal",
   earth: "Earth",
@@ -16,7 +16,7 @@ export function normalizeTheme(value) {
 
 function announceTheme(document) {
   const window = document.defaultView
-  window.dispatchEvent(new window.Event("lovelace:theme-change"))
+  window.dispatchEvent(new window.Event("monolith:theme-change"))
 }
 
 // Called by the synchronous, self-hosted head entry before styles are loaded.

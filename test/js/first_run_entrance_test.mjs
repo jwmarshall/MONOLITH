@@ -3,8 +3,8 @@ import test from "node:test"
 import {initFirstRunEntrance} from "../../assets/js/first_run_entrance.js"
 import {gsap} from "../../assets/vendor/gsap/gsap.js"
 
-const SEEN_KEY = "lovelace:first-run-entrance:session:v1"
-const LEGACY_KEY = "lovelace:first-run-entrance:v1"
+const SEEN_KEY = "monolith:first-run-entrance:session:v1"
+const LEGACY_KEY = "monolith:first-run-entrance:v1"
 
 class Target extends EventTarget {
   attributes = new Map()
@@ -106,7 +106,7 @@ test("first eligible visit claims a tab-session marker and gates main only until
   assert.deepEqual(current.storageAccesses, ["sessionStorage"])
   assert.equal(current.main.hasAttribute("inert"), true)
   assert.equal(current.brand.hidden, false)
-  current.brand.emit("lovelace:brand-complete")
+  current.brand.emit("monolith:brand-complete")
   assertUsable(current)
   assert.equal(current.document.activeElement, current.heading)
   assert.equal(current.view.listenerCount, 0)
@@ -247,7 +247,7 @@ test("completion does not replace focus established outside main", t => {
   current.start()
   const skipLink = {}
   current.document.activeElement = skipLink
-  current.brand.emit("lovelace:brand-complete")
+  current.brand.emit("monolith:brand-complete")
   assertUsable(current)
   assert.equal(current.document.activeElement, skipLink)
 })
@@ -281,7 +281,7 @@ test("repeated initialization does not restart or duplicate an active entrance",
   assert.equal(current.main.hasAttribute("inert"), true)
   assert.equal(current.view.listenerCount, viewListeners)
   assert.equal(current.brand.listenerCount, brandListeners)
-  current.brand.emit("lovelace:brand-complete")
+  current.brand.emit("monolith:brand-complete")
   assertUsable(current)
   assert.equal(current.view.listenerCount, 0)
   assert.equal(current.brand.listenerCount, 0)

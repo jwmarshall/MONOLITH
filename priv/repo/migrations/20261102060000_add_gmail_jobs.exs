@@ -1,4 +1,4 @@
-defmodule Lovelace.Repo.Migrations.AddGmailJobs do
+defmodule Monolith.Repo.Migrations.AddGmailJobs do
   use Ecto.Migration
 
   def up, do: Oban.Migration.up()

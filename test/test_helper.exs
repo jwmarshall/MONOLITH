@@ -1,2 +1,2 @@
 ExUnit.start(exclude: [attended_keychain: true])
-Ecto.Adapters.SQL.Sandbox.mode(Lovelace.Repo, :manual)
+Ecto.Adapters.SQL.Sandbox.mode(Monolith.Repo, :manual)

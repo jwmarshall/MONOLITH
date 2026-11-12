@@ -1,4 +1,4 @@
-# Read-only Google Calendar in LOVELACE
+# Read-only Google Calendar in MONOLITH
 
 ## Scope and setup
 
@@ -18,7 +18,7 @@ while workspace and Connections layouts retain their existing controls and healt
 3. Complete the encrypted owner setup or stopped-application migration described in
    [GMAIL.md](GMAIL.md); never reset a private database or apply plaintext SQLite tooling
    to the encrypted database.
-4. Start LOVELACE with `bin/lovelace server` and unlock. During onboarding, connect Gmail,
+4. Start MONOLITH with `bin/monolith server` and unlock. During onboarding, connect Gmail,
    then use **Calendar (optional) → Enable read-only Calendar**, or skip Calendar and
    retain Gmail alone. The account's email is shown before consent; choose that same
    Google account. Later, **Connections → Calendar** offers the same opt-in authorization
@@ -62,10 +62,10 @@ credential failure can still require reconnecting the shared connection.
 
 The browser's `/onboarding/project` and `/onboarding/authentication` steps include the
 Calendar API and both scopes above alongside Gmail setup. The optional stopped-terminal
-`bin/lovelace mix lovelace.google.configure` maintenance workflow, testing-mode token
+`bin/monolith mix monolith.google.configure` maintenance workflow, testing-mode token
 lifetime, local-only OAuth flow, owner session security and dedicated-keychain/signing
 limitations in [GMAIL.md](GMAIL.md) also apply. Runtime Google client ID/secret environment
-variables are ignored. Calendar shares the dedicated password-unlocked LOVELACE keychain
+variables are ignored. Calendar shares the dedicated password-unlocked MONOLITH keychain
 credential; no native helper rebuild or permission repair is needed to add Calendar.
 There is no password recovery. Do not paste credentials, OAuth callback URLs or real
 calendar contents into tests or reports.
@@ -80,7 +80,7 @@ new dependency is required. The day is rechecked on a timer and visibility/resum
 
 A connection retains one browser-day context at a time. Browsers in different timezones
 may replace that context; a view never presents a different context's events as its own.
-Polling targets three minutes via Calendar's independent minute Oban sweep while LOVELACE runs
+Polling targets three minutes via Calendar's independent minute Oban sweep while MONOLITH runs
 unlocked. Both Calendar workers use the dedicated `:calendar` queue at concurrency one;
 Calendar recovery does not wait for Gmail's sweep to complete. Each sweep examines at most
 100 expired and 100 due contexts. It stops requesting an expired day until a browser supplies the next day.
@@ -103,7 +103,7 @@ entries whose calendar timezone differs from the browser's.
 
 The account-scoped cache contains minimal event text in **SQLCipher-encrypted SQLite**,
 retained for at most 24 hours and never served after expiry. Its independently generated
-database key lives in the dedicated LOVELACE keychain. Cleanup runs only while unlocked;
+database key lives in the dedicated MONOLITH keychain. Cleanup runs only while unlocked;
 logical deletion is not forensic erasure from SQLite pages/WAL/backups or browser copies.
 Retained legacy plaintext databases, sidecars and login-keychain secrets remain exposed
 under their old protections until explicitly deleted during terminal migration; deletion
@@ -119,14 +119,14 @@ Calendar destinations and are followed only by an explicit click.
 
 ## Application boundaries
 
-`Lovelace.Calendar.catalog/2` is the authorized, provider-free catalog capability used by
+`Monolith.Calendar.catalog/2` is the authorized, provider-free catalog capability used by
 onboarding. It selects only catalog metadata from protected storage, never cached events
 or an event-bearing agenda. Calendar owns the catalog's 24-hour freshness, loading/error
 states, independent bounded-result/selection warnings, selection limit and cooldown deadline.
 Onboarding adds its workspace/account/generation fence and uses Calendar actions for every
 mutation; it does not query Calendar persistence or reconstruct Calendar policy.
 
-`Lovelace.Google.Access` is the single shared Google identity/credential coordination owner.
+`Monolith.Google.Access` is the single shared Google identity/credential coordination owner.
 Gmail and Calendar use the same account and subject serialization, generation checks and
 refresh-token rotation. Optional Calendar consent checks the expected current generation
 under that serializer. Unbound Gmail consent also rechecks its captured subject connection
@@ -139,8 +139,8 @@ Mail operations. The existing shared-credential admission gate still respects an
 Gmail rate limit; Calendar provider failures/cooldowns remain Calendar-owned and do not
 overwrite Gmail health.
 
-`Lovelace.Calendar.Provider` owns the typed bounded-page contract; the concrete
-`Lovelace.Integrations.Google.Calendar` adapter and synthetic fakes implement it.
+`Monolith.Calendar.Provider` owns the typed bounded-page contract; the concrete
+`Monolith.Integrations.Google.Calendar` adapter and synthetic fakes implement it.
 Calendar-list and expanded-event calls return at most 100 items with explicit truncation,
 finite safe error atoms and a finite whole-operation deadline. Adapters do not follow
 pagination or establish persisted freshness. Calendar retains responsibility for exact

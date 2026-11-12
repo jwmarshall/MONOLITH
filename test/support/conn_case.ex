@@ -1,4 +1,4 @@
-defmodule LovelaceWeb.ConnCase do
+defmodule MonolithWeb.ConnCase do
   @moduledoc """
   This module defines the test case to be used by
   tests that require setting up a connection.
@@ -11,7 +11,7 @@ defmodule LovelaceWeb.ConnCase do
   we enable the SQL sandbox, so changes done to the database
   are reverted at the end of every test. If you are using
   PostgreSQL, you can even run database tests asynchronously
-  by setting `use LovelaceWeb.ConnCase, async: true`, although
+  by setting `use MonolithWeb.ConnCase, async: true`, although
   this option is not recommended for other databases.
   """
 
@@ -20,19 +20,19 @@ defmodule LovelaceWeb.ConnCase do
   using do
     quote do
       # The default endpoint for testing
-      @endpoint LovelaceWeb.Endpoint
+      @endpoint MonolithWeb.Endpoint
 
-      use LovelaceWeb, :verified_routes
+      use MonolithWeb, :verified_routes
 
       # Import conveniences for testing with connections
       import Plug.Conn
       import Phoenix.ConnTest
-      import LovelaceWeb.ConnCase
+      import MonolithWeb.ConnCase
     end
   end
 
-  alias Lovelace.Owner
-  alias Lovelace.Owner.Actions
+  alias Monolith.Owner
+  alias Monolith.Owner.Actions
 
   def authenticate_owner(conn) do
     Owner.configure!("fixture-only local owner password", actor: %{role: :owner_setup})
@@ -48,7 +48,7 @@ defmodule LovelaceWeb.ConnCase do
   end
 
   setup tags do
-    Lovelace.DataCase.setup_sandbox(tags)
+    Monolith.DataCase.setup_sandbox(tags)
     {:ok, conn: Phoenix.ConnTest.build_conn(:get, "http://localhost/")}
   end
 end

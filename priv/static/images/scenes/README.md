@@ -1,6 +1,6 @@
-# Bundled LOVELACE scenery
+# Bundled MONOLITH scenery
 
-These seven JPEGs are owner-supplied project artwork from LOVELACE's local scenery
+These seven JPEGs are owner-supplied project artwork from MONOLITH's local scenery
 storage. The owner authorized copying them into the repository for default-install
 use. Three are active installation defaults; four are retained for later use.
 They are not third-party stock assets; no separate third-party artwork license was
@@ -27,7 +27,7 @@ Additional owner-supplied backgrounds, reserved for later default-install use:
 - `d6ba581dff3dda5e59ce6852837d3bd7a0ef86c78d259d80377056d4c392aaa4.jpg`
 - `f1d3a75d7be66052c477ea78337c987d74643cbc127fb10bd5626093f4ce9e62.jpg`
 
-`Lovelace.StageDesigner.BundledScenes` still allowlists only the three current
+`Monolith.StageDesigner.BundledScenes` still allowlists only the three current
 defaults. Adding these four assets does not change selection or app behavior.
 The local Ash default-scene singleton chooses one current default when encrypted
 persistence first starts after owner unlock and preserves it across restarts.

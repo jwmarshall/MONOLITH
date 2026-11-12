@@ -2,30 +2,30 @@
 if Mix.env() != :test, do: Mix.raise("UI regressions require MIX_ENV=test")
 
 browser =
-  System.get_env("LOVELACE_BROWSER") || System.find_executable("chromium") ||
+  System.get_env("MONOLITH_BROWSER") || System.find_executable("chromium") ||
     System.find_executable("chromium-browser") || System.find_executable("google-chrome") ||
     "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
 
 unless File.regular?(browser),
-  do: Mix.raise("Install Chrome/Chromium or set LOVELACE_BROWSER to its executable")
+  do: Mix.raise("Install Chrome/Chromium or set MONOLITH_BROWSER to its executable")
 
-root = Path.join(System.tmp_dir!(), "lovelace-ui-#{Ecto.UUID.generate()}")
+root = Path.join(System.tmp_dir!(), "monolith-ui-#{Ecto.UUID.generate()}")
 File.mkdir_p!(root)
 File.chmod!(root, 0o700)
 
 # No test may fall through to a real provider or credential operation. These are
 # synthetic read-only responses; the normal test-build guards also remain.
-defmodule Lovelace.UIFixture do
+defmodule Monolith.UIFixture do
   @moduledoc false
-  @behaviour Lovelace.Calendar.Provider
+  @behaviour Monolith.Calendar.Provider
 
-  alias Lovelace.TestSupport.PNG
+  alias Monolith.TestSupport.PNG
 
   def get("00000000-0000-4000-8000-000000000005"), do: {:error, :locked}
   def get(_id), do: {:ok, "synthetic-refresh"}
   def put(_id, _token), do: :ok
   def delete(_id), do: :ok
-  @spec refresh(binary()) :: {:ok, Lovelace.Google.OAuthProvider.tokens()}
+  @spec refresh(binary()) :: {:ok, Monolith.Google.OAuthProvider.tokens()}
   def refresh("synthetic-refresh"),
     do: {:ok, %{access_token: "synthetic-access", expires_in: 3600}}
 
@@ -103,8 +103,8 @@ defmodule Lovelace.UIFixture do
     ])
   end
 
-  @spec inbox(binary(), Lovelace.Mail.Provider.page_token()) ::
-          {:ok, Lovelace.Mail.Provider.page()}
+  @spec inbox(binary(), Monolith.Mail.Provider.page_token()) ::
+          {:ok, Monolith.Mail.Provider.page()}
   def inbox("synthetic-access", _page) do
     threads =
       for number <- 1..20 do
@@ -121,11 +121,11 @@ defmodule Lovelace.UIFixture do
     {:ok, %{threads: threads, next_page_token: nil}}
   end
 
-  @spec search(binary(), binary(), Lovelace.Mail.Provider.page_token()) ::
-          {:ok, Lovelace.Mail.Provider.page()}
+  @spec search(binary(), binary(), Monolith.Mail.Provider.page_token()) ::
+          {:ok, Monolith.Mail.Provider.page()}
   def search("synthetic-access", _query, _page), do: inbox("synthetic-access", nil)
 
-  @spec thread(binary(), binary()) :: {:ok, Lovelace.Mail.Provider.thread()}
+  @spec thread(binary(), binary()) :: {:ok, Monolith.Mail.Provider.thread()}
   def thread("synthetic-access", id) do
     # Bounded synthetic provider latency lets Chrome inspect the real loading
     # state, rather than injecting markup or racing an immediate fake response.
@@ -202,39 +202,39 @@ defmodule Lovelace.UIFixture do
 end
 
 try do
-  System.put_env("LOVELACE_STAGE_ENABLED", "false")
+  System.put_env("MONOLITH_STAGE_ENABLED", "false")
   # Apply migrations during disposable application startup, just as releases do.
   System.put_env("RELEASE_NAME", "ui-contract-test")
-  repo = Application.fetch_env!(:lovelace, Lovelace.Repo)
+  repo = Application.fetch_env!(:monolith, Monolith.Repo)
 
   Application.put_env(
-    :lovelace,
-    Lovelace.Repo,
+    :monolith,
+    Monolith.Repo,
     Keyword.merge(repo, database: Path.join(root, "test.db"), pool: DBConnection.ConnectionPool)
   )
 
-  Application.put_env(:lovelace, :gmail_provider, Lovelace.UIFixture)
-  Application.put_env(:lovelace, :gmail_vault, Lovelace.UIFixture)
-  Application.put_env(:lovelace, :calendar_provider, Lovelace.UIFixture)
-  {:ok, _} = Lovelace.TestSupport.GeminiVault.start_link([])
-  Application.put_env(:lovelace, :gemini_vault, Lovelace.TestSupport.GeminiVault)
-  {:ok, _} = Lovelace.TestSupport.OnboardingKeychain.start_link([])
-  Application.put_env(:lovelace, :google_client_keychain, Lovelace.TestSupport.OnboardingKeychain)
+  Application.put_env(:monolith, :gmail_provider, Monolith.UIFixture)
+  Application.put_env(:monolith, :gmail_vault, Monolith.UIFixture)
+  Application.put_env(:monolith, :calendar_provider, Monolith.UIFixture)
+  {:ok, _} = Monolith.TestSupport.GeminiVault.start_link([])
+  Application.put_env(:monolith, :gemini_vault, Monolith.TestSupport.GeminiVault)
+  {:ok, _} = Monolith.TestSupport.OnboardingKeychain.start_link([])
+  Application.put_env(:monolith, :google_client_keychain, Monolith.TestSupport.OnboardingKeychain)
 
-  scenery = %Lovelace.StageDesigner.Settings{
+  scenery = %Monolith.StageDesigner.Settings{
     enabled: false,
     storage_dir: Path.join(root, "scenery")
   }
 
-  Application.put_env(:lovelace, :stage_designer, scenery)
-  Application.put_env(:lovelace, :workspace_idle_minutes, 3)
+  Application.put_env(:monolith, :stage_designer, scenery)
+  Application.put_env(:monolith, :workspace_idle_minutes, 3)
 
   # Run only explicitly exercised queues against synthetic providers/credentials.
   # No plugins or automatic sweep/polling run; test transports cannot reach providers.
-  oban = Application.fetch_env!(:lovelace, Oban)
+  oban = Application.fetch_env!(:monolith, Oban)
 
   Application.put_env(
-    :lovelace,
+    :monolith,
     Oban,
     Keyword.merge(oban,
       testing: :disabled,
@@ -243,11 +243,11 @@ try do
     )
   )
 
-  endpoint = Application.fetch_env!(:lovelace, LovelaceWeb.Endpoint)
+  endpoint = Application.fetch_env!(:monolith, MonolithWeb.Endpoint)
 
   Application.put_env(
-    :lovelace,
-    LovelaceWeb.Endpoint,
+    :monolith,
+    MonolithWeb.Endpoint,
     Keyword.merge(endpoint,
       server: true,
       http: [ip: {127, 0, 0, 1}, port: 0],
@@ -255,9 +255,9 @@ try do
     )
   )
 
-  {:ok, _} = Application.ensure_all_started(:lovelace)
-  Lovelace.Owner.configure!("synthetic browser owner password", actor: %{role: :owner_setup})
-  {:ok, {_ip, port}} = LovelaceWeb.Endpoint.server_info(:http)
+  {:ok, _} = Application.ensure_all_started(:monolith)
+  Monolith.Owner.configure!("synthetic browser owner password", actor: %{role: :owner_setup})
+  {:ok, {_ip, port}} = MonolithWeb.Endpoint.server_info(:http)
 
   # First exercise a genuinely empty installation, using only bundled public
   # artwork and a synthetic owner. No generated catalog or provider call exists.
@@ -275,19 +275,19 @@ try do
         "bundled-default"
       ],
       into: IO.stream(:stdio, :line),
-      env: [{"LOVELACE_STAGE_ENABLED", "false"}]
+      env: [{"MONOLITH_STAGE_ENABLED", "false"}]
     )
 
   if default_status != 0, do: Mix.raise("Bundled default scenery browser regressions failed")
 
   # The full gallery requires a configured integration. Test builds reject the
   # production Gemini connector, so this synthetic key cannot reach Google.
-  :ok = Lovelace.TestSupport.GeminiVault.put(nil, "synthetic-browser-gemini-key")
+  :ok = Monolith.TestSupport.GeminiVault.put(nil, "synthetic-browser-gemini-key")
 
   owner = %{role: :local_owner}
 
   :ok =
-    Lovelace.Integrations.Google.ClientCredentials.save(
+    Monolith.Integrations.Google.ClientCredentials.save(
       "synthetic-browser-google-client",
       "synthetic-browser-google-secret"
     )
@@ -299,18 +299,18 @@ try do
   # manual generation stays available inside the automatic startup cooldown.
   now = DateTime.utc_now()
   actor = %{role: :stage_designer}
-  initial = Lovelace.StageDesigner.initialize_state!(%{}, actor: actor)
+  initial = Monolith.StageDesigner.initialize_state!(%{}, actor: actor)
 
   Enum.reduce(1..23, initial, fn number, state ->
     generated_at = DateTime.add(now, -(24 + (24 - number) * 24) * 3600, :second)
 
     reserved =
-      Lovelace.StageDesigner.reserve_state!(state, %{last_attempt_at: generated_at}, actor: actor)
+      Monolith.StageDesigner.reserve_state!(state, %{last_attempt_at: generated_at}, actor: actor)
 
     {:ok, published} =
-      Lovelace.StageDesigner.Storage.store_and_publish(
+      Monolith.StageDesigner.Storage.store_and_publish(
         scenery,
-        Lovelace.UIFixture.scene_image(number),
+        Monolith.UIFixture.scene_image(number),
         reserved,
         generated_at
       )
@@ -318,19 +318,19 @@ try do
     published
   end)
 
-  Lovelace.StageDesigner.get_state!(1, actor: actor)
-  |> Lovelace.StageDesigner.reserve_state!(%{last_attempt_at: now}, actor: actor)
-  |> Lovelace.StageDesigner.fail_state!(%{}, actor: actor)
+  Monolith.StageDesigner.get_state!(1, actor: actor)
+  |> Monolith.StageDesigner.reserve_state!(%{last_attempt_at: now}, actor: actor)
+  |> Monolith.StageDesigner.fail_state!(%{}, actor: actor)
 
-  workspace = Lovelace.Workspaces.create_workspace!("Browser studio", actor: owner)
+  workspace = Monolith.Workspaces.create_workspace!("Browser studio", actor: owner)
 
-  shared_workspace = Lovelace.Workspaces.create_workspace!("Synthetic space 1", actor: owner)
+  shared_workspace = Monolith.Workspaces.create_workspace!("Synthetic space 1", actor: owner)
 
   for number <- 2..14,
-      do: Lovelace.Workspaces.create_workspace!("Synthetic space #{number}", actor: owner)
+      do: Monolith.Workspaces.create_workspace!("Synthetic space #{number}", actor: owner)
 
   account =
-    Lovelace.Mail.save_connection!(
+    Monolith.Mail.save_connection!(
       %{
         id: Ecto.UUID.generate(),
         subject: "synthetic-browser-account",
@@ -341,7 +341,7 @@ try do
       actor: owner
     )
 
-  Lovelace.Mail.update_account!(
+  Monolith.Mail.update_account!(
     account,
     %{
       expected_generation: account.generation,
@@ -354,13 +354,13 @@ try do
   )
 
   for space <- [workspace, shared_workspace] do
-    Lovelace.Mail.attach_account!(%{workspace_id: space.id, account_id: account.id},
+    Monolith.Mail.attach_account!(%{workspace_id: space.id, account_id: account.id},
       actor: owner
     )
   end
 
   unattached =
-    Lovelace.Mail.save_connection!(
+    Monolith.Mail.save_connection!(
       %{
         id: Ecto.UUID.generate(),
         subject: "synthetic-unattached-browser-account",
@@ -370,7 +370,7 @@ try do
       actor: owner
     )
 
-  Lovelace.Mail.update_account!(
+  Monolith.Mail.update_account!(
     unattached,
     %{
       expected_generation: unattached.generation,
@@ -389,13 +389,13 @@ try do
   last = DateTime.new!(Date.add(day, 1), ~T[00:00:00]) |> DateTime.to_iso8601()
 
   {:ok, %{revision: revision}} =
-    Lovelace.Calendar.prepare(account.id, first, last, Date.to_iso8601(day), "UTC", actor: owner)
+    Monolith.Calendar.prepare(account.id, first, last, Date.to_iso8601(day), "UTC", actor: owner)
 
-  {:ok, _} = Lovelace.Calendar.poll(account.id, account.generation, revision, actor: owner)
+  {:ok, _} = Monolith.Calendar.poll(account.id, account.generation, revision, actor: owner)
 
   # Exercise real Connections density with five independent synthetic accounts.
   for number <- 3..5 do
-    Lovelace.Mail.save_connection!(
+    Monolith.Mail.save_connection!(
       %{
         id:
           if(number == 5, do: "00000000-0000-4000-8000-000000000005", else: Ecto.UUID.generate()),
@@ -407,35 +407,35 @@ try do
     )
   end
 
-  {:ok, _} = Lovelace.TestGitHub.start_link()
-  Application.put_env(:lovelace, :github_provider, Lovelace.TestGitHub)
-  Application.put_env(:lovelace, :github_keychain, Lovelace.TestGitHubKeychain)
+  {:ok, _} = Monolith.TestGitHub.start_link()
+  Application.put_env(:monolith, :github_provider, Monolith.TestGitHub)
+  Application.put_env(:monolith, :github_keychain, Monolith.TestGitHubKeychain)
 
-  Lovelace.TestGitHub.configure(
-    rows: [Lovelace.TestGitHub.row(%{"checks" => "FAILURE"})],
+  Monolith.TestGitHub.configure(
+    rows: [Monolith.TestGitHub.row(%{"checks" => "FAILURE"})],
     workflow_runs: [
-      Lovelace.TestGitHub.workflow_run(%{"conclusion" => "failure"}),
-      Lovelace.TestGitHub.workflow_run(%{"id" => 10})
+      Monolith.TestGitHub.workflow_run(%{"conclusion" => "failure"}),
+      Monolith.TestGitHub.workflow_run(%{"id" => 10})
     ]
   )
 
-  Lovelace.GitHub.save_client_credentials!(
+  Monolith.GitHub.save_client_credentials!(
     "Iv1.synthetic",
     "synthetic-browser-github-secret",
-    "lovelace-synthetic",
+    "monolith-synthetic",
     actor: owner
   )
 
-  {:ok, session} = Lovelace.Owner.unlock("synthetic browser owner password", "github-ui-fixture")
-  {:ok, _} = Lovelace.GitHub.Operations.authorize(session, Lovelace.TestGitHub.bundle())
+  {:ok, session} = Monolith.Owner.unlock("synthetic browser owner password", "github-ui-fixture")
+  {:ok, _} = Monolith.GitHub.Operations.authorize(session, Monolith.TestGitHub.bundle())
 
-  for organization <- Lovelace.GitHub.directory!(actor: owner).organizations do
-    Lovelace.GitHub.attach!(workspace.id, organization.id, actor: owner)
-    Lovelace.GitHub.poll!(organization.id, organization.generation, actor: owner)
+  for organization <- Monolith.GitHub.directory!(actor: owner).organizations do
+    Monolith.GitHub.attach!(workspace.id, organization.id, actor: owner)
+    Monolith.GitHub.poll!(organization.id, organization.generation, actor: owner)
   end
 
   # Bounded synthetic latency lets Chrome observe the durable discovery claim.
-  Lovelace.TestGitHub.configure(installation_response: {:delay, 5_000})
+  Monolith.TestGitHub.configure(installation_response: {:delay, 5_000})
 
   {_output, status} =
     System.cmd(
@@ -450,12 +450,12 @@ try do
         unattached.id
       ],
       into: IO.stream(:stdio, :line),
-      env: [{"LOVELACE_STAGE_ENABLED", "false"}]
+      env: [{"MONOLITH_STAGE_ENABLED", "false"}]
     )
 
   if status != 0, do: Mix.raise("Browser UI contract regressions failed")
 after
-  Application.stop(:lovelace)
+  Application.stop(:monolith)
   Application.stop(:oban)
   Application.stop(:ash_sqlite)
   File.rm_rf!(root)

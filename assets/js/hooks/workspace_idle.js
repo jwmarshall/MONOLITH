@@ -30,7 +30,7 @@ export default {
       this.lastActivity = this.window.Date.now()
       this.schedule()
     }
-    this.document.addEventListener("lovelace:modal-closed", this.onModalClosed)
+    this.document.addEventListener("monolith:modal-closed", this.onModalClosed)
 
     // Capture scroll (which doesn't bubble) and input without preventing its
     // normal action or moving keyboard focus. Mouse movement is never observed.
@@ -88,6 +88,6 @@ export default {
       this.document.removeEventListener(event, this.onActivity, true)
     }
     this.document.removeEventListener("visibilitychange", this.onVisibility)
-    this.document.removeEventListener("lovelace:modal-closed", this.onModalClosed)
+    this.document.removeEventListener("monolith:modal-closed", this.onModalClosed)
   },
 }

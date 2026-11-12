@@ -88,7 +88,7 @@ test("Escape is intercepted in capture, cancels only once and leaves removal to 
 test("save/cancel teardown closes and restores a patched trigger without scrolling", () => {
   const {hook, document, frames, focused, counts} = fixture()
   let closed = 0
-  document.addEventListener("lovelace:modal-closed", () => closed++)
+  document.addEventListener("monolith:modal-closed", () => closed++)
   hook.destroyed()
   assert.deepEqual(counts(), {shows: 1, closes: 1})
   assert.equal(focused.length, 1)

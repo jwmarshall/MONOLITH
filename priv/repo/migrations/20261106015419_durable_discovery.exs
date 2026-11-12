@@ -1,4 +1,4 @@
-defmodule Lovelace.Repo.Migrations.DurableDiscovery do
+defmodule Monolith.Repo.Migrations.DurableDiscovery do
   @moduledoc """
   Updates resources based on their most recent snapshots.
 

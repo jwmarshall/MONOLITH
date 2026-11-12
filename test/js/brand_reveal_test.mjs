@@ -45,7 +45,7 @@ function brand(t, {reduced = false, focused = false, enterOnReturn = null, befor
   const letters = Array.from({length: 8}, () => ({opacity: 1, rotationX: 0, yPercent: 0}))
   const el = new FakeTarget()
   el.querySelector = selector => {
-    assert.equal(selector, "#lovelace-monogram-stroke")
+    assert.equal(selector, "#monolith-monogram-stroke")
     return stroke
   }
   el.querySelectorAll = selector => {
@@ -67,7 +67,7 @@ function brand(t, {reduced = false, focused = false, enterOnReturn = null, befor
     return root
   }
   const completions = []
-  el.addEventListener("lovelace:brand-complete", event => completions.push(event))
+  el.addEventListener("monolith:brand-complete", event => completions.push(event))
   const hook = Object.assign({}, BrandReveal, {el})
   t.after(() => {
     hook.destroyed()
@@ -103,7 +103,7 @@ test("normal reveal holds, exits in the opposite direction, then completes exact
   assert.equal(hook.timeline.paused(), true)
   assert.deepEqual(completions, [])
 
-  el.emit("lovelace:brand-focus")
+  el.emit("monolith:brand-focus")
   assert.equal(restart.mock.callCount(), 1)
   assert.equal(hook.active, true)
   seek(0.5)
@@ -135,33 +135,33 @@ test("normal reveal holds, exits in the opposite direction, then completes exact
   assert.equal(stroke.strokeDashoffset, -100)
   for (const letter of letters) assert.equal(letter.opacity, 0)
   assert.equal(completions.length, 1)
-  assert.equal(completions[0].type, "lovelace:brand-complete")
+  assert.equal(completions[0].type, "monolith:brand-complete")
   assert.equal(completions[0].bubbles, true)
   assert.equal(completions[0].target, el)
 
   hook.complete()
-  el.emit("lovelace:brand-focus")
-  el.emit("lovelace:brand-reset")
+  el.emit("monolith:brand-focus")
+  el.emit("monolith:brand-reset")
   assert.equal(completions.length, 1)
 })
 
 test("duplicate focus/click signals do not restart an active animation", t => {
   const {el, hook, restart, seek} = brand(t)
-  el.emit("lovelace:brand-focus")
+  el.emit("monolith:brand-focus")
   seek(0.4)
-  el.emit("lovelace:brand-focus")
-  el.emit("lovelace:brand-focus")
+  el.emit("monolith:brand-focus")
+  el.emit("monolith:brand-focus")
   assert.equal(restart.mock.callCount(), 1)
   assert.equal(hook.timeline.time(), 0.4 * hook.timeline.labels.exit)
 })
 
 test("reset mid-animation freezes in place and a fresh focus replays from the start", t => {
   const {el, hook, restart, seek, completions, stroke, finish} = brand(t)
-  el.emit("lovelace:brand-focus")
+  el.emit("monolith:brand-focus")
   seek(0.5)
   const interruptedOffset = stroke.strokeDashoffset
   assert.ok(interruptedOffset > 0 && interruptedOffset < 100)
-  el.emit("lovelace:brand-reset")
+  el.emit("monolith:brand-reset")
   assert.equal(hook.active, false)
   assert.equal(hook.completed, false)
   assert.equal(hook.timeline.paused(), true)
@@ -169,7 +169,7 @@ test("reset mid-animation freezes in place and a fresh focus replays from the st
   assert.equal(stroke.strokeDashoffset, interruptedOffset)
   assert.deepEqual(completions, [])
 
-  el.emit("lovelace:brand-focus")
+  el.emit("monolith:brand-focus")
   assert.equal(restart.mock.callCount(), 2)
   assert.equal(hook.timeline.progress(), 0)
   assert.equal(hook.timeline.paused(), false)
@@ -180,13 +180,13 @@ test("reset mid-animation freezes in place and a fresh focus replays from the st
 
 test("completed state survives idle reset and prevents replay on resume", t => {
   const {el, hook, restart, finish, completions} = brand(t)
-  el.emit("lovelace:brand-focus")
+  el.emit("monolith:brand-focus")
   finish()
   for (let cycle = 0; cycle < 2; cycle++) {
-    el.emit("lovelace:brand-reset")
+    el.emit("monolith:brand-reset")
     assert.equal(hook.active, false)
     assert.equal(hook.completed, true)
-    el.emit("lovelace:brand-focus")
+    el.emit("monolith:brand-focus")
     assert.equal(hook.timeline.progress(), 1)
     assert.equal(hook.timeline.paused(), true)
   }
@@ -198,19 +198,19 @@ test("initial reduced motion completes immediately without restarting the timeli
   const {el, hook, restart, completions} = brand(t, {reduced: true})
   assert.equal(hook.completed, false)
   assert.deepEqual(completions, [])
-  el.emit("lovelace:brand-focus")
+  el.emit("monolith:brand-focus")
   assert.equal(hook.completed, true)
   assert.equal(hook.timeline.progress(), 1)
   assert.equal(hook.timeline.paused(), true)
   assert.equal(restart.mock.callCount(), 0)
   assert.equal(completions.length, 1)
-  el.emit("lovelace:brand-focus")
+  el.emit("monolith:brand-focus")
   assert.equal(completions.length, 1)
 })
 
 test("enabling reduced motion mid-animation completes once and disabling it does not replay", t => {
   const {el, hook, restart, seek, motion, completions} = brand(t)
-  el.emit("lovelace:brand-focus")
+  el.emit("monolith:brand-focus")
   seek(0.4)
   motion(true)
   assert.equal(hook.completed, true)
@@ -219,8 +219,8 @@ test("enabling reduced motion mid-animation completes once and disabling it does
   assert.equal(completions.length, 1)
   motion(true)
   motion(false)
-  el.emit("lovelace:brand-reset")
-  el.emit("lovelace:brand-focus")
+  el.emit("monolith:brand-reset")
+  el.emit("monolith:brand-focus")
   assert.equal(restart.mock.callCount(), 1)
   assert.equal(completions.length, 1)
 })
@@ -231,14 +231,14 @@ test("preference changes while inactive do not complete until focus resumes", t 
   assert.equal(hook.completed, false)
   assert.deepEqual(completions, [])
   motion(false)
-  el.emit("lovelace:brand-focus")
+  el.emit("monolith:brand-focus")
   seek(0.4)
-  el.emit("lovelace:brand-reset")
+  el.emit("monolith:brand-reset")
   motion(true)
   assert.equal(hook.timeline.time(), 0.4 * hook.timeline.labels.exit)
   assert.equal(hook.completed, false)
   assert.deepEqual(completions, [])
-  el.emit("lovelace:brand-focus")
+  el.emit("monolith:brand-focus")
   assert.equal(hook.completed, true)
   assert.equal(hook.timeline.paused(), true)
   assert.equal(restart.mock.callCount(), 1)
@@ -309,16 +309,16 @@ for (const order of ["entrance-first", "brand-first"]) {
               const focus = command === "shared-focus-command"
               assert.ok(focus || command === "shared-reset-command")
               setAttribute(pane, "aria-pressed", String(focus))
-              el.emit(focus ? "lovelace:brand-focus" : "lovelace:brand-reset")
+              el.emit(focus ? "monolith:brand-focus" : "monolith:brand-reset")
             },
           }),
         })
         // Node EventTarget does not bubble; forward the brand's real completion.
-        const onComplete = () => main.emit("lovelace:brand-complete")
-        el.addEventListener("lovelace:brand-complete", onComplete)
+        const onComplete = () => main.emit("monolith:brand-complete")
+        el.addEventListener("monolith:brand-complete", onComplete)
         t.after(() => {
           entranceHook.destroyed()
-          el.removeEventListener("lovelace:brand-complete", onComplete)
+          el.removeEventListener("monolith:brand-complete", onComplete)
         })
         if (order === "entrance-first") entranceHook.mounted()
       },
@@ -354,7 +354,7 @@ for (const order of ["entrance-first", "brand-first"]) {
     assert.equal(hook.active, false)
 
     entranceHook.js().exec(root.getAttribute("data-workspace-focus"))
-    el.emit("lovelace:brand-focus")
+    el.emit("monolith:brand-focus")
     assert.equal(pane.getAttribute("aria-pressed"), "true")
     assert.equal(restart.mock.callCount(), 0)
     assert.equal(completions.length, 1)
@@ -363,15 +363,15 @@ for (const order of ["entrance-first", "brand-first"]) {
 
 test("reset during the exit keeps the gate closed and fresh focus restarts at normal speed", t => {
   const {hook, el, seek, exit, restart, completions, finish, stroke, letters} = brand(t)
-  el.emit("lovelace:brand-focus")
+  el.emit("monolith:brand-focus")
   seek(1)
   exit(0.7)
-  el.emit("lovelace:brand-reset")
+  el.emit("monolith:brand-reset")
   assert.equal(hook.active, false)
   assert.equal(hook.timeline.paused(), true)
   assert.equal(hook.completed, false)
   assert.deepEqual(completions, [])
-  el.emit("lovelace:brand-focus")
+  el.emit("monolith:brand-focus")
   assert.equal(restart.mock.callCount(), 2)
   assert.equal(hook.exiting, false)
   assert.equal(hook.timeline.timeScale(), 1)
@@ -390,7 +390,7 @@ test("reset during the exit keeps the gate closed and fresh focus restarts at no
 
 test("enabling reduced motion during the exit completes immediately without replay", t => {
   const {hook, el, seek, exit, motion, completions} = brand(t)
-  el.emit("lovelace:brand-focus")
+  el.emit("monolith:brand-focus")
   seek(1)
   exit(0.4)
   motion(true)
@@ -398,14 +398,14 @@ test("enabling reduced motion during the exit completes immediately without repl
   assert.equal(hook.timeline.paused(), true)
   assert.equal(completions.length, 1)
   motion(false)
-  el.emit("lovelace:brand-focus")
+  el.emit("monolith:brand-focus")
   assert.equal(hook.timeline.paused(), true)
   assert.equal(completions.length, 1)
 })
 
 test("destroying during the exit kills the timeline without handing off", t => {
   const {hook, el, seek, completions} = brand(t)
-  el.emit("lovelace:brand-focus")
+  el.emit("monolith:brand-focus")
   seek(1)
   hook.destroyed()
   assert.equal(hook.timeline.parent, null)
@@ -414,7 +414,7 @@ test("destroying during the exit kills the timeline without handing off", t => {
 
 test("destruction removes hook and preference listeners and reverts the GSAP context", t => {
   const {el, preference, hook, seek, motion, restart, completions, stroke, letters} = brand(t)
-  el.emit("lovelace:brand-focus")
+  el.emit("monolith:brand-focus")
   seek(0.5)
   const revert = t.mock.method(hook.context, "revert")
   assert.equal(el.listenerCount, 3) // Two hook listeners plus the test completion observer.
@@ -425,8 +425,8 @@ test("destruction removes hook and preference listeners and reverts the GSAP con
   assert.equal(preference.listenerCount, 0)
   assert.equal(stroke.strokeDashoffset, 0)
   for (const letter of letters) assert.equal(letter.opacity, 1)
-  el.emit("lovelace:brand-reset")
-  el.emit("lovelace:brand-focus")
+  el.emit("monolith:brand-reset")
+  el.emit("monolith:brand-focus")
   motion(true)
   assert.equal(restart.mock.callCount(), 1)
   assert.deepEqual(completions, [])

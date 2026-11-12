@@ -1,4 +1,4 @@
-defmodule Lovelace.DataCase do
+defmodule Monolith.DataCase do
   @moduledoc """
   This module defines the setup for tests requiring
   access to the application's data layer.
@@ -10,7 +10,7 @@ defmodule Lovelace.DataCase do
   we enable the SQL sandbox, so changes done to the database
   are reverted at the end of every test. If you are using
   PostgreSQL, you can even run database tests asynchronously
-  by setting `use Lovelace.DataCase, async: true`, although
+  by setting `use Monolith.DataCase, async: true`, although
   this option is not recommended for other databases.
   """
 
@@ -20,17 +20,17 @@ defmodule Lovelace.DataCase do
 
   using do
     quote do
-      alias Lovelace.Repo
+      alias Monolith.Repo
 
       import Ecto
       import Ecto.Changeset
       import Ecto.Query
-      import Lovelace.DataCase
+      import Monolith.DataCase
     end
   end
 
   setup tags do
-    Lovelace.DataCase.setup_sandbox(tags)
+    Monolith.DataCase.setup_sandbox(tags)
     :ok
   end
 
@@ -38,7 +38,7 @@ defmodule Lovelace.DataCase do
   Sets up the sandbox based on the test tags.
   """
   def setup_sandbox(tags) do
-    pid = Sandbox.start_owner!(Lovelace.Repo, shared: not tags[:async])
+    pid = Sandbox.start_owner!(Monolith.Repo, shared: not tags[:async])
     on_exit(fn -> Sandbox.stop_owner(pid) end)
   end
 

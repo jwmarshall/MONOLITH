@@ -1,4 +1,4 @@
-defmodule Lovelace.Repo.Migrations.CreateWorkspaces do
+defmodule Monolith.Repo.Migrations.CreateWorkspaces do
   @moduledoc """
   Updates resources based on their most recent snapshots.
 

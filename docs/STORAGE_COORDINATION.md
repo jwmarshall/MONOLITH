@@ -1,4 +1,4 @@
-# LOVELACE stage storage coordination
+# MONOLITH stage storage coordination
 
 ## Scope and lock identity
 
@@ -146,7 +146,7 @@ committed publication or marking it as a failed generation/retrying a paid call.
 
 ## Regression evidence
 
-`test/lovelace/stage_designer/coordination_test.exs` is synchronous and uses
+`test/monolith/stage_designer/coordination_test.exs` is synchronous and uses
 `test/support/disposable_stage_repo.ex`: two independently owned, non-sandbox,
 one-connection dynamic Repos share each freshly migrated disposable SQLite file.
 The resource's configured Repo routes through `put_dynamic_repo/1`. Every spawned

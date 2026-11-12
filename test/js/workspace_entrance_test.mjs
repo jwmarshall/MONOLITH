@@ -94,7 +94,7 @@ test("completion opens the entrance gate through sticky LiveView JS, surviving a
   assert.deepEqual(focusCalls, [])
   assert.equal(sticky.length, 0)
 
-  entrance.emit("lovelace:brand-complete")
+  entrance.emit("monolith:brand-complete")
   assert.equal(entrance.getAttribute("data-entered"), "true")
   assert.equal(content.getAttribute("inert"), null)
   assert.equal(controls.getAttribute("inert"), null)
@@ -146,7 +146,7 @@ test("return preserves an active input while opening and focusing the workspace 
 for (const active of ["pane", "body"]) {
   test(`completion focuses the heading without scrolling when focus is on ${active}`, t => {
     const {entrance, document, heading, focusCalls} = workspace(t, active)
-    entrance.emit("lovelace:brand-complete")
+    entrance.emit("monolith:brand-complete")
     assert.equal(document.activeElement, heading)
     assert.deepEqual(focusCalls, [{preventScroll: true}])
   })
@@ -155,7 +155,7 @@ for (const active of ["pane", "body"]) {
 for (const active of [{id: "workspace-name", tagName: "INPUT"}, {id: "outside-button"}, null]) {
   test(`completion does not steal existing focus (${active?.id ?? "no active element"})`, t => {
     const {entrance, content, document, focusCalls} = workspace(t, active)
-    entrance.emit("lovelace:brand-complete")
+    entrance.emit("monolith:brand-complete")
     assert.equal(document.activeElement, active)
     assert.deepEqual(focusCalls, [])
     assert.equal(content.getAttribute("inert"), null)
@@ -187,7 +187,7 @@ test("missing heading is safe for completion and the server event", t => {
   const {entrance, content, serverEvents, focusCalls} = workspace(t)
   content.querySelector = () => null
   entrance.querySelector = selector => selector === "#workspace-content" ? content : null
-  assert.doesNotThrow(() => entrance.emit("lovelace:brand-complete"))
+  assert.doesNotThrow(() => entrance.emit("monolith:brand-complete"))
   assert.doesNotThrow(() => serverEvents.get("workspace:focus-heading")({}))
   assert.deepEqual(focusCalls, [])
   assert.equal(content.getAttribute("inert"), null)
@@ -198,7 +198,7 @@ test("destruction removes both native listeners and prevents further effects", t
   assert.equal(entrance.listenerCount, 2)
   hook.destroyed()
   assert.equal(entrance.listenerCount, 0)
-  entrance.emit("lovelace:brand-complete")
+  entrance.emit("monolith:brand-complete")
   entrance.emit("focusin")
   assert.equal(entrance.getAttribute("data-entered"), "false")
   assert.equal(content.getAttribute("inert"), "")

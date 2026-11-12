@@ -62,7 +62,7 @@
     }
   ],
   "table": "connection_diagnostic_states",
-  "repo": "Elixir.Lovelace.Repo",
+  "repo": "Elixir.Monolith.Repo",
   "multitenancy": {
     "attribute": null,
     "strategy": null,

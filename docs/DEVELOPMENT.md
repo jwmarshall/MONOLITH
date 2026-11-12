@@ -1,32 +1,33 @@
-# LOVELACE development and testing
+# MONOLITH development and testing
 
-LOVELACE is the project name, always uppercase in prose and UI. The OTP app is
-`:lovelace`, modules use `Lovelace`/`LovelaceWeb`, and the Tailwind/esbuild profile is `lovelace`.
-Sources live in `lib/lovelace/` and `lib/lovelace_web/`; local databases use `lovelace_*.db`.
+MONOLITH is the codebase/runtime identity. Browser-visible LOVELACE copy, artwork and
+presentation are intentionally unchanged in phase 1. The OTP app is
+`:monolith`, modules use `Monolith`/`MonolithWeb`, and the Tailwind/esbuild profile is `monolith`.
+Sources live in `lib/monolith/` and `lib/monolith_web/`; local databases use `monolith_*.db`.
 The default UI theme is `sea-glass`. See the [visual and interaction contract](UI_CONTRACT.md).
 
 ## Local setup
 
 Use the runtime versions in `.tool-versions`. Managed local storage requires macOS,
 Apple's Command Line Tools, `pkg-config`, and SQLCipher **4.20.0** (not ordinary SQLite).
-The native helper is `priv/native/lovelace-vault`; rebuild it after native-helper changes.
+The native helper is `priv/native/monolith-vault`; rebuild it after native-helper changes.
 
 For a **new installation with no existing local data**, run:
 
 ```sh
 asdf install                 # if these runtimes are not already installed
 brew install sqlcipher pkg-config
-bin/lovelace setup
-bin/lovelace server
+bin/monolith setup
+bin/monolith server
 ```
 
-`bin/lovelace setup` fetches dependencies, rebuilds Exqlite against SQLCipher, verifies the
+`bin/monolith setup` fetches dependencies, rebuilds Exqlite against SQLCipher, verifies the
 actual in-memory SQLCipher version, builds a missing native helper, and installs/builds
 the Mix-managed Tailwind and esbuild binaries. It does **not** initialize application
 storage, an owner, a keychain, or provider credentials. An existing current helper is
 preserved; a stale/non-executable helper requires an explicit rebuild because replacing
-it can change its Keychain ACL identity. `bin/lovelace` handles the SQLCipher environment
-internally. Use `bin/lovelace help` for actions, or `bin/lovelace mix TASK` for other Mix tasks.
+it can change its Keychain ACL identity. `bin/monolith` handles the SQLCipher environment
+internally. Use `bin/monolith help` for actions, or `bin/monolith mix TASK` for other Mix tasks.
 Initial setup needs network access and native build tools. No npm install, Docker,
 separate database service, or Google credentials are required. Node is needed for
 the JavaScript hook tests in `mix check`, not asset building.
@@ -40,7 +41,7 @@ Open <http://localhost:4321>. New storage redirects to **first-run setup**:
 2. Choose and confirm your owner password (12–1024 characters, at most 1024 UTF-8 bytes)
    and acknowledge that there is **no password reset or recovery**. Forgetting it
    permanently loses access to the encrypted data. Never put passwords in shell arguments.
-3. LOVELACE creates the dedicated password-unlocked macOS file keychain, independently
+3. MONOLITH creates the dedicated password-unlocked macOS file keychain, independently
    generated database key, SQLCipher schema, and owner.
    Native creation may request macOS authorization for that dedicated keychain; use
    the same owner password. Explicit setup/migration alone can enable attended UI;
@@ -61,7 +62,7 @@ Save there, then connect accounts in **Connections → Gmail** and explicitly au
 in **Connections → Calendar**. Gemini remains a separate API-key integration.
 
 Connections keychain checks for Google, Gemini and GitHub are admitted by the
-`Lovelace.ConnectionDiagnostics` Ash domain and executed on the protected
+`Monolith.ConnectionDiagnostics` Ash domain and executed on the protected
 single-concurrency `:diagnostics` Oban queue. They inspect local credential storage,
 never provider health. Three fixed SQL slots retain only an opaque request/job
 reference, finite status, timestamps and GitHub's public app slug; credentials and
@@ -83,9 +84,9 @@ ordinary unlock resumes unfinished onboarding unless a safe requested destinatio
 precedence. Existing installations without guide state still land on Home. `/onboarding`
 reopens the saved step; **Continue setup** remains available while it is unfinished.
 
-The attended terminal tasks `lovelace.owner.setup` and `lovelace.google.configure` remain
+The attended terminal tasks `monolith.owner.setup` and `monolith.google.configure` remain
 available for explicit maintenance, not required developer setup. They and vault migration
-load `config/runtime.exs` without starting LOVELACE or queues. Production maintenance must
+load `config/runtime.exs` without starting MONOLITH or queues. Production maintenance must
 use the same `MIX_ENV=prod`, `DATABASE_PATH`, and `SECRET_KEY_BASE` as ordinary startup.
 
 Every server startup is locked. Open <http://localhost:4321> and unlock with the owner
@@ -104,14 +105,14 @@ on access, not through a continuous OS authorization monitor. Resolve native acc
 problems and unlock with the owner password; do not reset keys or reconnect accounts
 merely because storage was temporarily unreadable.
 Stop the server with Ctrl-C (twice if prompted), or use
-`bin/lovelace console` for an interactive Elixir shell running the server.
+`bin/monolith console` for an interactive Elixir shell running the server.
 
 To connect an account, follow the [Gmail setup guide](GMAIL.md); optionally add
 [Google Calendar](CALENDAR.md). Neither is connected by local setup alone.
 Scenery generation is optional; see [stage-designer setup](STAGE_DESIGNER.md)
 before enabling potentially billable requests.
 
-The server binds to `127.0.0.1:4321`; `PORT=4322 bin/lovelace server` changes the port.
+The server binds to `127.0.0.1:4321`; `PORT=4322 bin/monolith server` changes the port.
 Keep it local: owner unlock does not make network exposure safe. Development-only
 [Tidewave](#tidewave-safety) can execute code and SQL; never expose it through a tunnel.
 
@@ -122,11 +123,11 @@ Keep this path to resume the same installation; a new path means a separate inst
 The database parent must not contain symlinks (on macOS, `/tmp` and `/var` are aliases).
 
 ```sh
-fresh=$(mktemp -d "$HOME/lovelace-onboarding.XXXXXX")
-DATABASE_PATH="$fresh/lovelace.db" \
-LOVELACE_STAGE_STORAGE_DIR="$fresh/scenery" \
-LOVELACE_STAGE_ENABLED=false PORT=4322 \
-bin/lovelace server
+fresh=$(mktemp -d "$HOME/monolith-onboarding.XXXXXX")
+DATABASE_PATH="$fresh/monolith.db" \
+MONOLITH_STAGE_STORAGE_DIR="$fresh/scenery" \
+MONOLITH_STAGE_ENABLED=false PORT=4322 \
+bin/monolith server
 ```
 
 Open <http://localhost:4322> and use the pairing code from this server's terminal.
@@ -137,14 +138,14 @@ for onboarding review; Google credentials and consent are entered in the browser
 
 ### Existing plaintext data: stopped terminal migration
 
-Stop **every** LOVELACE instance before upgrading/cutover; this procedure cannot
+Stop **every** MONOLITH instance before upgrading/cutover; this procedure cannot
 secure an already-running old instance. Install prerequisites, run `mix setup` through
 the SQLCipher wrapper, and explicitly rebuild a stale helper if requested. Do **not**
 start browser owner creation against existing plaintext data.
 With all servers stopped, run in a separate local terminal:
 
 ```sh
-bin/lovelace mix lovelace.vault.migrate
+bin/monolith mix monolith.vault.migrate
 ```
 
 The task requires `STOPPED`, verifies the existing owner password through hidden input,
@@ -170,15 +171,15 @@ helper reports locked login storage, required/denied authorization, unavailable 
 storage, timeout and genuine value conflicts separately. A conflict never authorizes
 overwriting or deleting either credential.
 
-After explicitly rebuilding the helper with `bin/lovelace mix lovelace.keychain.build`,
+After explicitly rebuilding the helper with `bin/monolith mix monolith.keychain.build`,
 rerun migration with the same configuration and owner password to resume. Rebuilding
 can change the helper's Keychain identity. Only explicit migration may request
 macOS approval for legacy reads and the **existing** Database-key item; it never
 replaces that key. Verify the helper path before approving it. Choose **Always Allow**
 only for the verified helper when persistent item access is required: migration checks
 ordinary UI-disabled access before proceeding. A `login` keychain dialog uses that
-keychain's password (normally the macOS account password), not the LOVELACE owner
-password. A dedicated LOVELACE keychain dialog uses the owner password.
+keychain's password (normally the macOS account password), not the MONOLITH owner
+password. A dedicated MONOLITH keychain dialog uses the owner password.
 
 The database's `.vault` directory contains the dedicated keychain and an empty
 plaintext infrastructure-lock SQLite file, not plaintext business tables. Keep the
@@ -187,7 +188,7 @@ Native keychain lifecycle verification is attended and separately opt-in; defaul
 never post an authorization dialog. On macOS, run:
 
 ```sh
-bin/lovelace test test/lovelace/integrations/keychain_helper_io_test.exs --include attended_keychain
+bin/monolith test test/monolith/integrations/keychain_helper_io_test.exs --include attended_keychain
 ```
 
 This builds a disposable helper with login-keychain migration code compiled out and
@@ -198,7 +199,7 @@ resumption, independent database-key persistence, and ten lock/unlock cycles.
 Actual item-authorization recovery is a separate attended opt-in:
 
 ```sh
-LOVELACE_KEYCHAIN_AUTHORIZATION_SMOKE=1 bin/lovelace test test/lovelace/integrations/keychain_helper_io_test.exs --only authorization_smoke
+MONOLITH_KEYCHAIN_AUTHORIZATION_SMOKE=1 bin/monolith test test/monolith/integrations/keychain_helper_io_test.exs --only authorization_smoke
 ```
 
 It uses only disposable keychains and the same `synthetic diagnostic password`.
@@ -208,21 +209,25 @@ noninteractive read. Default checks never run these dialogs or access login cred
 
 ## Namespace and local data
 
-Use `:lovelace` for configuration/environment lookups and `Lovelace`/`LovelaceWeb`
-for application/web modules. The session cookie is `_lovelace_key`; existing browser
-sessions start fresh after the rename. No signing secrets were rotated for the rename.
+Use `:monolith` for configuration/environment lookups and `Monolith`/`MonolithWeb`
+for application/web modules. The session cookie is `_monolith_key`; browser-local
+preferences/events use the `monolith` namespace. No legacy command, configuration,
+environment-variable, service or module aliases are provided.
 
-The local development and test databases were carried forward using SQLite's backup
-API, including any WAL state, and verified with `PRAGMA quick_check`. Private rollback
-copies of the original files are under the ignored `tmp/name-change-backups.DTpCBR/`
-directory (`dev.db` and `test.db`, with sidecars if present). Keep them private; do not
-use `mix ecto.reset` as a rename or recovery procedure. Production still uses the
-explicit `DATABASE_PATH`; no production data was migrated.
+The pre-user identity cutover requires no data migration or credential transfer.
+New defaults use `monolith_dev.db`, `monolith_test.db`, `monolith.keychain-db` and
+MONOLITH keychain services. Existing private databases, keychains, backups and scenery
+are not read, renamed, copied, reset or deleted by the rename. Do not point a fresh
+MONOLITH installation at an old private vault to reuse it. Use a fresh isolated
+installation for setup; any destructive cleanup requires separate explicit approval.
+The plaintext-to-SQLCipher maintenance task above is an existing security workflow,
+not a LOVELACE-to-MONOLITH data migration.
 
-Obsolete application/colocated build output was removed and assets rebuilt, rather
-than renaming compiled BEAM files. Stop the server and restart after namespace changes;
-hot reload is not an application-identity migration. Git hosting metadata and the
-checkout folder name are separate from application identifiers and were not changed.
+Stop old servers and restart after namespace changes; hot reload is not an
+application-identity migration. Build the new `priv/native/monolith-vault` helper
+before managed setup; do not rename/reuse an old compiled helper or broaden its ACLs.
+Build output must be compiled for the new OTP application, not renamed BEAM files.
+Git hosting metadata and the checkout folder name are separate and unchanged.
 
 ## Application boundaries and background ownership
 
@@ -271,9 +276,9 @@ Narrow runtime exceptions (not namespace-wide exemptions):
 - Composition permits exactly Application→Endpoint/Web.Telemetry and Bootstrap→Endpoint
   configuration. GitHub callback URLs are supplied in runtime configuration; adapters
   validate supplied loopback paths without calling Auth. `StageDesigner.Confirmation`
-  is implemented by composed `LovelaceWeb.SceneConfirmation`; core never discovers signing.
+  is implemented by composed `MonolithWeb.SceneConfirmation`; core never discovers signing.
 
-`bin/lovelace check` runs `lovelace.architecture.check`: parsed Elixir syntax resolves
+`bin/monolith check` runs `monolith.architecture.check`: parsed Elixir syntax resolves
 aliases/imports, local/transitive static calls, captures, delegates and static MFA/apply.
 It rejects core→web, adapter→orchestration, static UI→provider, unsupported cross-domain
 persistence/capabilities and borrowed lock ownership. Exact composition exceptions have
@@ -347,15 +352,15 @@ See [stage-designer setup](STAGE_DESIGNER.md) for optional non-secret settings.
 Do not use plaintext environment variables or dotenv files to supply provider secrets.
 Google OAuth client configuration is entered through the protected `/onboarding/client`
 form and stored in the dedicated keychain, without a provider probe or environment fallback.
-The stopped-terminal `lovelace.google.configure` task remains an explicit maintenance option.
+The stopped-terminal `monolith.google.configure` task remains an explicit maintenance option.
 Gemini keys use Connections and the same
 dedicated vault; `GEMINI_API_KEY` is ignored. Saving/removing a key never generates,
 verifies provider access or changes startup opt-in. Tests/CI must use fake credentials.
 
 Stage settings control an opt-in asynchronous startup generator after the first successful
 ordinary unlock once per application startup (not page loads or subsequent relock/unlock),
-a persisted 24-hour attempt cooldown, and an uncapped published-scene catalog. `Lovelace.StageDesigner` is the first production
-Ash domain; provider work never runs in LiveView callbacks. `LOVELACE_WORKSPACE_IDLE_MINUTES`
+a persisted 24-hour attempt cooldown, and an uncapped published-scene catalog. `Monolith.StageDesigner` is the first production
+Ash domain; provider work never runs in LiveView callbacks. `MONOLITH_WORKSPACE_IDLE_MINUTES`
 controls the client-only screensaver (default three minutes). Scenes exposes the saved
 catalog through bounded 20-image pages, persistent background selection, and confirmed potentially billable manual
 requests without a manual daily cooldown. Automatic startup alone uses the persisted
@@ -372,7 +377,7 @@ additive scene-direction migration first. Unsaved edits block manual generation 
 saved/discarded, and confirmation refuses a concurrently changed saved prompt.
 Do not inject real Google credentials into tests or CI. Test runtime forces real startup
 generation off; focused provider tests inject fake keys/`Req.Test`. For maintenance,
-set `LOVELACE_STAGE_ENABLED=false` to block new automatic generations; it does not cancel
+set `MONOLITH_STAGE_ENABLED=false` to block new automatic generations; it does not cancel
 already-authorized jobs while unlocked. Full vault Lock stops queues and provider work.
 The workspace UI still runs without provider credentials when generation is disabled.
 Three owner-approved bundled JPEGs replace the default SVG; an independent Ash singleton
@@ -410,14 +415,14 @@ The same guide is available directly in **Connections → GitHub**.
 
 1. Open [Register a new GitHub App](https://github.com/settings/apps/new)
    ([GitHub registration reference](https://docs.github.com/en/apps/creating-github-apps/registering-a-github-app/registering-a-github-app)).
-   Choose a unique app name and use your local LOVELACE origin as Homepage URL.
+   Choose a unique app name and use your local MONOLITH origin as Homepage URL.
    Register a **GitHub App**, not an OAuth App.
 2. Copy the exact **Callback URL** shown in Connections. For the default server it is
    `http://localhost:4321/auth/github/callback`; a custom port must match the configured
    Endpoint origin and app registration. Use canonical `localhost`, not a different
    hostname or IP address. Leave **Expire user authorization tokens** enabled.
    Device flow is not used. Leave **Request user authorization (OAuth) during installation**
-   disabled: LOVELACE starts its own state-bound authorization.
+   disabled: MONOLITH starts its own state-bound authorization.
 3. Disable **Webhook → Active**. Set repository permissions to **Pull requests: Read-only**,
    **Issues: Read-only**, **Actions: Read-only**, and **Checks: Read-only**.
    Metadata is automatic; leave other permissions at No access. No contents, write or
@@ -428,13 +433,13 @@ The same guide is available directly in **Connections → GitHub**.
    Enter all three in **Connections → GitHub → Add app client settings**.
    A full HTTPS GitHub App URL, with an optional trailing slash, is normalized to
    the slug before saving; unrelated hosts, paths, queries and fragments are rejected.
-   Settings are saved directly into the dedicated LOVELACE keychain.
+   Settings are saved directly into the dedicated MONOLITH keychain.
    Saving does not contact GitHub, verify permissions,
    grant account access or require a restart. Never put secrets in `.env`.
 5. Choose **Choose repositories on GitHub**. Install on the desired personal accounts
    or organizations, selecting at most **100 repositories per installation**.
    Organization administrators may need to approve installation and later permission changes.
-6. Choose **Connect GitHub account**, review authorization on GitHub and return to LOVELACE.
+6. Choose **Connect GitHub account**, review authorization on GitHub and return to MONOLITH.
    Authorization uses [GitHub's web application flow](https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/generating-a-user-access-token-for-a-github-app)
    with PKCE S256 and a session-bound, single-use state expiring after ten minutes.
    `offline_access` requests an expiring access/refresh pair; it is not a repository
@@ -450,12 +455,12 @@ the owner to reload repositories/activity. Missing an organization? Check your u
 access, installation approval and selected repositories. For SAML SSO, start an active
 organization SSO session before signing in again. After permission changes, approve them
 on each installation. A callback mismatch requires the exact scheme, hostname, port and path.
-To omit optional PR check queries, set `config :lovelace, :github, checks: false`.
+To omit optional PR check queries, set `config :monolith, :github, checks: false`.
 
 Installing the app and authorizing an account are separate steps. GitHub's optional
-installation-time OAuth return has no LOVELACE-issued state and cannot connect this
+installation-time OAuth return has no MONOLITH-issued state and cannot connect this
 browser. Keep that registration option disabled and start **Connect GitHub account**
-from LOVELACE. Rejected callbacks distinguish missing state, unmatched/expired requests,
+from MONOLITH. Rejected callbacks distinguish missing state, unmatched/expired requests,
 explicit denial and other failures without displaying provider response details.
 A safe failure category survives reload so a rejected return does not misleadingly
 continue showing “waiting.” **Start connection again** starts a fresh, session-bound
@@ -463,7 +468,7 @@ request; it never retries the rejected authorization code. Older returns cannot 
 the newer pending request.
 
 GitHub's OAuth callback may include the RFC 9207 `iss` parameter. When present,
-LOVELACE requires exactly `https://github.com/login/oauth`, the
+MONOLITH requires exactly `https://github.com/login/oauth`, the
 [documented GitHub.com issuer](https://docs.github.com/en/apps/github-authentication-discovery-endpoints).
 Duplicate or mismatched issuers are rejected before consuming the authorization
 request or exchanging its code. Responses without `iss` still require the same
@@ -476,7 +481,7 @@ and refresh instead. Saved app credentials alone are never attachable integratio
 
 ### Credentials, disconnecting and migration
 
-The dedicated **LOVELACE GitHub** keychain service stores the client ID/secret/slug
+The dedicated **MONOLITH GitHub** keychain service stores the client ID/secret/slug
 configuration at a reserved UUID and one expiring access/refresh bundle per connection
 UUID. No private key, PAT or environment-credential fallback is used.
 App settings and token bundles carry a credential generation. Replacing changed settings
@@ -551,7 +556,7 @@ Keychain failure does not mean GitHub rejected access; do not rebuild/reset stor
 
 ### Read bounds and freshness
 
-`Lovelace.GitHub` owns Ash connections, installation owners, workspace memberships and
+`Monolith.GitHub` owns Ash connections, installation owners, workspace memberships and
 owner-scoped jobs. Discovery is bounded to 500 accessible installations. Snapshots use
 immutable repository IDs from the matching installation and recheck installation and
 repository access before publication. More than 100 selected repositories fails honestly
@@ -579,7 +584,7 @@ providers/keychains; the production connector is disabled in test builds.
 
 ## Saved workspaces
 
-`Lovelace.Workspaces` owns a SQLite `Workspace` resource with explicit read/create/rename
+`Monolith.Workspaces` owns a SQLite `Workspace` resource with explicit read/create/rename
 actions. All require the server-supplied `%{role: :local_owner}` capability, checked strictly
 (including missing IDs). This is **not authentication** and
 must not be reused as a multi-user access design. The protected UI now mints it only after
@@ -599,7 +604,7 @@ new installations, Home mounts, reloads, and directory refreshes never manufactu
 Later creation and rename use focused native-dialog modals with `AshPhoenix.Form`; names
 are trimmed, nonblank, and bounded to 64 characters server-side. There are deliberately
 no delete/archive actions or projects. Account connection and read-only mail are
-implemented separately in `Lovelace.Mail`.
+implemented separately in `Monolith.Mail`.
 
 `StatusComponents.status_signal/1`, `assets/css/status.css` and the `StatusSignal` hook
 share custom SVG activity/last-known-health states across Home, workspaces, mail, Calendar,
@@ -676,29 +681,30 @@ for Developer API MIME-schema findings and the PNG final-IDAT padding correction
 ## Daily commands
 
 ```sh
-bin/lovelace setup
-bin/lovelace server
-bin/lovelace console
-bin/lovelace test test/lovelace/security/developer_setup_test.exs
-bin/lovelace test test/lovelace/security/launcher_test.exs
-bin/lovelace mix format
-bin/lovelace check
-bin/lovelace audit
-bin/lovelace help
+bin/monolith setup
+bin/monolith server
+bin/monolith console
+bin/monolith test test/monolith/security/developer_setup_test.exs
+bin/monolith test test/monolith/security/launcher_test.exs
+bin/monolith mix format
+bin/monolith check
+bin/monolith audit
+bin/monolith help
 ```
 
 The launcher runs commands from the project root, preserves argument boundaries
 (including spaces and shell metacharacters), and propagates their exit status.
-Use `bin/lovelace mix TASK [arguments]` for the underlying Mix commands below.
-`bin/lovelace check` selects `MIX_ENV=test` and executes:
+Use `bin/monolith mix TASK [arguments]` for the underlying Mix commands below.
+`bin/monolith check` selects `MIX_ENV=test` and executes:
 
 1. `mix format --check-formatted`
 2. `mix lint` (compile with warnings as errors, then `mix credo --strict`)
-3. `mix security` (`mix sobelow --private --exit low`)
-4. `mix ash.codegen --check` (migration/snapshot drift)
-5. `mix test --cover` (90% minimum line coverage)
-6. `mix test.js` (native Node test runner, no npm dependencies)
-7. `mix assets.build`
+3. `mix monolith.architecture.check` (parsed-source boundary enforcement)
+4. `mix security` (`mix sobelow --private --exit low`)
+5. `mix ash.codegen --check` (migration/snapshot drift)
+6. `mix test --cover` (90% minimum line coverage)
+7. `mix test.js` (native Node test runner, no npm dependencies)
+8. `mix assets.build`
 
 `mix precommit` delegates to `mix check`. Neither fixes formatting nor updates the
 lockfile. Run `mix format` explicitly before committing. Credo includes selected
@@ -730,13 +736,13 @@ The browser pipeline retains its explicit CSP; the image endpoint has a restrict
 and `nosniff`. These are not an email sanitizer or a complete auth/security review.
 
 `mix audit` runs `mix deps.audit` and `mix hex.audit` for known security advisories
-and retired packages. Use Hex 2.6 or newer (`bin/lovelace mix local.hex --force`);
+and retired packages. Use Hex 2.6 or newer (`bin/monolith mix local.hex --force`);
 older Hex releases can report only retirements, not the current Hex advisory feed.
 Audits are intentionally separate from the local quality gate because they access
 external registries/advisory repositories. CI installs current Hex and runs both
 gates. A clean audit is a point-in-time result, not a guarantee about transitive code.
 
-Hosted CI runs the full `bin/lovelace check` gate on pull requests and pushes to
+Hosted CI runs the full `bin/monolith check` gate on pull requests and pushes to
 `main`; use the workflow's manual dispatch for a development branch without a PR.
 Branch pushes with an open PR do not create a second identical run. New commits
 cancel superseded runs for the same ref, and each job has a 25-minute deadline.
@@ -758,9 +764,9 @@ and the browser UI gate below remains separate.
 ## Browser UI regressions
 
 ```sh
-LOVELACE_STAGE_ENABLED=false mix test.ui
+MONOLITH_STAGE_ENABLED=false mix test.ui
 # If Chrome/Chromium is not in its usual location:
-LOVELACE_BROWSER=/path/to/chrome LOVELACE_STAGE_ENABLED=false mix test.ui
+MONOLITH_BROWSER=/path/to/chrome MONOLITH_STAGE_ENABLED=false mix test.ui
 ```
 
 This separate, explicit gate uses installed Chrome/Chromium and Node's built-in DevTools
@@ -773,8 +779,9 @@ Migrations and synthetic owner/workspaces/account/image fixtures are local to th
 Before publishing synthetic scenes, the runner also verifies the genuinely empty gallery
 with the public bundled default artwork, including no-JS unlock, decoded image loading,
 and the same default across static/live views, navigation, scenery wake and reload.
-Gmail/vault responses are fake, Oban is manual, real transports/vault are refused by test
-builds and generation is disabled. It does not reuse a user's server/profile/private data.
+Gmail/vault responses are fake; selected queues execute against synthetic providers with
+plugins disabled. Test builds refuse real transports/vault, and generation is disabled.
+The gate does not reuse a user's server/profile/private data.
 
 `test/browser/ui_contract.mjs` exercises the actual compiled assets and LiveView socket:
 normal entrance/directional exit and gate; corner/Lock computed visibility and focusability;
@@ -801,7 +808,7 @@ Keep component CSS on those semantic tokens; picker swatches use the same palett
 All four themes are dark, and forced colors retains system-color overrides.
 
 `assets/js/theme_boot.js` is a small synchronous, self-hosted esbuild entry loaded before CSS.
-It restores only an allowlisted `lovelace:theme` value from browser-local storage; Sea Glass is
+It restores only an allowlisted `monolith:theme` value from browser-local storage; Sea Glass is
 the fallback. The native-radio `ThemePicker` hook applies/persists selection and announces
 failed storage without pretending it saved. Preferences do not enter the database, account
 state or provider calls, and already-open tabs do not synchronize live.
@@ -812,22 +819,22 @@ selection, preserved imagery, protected deep links and narrow/forced-color layou
 
 ## Test conventions
 
-- Use `Lovelace.DataCase, async: false` for database/resource tests and the existing
-  SQL sandbox helpers. `LOVELACE_TEST_DATABASE` optionally selects a disposable test
+- Use `Monolith.DataCase, async: false` for database/resource tests and the existing
+  SQL sandbox helpers. `MONOLITH_TEST_DATABASE` optionally selects a disposable test
   database (create its parent directory first); it has no effect outside test config. Ash async execution is disabled in `config/test.exs`.
   Normal `mix test` uses unmanaged, synthetic test-only SQLite storage and sandbox
   setup, not the managed encrypted database/keychain. Never point
-  `LOVELACE_TEST_DATABASE` at a real development/production database or migration backup.
+  `MONOLITH_TEST_DATABASE` at a real development/production database or migration backup.
 - Keep ConnCase/LiveView tests synchronous because they also acquire the sandbox.
   Pure functions and isolated `Req.Test` cases may be asynchronous.
-- Launcher regression tests execute `bin/lovelace` from an unrelated directory with
+- Launcher regression tests execute `bin/monolith` from an unrelated directory with
   spaces using a temporary, fake-only `PATH`. Keep environment overrides child-local
   (`System.cmd/3`), clean up temporary files with `on_exit/1`, and assert captured
   argv/cwd/environment and exit statuses. These isolated cases may be asynchronous;
   they must never invoke real Mix, IEx, Homebrew, native helpers, or providers.
 - Create records through Ash actions or `Ash.Generator` helpers. Use `Ash.Test` for
   validation/policy assertions; test denied operations as deliberately as allowed ones.
-- Production domains go in `config :lovelace, :ash_domains`; don't register test-only
+- Production domains go in `config :monolith, :ash_domains`; don't register test-only
   resources as production domains just to appease a generator.
 - Prefer Req's built-in test plug at the actual HTTP boundary. Explicitly pass the
   injected request/client options through integration code. Never let provider tests
@@ -844,10 +851,10 @@ Their table is created transactionally within the sandbox and rolled back after 
 test. They exercise Ash reads/creates, validation, and transaction rollback without
 creating real application tables or migration snapshots.
 
-`bin/lovelace test --cover` uses Mix's built-in line coverage with an explicit
-90% threshold in `mix.exs`; `bin/lovelace check` and CI enforce the same gate.
+`bin/monolith test --cover` uses Mix's built-in line coverage with an explicit
+90% threshold in `mix.exs`; `bin/monolith check` and CI enforce the same gate.
 HTML reports are generated locally in the ignored `cover/` directory. Plain
-`bin/lovelace test` remains available for focused runs without the full-suite gate.
+`bin/monolith test` remains available for focused runs without the full-suite gate.
 No coverage service or production-module exclusions are configured.
 
 Managed-vault and terminal-maintenance scenarios run in separate BEAMs.
@@ -865,7 +872,7 @@ native authorization dialogs, or live-provider behavior.
 
 ## Ash development and migrations
 
-`Lovelace.Repo` is an `AshSqlite.Repo` (still an Ecto repo). Writes use AshSqlite's
+`Monolith.Repo` is an `AshSqlite.Repo` (still an Ecto repo). Writes use AshSqlite's
 transaction support and a single SQLite connection. Keep transactions short and do
 not hold them across network calls. There is no separate read replica/repo yet.
 
@@ -882,13 +889,13 @@ When adding a domain resource:
 4. Test from an empty database as well as the current development database.
 
 ```sh
-bin/lovelace mix ash.codegen meaningful_change_name
+bin/monolith mix ash.codegen meaningful_change_name
 # Managed migrations apply through vault unlock, not standalone ash.migrate.
 # Check generated schema drift in the synthetic test environment:
-MIX_ENV=test bin/lovelace mix ash.codegen --check
+MIX_ENV=test bin/monolith mix ash.codegen --check
 ```
 
-Codegen drift is part of `mix check` now that `Lovelace.StageDesigner` owns a production
+Codegen drift is part of `mix check` now that `Monolith.StageDesigner` owns a production
 SQLite state resource. Its migration and snapshot must stay together. The singleton's
 version-checked reservation commits before HTTP; SQLite does not support Ash's atomic
 `expr_error`, so these three updates explicitly use the record path with a SQL version

@@ -133,7 +133,7 @@ test("unsupported selections do not mutate the page or storage or announce a the
   const {document, window, writes} = browser("earth")
   restoreTheme(document)
   let announcements = 0
-  window.addEventListener("lovelace:theme-change", () => announcements++)
+  window.addEventListener("monolith:theme-change", () => announcements++)
   for (const value of ["unknown", "__proto__", "constructor", null, ["mist"], {toString: () => "mist"}]) {
     assert.equal(selectTheme(document, value), false)
   }

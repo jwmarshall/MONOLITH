@@ -2,34 +2,34 @@
 # native store only. Never starts a real credential helper or provider transport.
 import ExUnit.Assertions
 
-Lovelace.TestSupport.SubprocessCoverage.start()
+Monolith.TestSupport.SubprocessCoverage.start()
 
-alias Lovelace.Owner
-alias Lovelace.Security.{CipherKey, Database, Keychain, Vault}
+alias Monolith.Owner
+alias Monolith.Security.{CipherKey, Database, Keychain, Vault}
 
 [root] = System.argv()
 File.mkdir_p!(root)
 File.chmod!(root, 0o700)
 
-repo = Application.fetch_env!(:lovelace, Lovelace.Repo)
+repo = Application.fetch_env!(:monolith, Monolith.Repo)
 
 Application.put_env(
-  :lovelace,
-  Lovelace.Repo,
+  :monolith,
+  Monolith.Repo,
   Keyword.merge(repo, database: Path.join(root, "owner.db"), pool: DBConnection.ConnectionPool)
 )
 
-Application.put_env(:lovelace, :vault_managed, true)
+Application.put_env(:monolith, :vault_managed, true)
 
-Application.put_env(:lovelace, :stage_designer, %Lovelace.StageDesigner.Settings{
+Application.put_env(:monolith, :stage_designer, %Monolith.StageDesigner.Settings{
   enabled: false,
   storage_dir: Path.join(root, "scenery")
 })
 
 Application.put_env(
-  :lovelace,
+  :monolith,
   Oban,
-  Keyword.merge(Application.fetch_env!(:lovelace, Oban),
+  Keyword.merge(Application.fetch_env!(:monolith, Oban),
     testing: :disabled,
     queues: [gmail: 1, gemini: 1],
     plugins: []
@@ -37,13 +37,13 @@ Application.put_env(
 )
 
 Application.put_env(
-  :lovelace,
-  LovelaceWeb.Endpoint,
-  Keyword.merge(Application.fetch_env!(:lovelace, LovelaceWeb.Endpoint), server: false)
+  :monolith,
+  MonolithWeb.Endpoint,
+  Keyword.merge(Application.fetch_env!(:monolith, MonolithWeb.Endpoint), server: false)
 )
 
-defmodule Lovelace.SyntheticNativeStore do
-  alias Lovelace.Security.Keychain
+defmodule Monolith.SyntheticNativeStore do
+  alias Monolith.Security.Keychain
   def configured?, do: File.regular?(Keychain.path())
 
   def start_link,
@@ -89,38 +89,38 @@ defmodule Lovelace.SyntheticNativeStore do
       Agent.get(__MODULE__, fn state -> {:ok, if(state.locked, do: :locked, else: :unlocked)} end)
 end
 
-defmodule Lovelace.SyntheticVaultHeartbeat do
+defmodule Monolith.SyntheticVaultHeartbeat do
   use Oban.Worker, queue: :gmail, max_attempts: 1
   @impl true
   def perform(%Oban.Job{args: %{"tag" => tag}}) do
-    send(Process.whereis(:lovelace_vault_observer), {:heartbeat, tag})
+    send(Process.whereis(:monolith_vault_observer), {:heartbeat, tag})
     :ok
   end
 end
 
-defmodule Lovelace.SyntheticKeychainFailureJob do
+defmodule Monolith.SyntheticKeychainFailureJob do
   use Oban.Worker, queue: :gmail, max_attempts: 1
-  alias Lovelace.Security.{Keychain, Vault}
+  alias Monolith.Security.{Keychain, Vault}
 
   @impl true
   def perform(%Oban.Job{}) do
     Vault.with_access(fn ->
-      send(Process.whereis(:lovelace_vault_observer), {:keychain_failure_job, self()})
+      send(Process.whereis(:monolith_vault_observer), {:keychain_failure_job, self()})
 
       Keychain.with_test_runner(
         "get",
-        %{account: "01234567-89ab-cdef-0123-456789abcdef", service: "LOVELACE GitHub"},
+        %{account: "01234567-89ab-cdef-0123-456789abcdef", service: "MONOLITH GitHub"},
         fn _ -> {:ok, ~s({"version":1,"error":"locked"}\n)} end
       )
     end)
   end
 end
 
-defmodule Lovelace.SyntheticVaultShutdownJob do
+defmodule Monolith.SyntheticVaultShutdownJob do
   use Oban.Worker, queue: :gmail, max_attempts: 1
   @impl true
   def perform(%Oban.Job{}) do
-    observer = Process.whereis(:lovelace_vault_observer)
+    observer = Process.whereis(:monolith_vault_observer)
     send(observer, {:shutdown_job_started, self()})
 
     receive do
@@ -131,16 +131,16 @@ defmodule Lovelace.SyntheticVaultShutdownJob do
   end
 end
 
-defmodule Lovelace.SyntheticGoogleCredentials do
+defmodule Monolith.SyntheticGoogleCredentials do
   def read, do: {:ok, %{client_id: "synthetic-client", client_secret: "synthetic-secret"}}
 end
 
-defmodule Lovelace.SyntheticGoogleTransport do
-  @behaviour Lovelace.Integrations.Google.Transport
+defmodule Monolith.SyntheticGoogleTransport do
+  @behaviour Monolith.Integrations.Google.Transport
   @impl true
   def request(_request, options) do
     Process.flag(:trap_exit, true)
-    observer = Process.whereis(:lovelace_vault_observer)
+    observer = Process.whereis(:monolith_vault_observer)
     tag = Keyword.fetch!(options, :tag)
     send(observer, {:google_transport, tag, self()})
 
@@ -158,15 +158,15 @@ defmodule Lovelace.SyntheticGoogleTransport do
   end
 end
 
-defmodule Lovelace.SyntheticGeminiCredentials do
-  alias Lovelace.Security.Vault
+defmodule Monolith.SyntheticGeminiCredentials do
+  alias Monolith.Security.Vault
 
   def get(_account) do
     admission = Vault.track()
     if match?({:ok, _}, admission), do: admission |> elem(1) |> Vault.release()
 
     send(
-      Process.whereis(:lovelace_vault_observer),
+      Process.whereis(:monolith_vault_observer),
       {:gemini_credentials, self(), Vault.open?(), admission}
     )
 
@@ -177,13 +177,13 @@ defmodule Lovelace.SyntheticGeminiCredentials do
   end
 end
 
-defmodule Lovelace.SyntheticVaultScenario do
+defmodule Monolith.SyntheticVaultScenario do
   import ExUnit.Assertions
 
-  alias Lovelace.Integrations.Google
-  alias Lovelace.Security.Vault
-  alias Lovelace.StageDesigner
-  alias Lovelace.StageDesigner.{Attempt, Generation, GenerationWorker}
+  alias Monolith.Integrations.Google
+  alias Monolith.Security.Vault
+  alias Monolith.StageDesigner
+  alias Monolith.StageDesigner.{Attempt, Generation, GenerationWorker}
 
   # Recovery also uses :gemini and may have old start observations across Lock.
   # Readiness evidence must identify the actual paid-submission attempt.
@@ -192,7 +192,7 @@ defmodule Lovelace.SyntheticVaultScenario do
         _measurements,
         %{
           job: %Oban.Job{
-            worker: "Lovelace.StageDesigner.GenerationWorker",
+            worker: "Monolith.StageDesigner.GenerationWorker",
             args: %{"id" => id, "operation" => "submit"}
           }
         },
@@ -203,9 +203,9 @@ defmodule Lovelace.SyntheticVaultScenario do
   def dispatched(_event, _measurements, _metadata, _observer), do: :ok
 
   def google_request(tag) do
-    Application.put_env(:lovelace, :gmail,
+    Application.put_env(:monolith, :gmail,
       timeout_ms: 30_000,
-      transport: Lovelace.SyntheticGoogleTransport,
+      transport: Monolith.SyntheticGoogleTransport,
       transport_options: [tag: tag]
     )
 
@@ -308,13 +308,13 @@ defmodule Lovelace.SyntheticVaultScenario do
   end
 end
 
-{:ok, _} = Lovelace.SyntheticNativeStore.start_link()
-Application.put_env(:lovelace, :vault_keychain, Lovelace.SyntheticNativeStore)
-Application.put_env(:lovelace, :google_client_credentials, Lovelace.SyntheticGoogleCredentials)
-Application.put_env(:lovelace, :gemini_vault, Lovelace.SyntheticGeminiCredentials)
-Process.register(self(), :lovelace_vault_observer)
+{:ok, _} = Monolith.SyntheticNativeStore.start_link()
+Application.put_env(:monolith, :vault_keychain, Monolith.SyntheticNativeStore)
+Application.put_env(:monolith, :google_client_credentials, Monolith.SyntheticGoogleCredentials)
+Application.put_env(:monolith, :gemini_vault, Monolith.SyntheticGeminiCredentials)
+Process.register(self(), :monolith_vault_observer)
 password = "synthetic vault lifecycle owner password"
-alias Lovelace.SyntheticVaultScenario, as: Scenario
+alias Monolith.SyntheticVaultScenario, as: Scenario
 {:ok, _} = Application.ensure_all_started(:telemetry)
 {:ok, _} = Application.ensure_all_started(:oban)
 
@@ -329,11 +329,11 @@ assert :ok =
 # Exercise the browser bootstrap's real default configure callback, not a fake
 # owner-creation function. A separate synthetic database preserves the interrupted
 # terminal-setup scenario below.
-original_repo = Application.fetch_env!(:lovelace, Lovelace.Repo)
+original_repo = Application.fetch_env!(:monolith, Monolith.Repo)
 
 Application.put_env(
-  :lovelace,
-  Lovelace.Repo,
+  :monolith,
+  Monolith.Repo,
   Keyword.put(original_repo, :database, Path.join(root, "bootstrap.db"))
 )
 
@@ -341,26 +341,26 @@ Application.put_env(
 observer = self()
 
 {:ok, bootstrap} =
-  Lovelace.Security.Bootstrap.start_link(
+  Monolith.Security.Bootstrap.start_link(
     status: &Vault.configuration_status/0,
     announce: fn code -> send(observer, {:browser_pairing, code}) end
   )
 
 assert_receive {:browser_pairing, pairing_code}
-assert {:ok, capability} = Lovelace.Security.Bootstrap.pair(pairing_code)
+assert {:ok, capability} = Monolith.Security.Bootstrap.pair(pairing_code)
 
 assert {:ok, bootstrap_token} =
-         Lovelace.Security.Bootstrap.configure(capability, password, password, true)
+         Monolith.Security.Bootstrap.configure(capability, password, password, true)
 
 assert {:ok, _} = Owner.verify_session(bootstrap_token)
 assert Scenario.await(fn -> is_pid(Oban.Registry.whereis(Oban)) end)
 assert Vault.open?()
-assert Lovelace.Onboarding.pending?()
+assert Monolith.Onboarding.pending?()
 assert Vault.configuration_status() == :configured
 refute Keychain.setup_pending?()
 
 assert {:error, :setup} =
-         Lovelace.Security.Bootstrap.configure(capability, password, password, true)
+         Monolith.Security.Bootstrap.configure(capability, password, password, true)
 
 refute inspect(:sys.get_status(bootstrap)) =~ password
 refute inspect(:sys.get_status(bootstrap)) =~ capability
@@ -389,13 +389,13 @@ for authenticate <- [
     ] do
   assert {:error, _} = Vault.unlock(password, authenticate, maintenance: true)
   refute Vault.open?()
-  assert Process.whereis(Lovelace.Repo) == nil
-  assert {:ok, :locked} = Lovelace.SyntheticNativeStore.status()
+  assert Process.whereis(Monolith.Repo) == nil
+  assert {:ok, :locked} = Monolith.SyntheticNativeStore.status()
 end
 
 GenServer.stop(bootstrap)
 Supervisor.stop(bootstrap_maintenance)
-Application.put_env(:lovelace, Lovelace.Repo, original_repo)
+Application.put_env(:monolith, Monolith.Repo, original_repo)
 
 assert :ok = Keychain.begin_setup()
 {:ok, maintenance} = Vault.start_maintenance()
@@ -422,17 +422,17 @@ assert {:ok, _} =
 
 assert {:ok, resumed_credential} = Owner.read_credential(actor: %{role: :owner_auth_service})
 assert resumed_credential.hashed_password == original_credential.hashed_password
-assert {:ok, database_key} = Lovelace.SyntheticNativeStore.database_key()
+assert {:ok, database_key} = Monolith.SyntheticNativeStore.database_key()
 assert {:ok, true} = Vault.lock()
 assert :ok = Keychain.finish_setup()
 Supervisor.stop(maintenance)
 assert Vault.configuration_status() == :configured
 
-{:ok, _} = Application.ensure_all_started(:lovelace)
+{:ok, _} = Application.ensure_all_started(:monolith)
 refute Vault.open?()
-assert is_nil(Process.whereis(Lovelace.Repo))
+assert is_nil(Process.whereis(Monolith.Repo))
 assert is_nil(Oban.Registry.whereis(Oban))
-assert {:ok, :locked} = Lovelace.SyntheticNativeStore.status()
+assert {:ok, :locked} = Monolith.SyntheticNativeStore.status()
 
 # A valid cipher with an unusable owner schema must fail before authentication
 # or background activation, then close Repo and the native store.
@@ -458,12 +458,12 @@ assert {:error, :unlock_unavailable} =
 
 refute_receive :broken_schema_authentication
 refute Vault.open?()
-assert is_nil(Process.whereis(Lovelace.Repo))
+assert is_nil(Process.whereis(Monolith.Repo))
 assert is_nil(Oban.Registry.whereis(Oban))
-assert {:ok, :locked} = Lovelace.SyntheticNativeStore.status()
+assert {:ok, :locked} = Monolith.SyntheticNativeStore.status()
 mutate_schema.("ALTER TABLE synthetic_unavailable_sessions RENAME TO owner_sessions")
 assert {:error, _} = Owner.unlock("incorrect", "wrong-locked")
-assert is_nil(Process.whereis(Lovelace.Repo))
+assert is_nil(Process.whereis(Monolith.Repo))
 assert {:ok, first} = Owner.unlock(password, "first-unlock")
 assert Vault.open?()
 assert :ok = Database.validate()
@@ -471,10 +471,10 @@ assert {:ok, _} = Owner.verify_session(first)
 assert {:error, _} = Owner.unlock("incorrect", "wrong-open")
 assert {:ok, _} = Owner.verify_session(first)
 assert {:error, :vault_in_use} = Database.acquire_runtime_lock()
-assert {:ok, first} = Lovelace.TestSupport.VaultHTTPScenario.run(first, password: password)
+assert {:ok, first} = Monolith.TestSupport.VaultHTTPScenario.run(first, password: password)
 
 assert {:ok, first} =
-         Lovelace.TestSupport.VaultHTTPScenario.run(first,
+         Monolith.TestSupport.VaultHTTPScenario.run(first,
            password: password,
            generated_image: true
          )
@@ -483,7 +483,7 @@ assert {:ok, first} =
 assert Scenario.await(fn -> is_pid(Oban.Registry.whereis(Oban)) end)
 
 {:ok, _} =
-  %{tag: "unlocked-background"} |> Lovelace.SyntheticVaultHeartbeat.new() |> Oban.insert()
+  %{tag: "unlocked-background"} |> Monolith.SyntheticVaultHeartbeat.new() |> Oban.insert()
 
 assert_receive {:heartbeat, "unlocked-background"}, 10_000
 
@@ -501,7 +501,7 @@ Scenario.await(fn ->
 end)
 
 assert Vault.open?()
-{:ok, _} = %{tag: "producer-restarted"} |> Lovelace.SyntheticVaultHeartbeat.new() |> Oban.insert()
+{:ok, _} = %{tag: "producer-restarted"} |> Monolith.SyntheticVaultHeartbeat.new() |> Oban.insert()
 assert_receive {:heartbeat, "producer-restarted"}, 10_000
 
 old_expiry = :sys.get_state(Vault).timer |> elem(1)
@@ -528,9 +528,9 @@ assert_receive :reader_admitted
 assert {:ok, true} = Owner.lock_all(actor: %{role: :local_owner})
 assert_receive {:DOWN, ^monitor, :process, ^reader, :killed}
 refute Vault.open?()
-assert is_nil(Process.whereis(Lovelace.Repo))
+assert is_nil(Process.whereis(Monolith.Repo))
 assert is_nil(Oban.Registry.whereis(Oban))
-assert {:ok, :locked} = Lovelace.SyntheticNativeStore.status()
+assert {:ok, :locked} = Monolith.SyntheticNativeStore.status()
 assert {:error, :locked} = Vault.with_access(fn -> flunk("locked work was admitted") end)
 assert {:error, _} = Owner.verify_session(first)
 assert {:error, _} = Owner.verify_session(second)
@@ -539,14 +539,14 @@ assert {:ok, reopened} = Owner.unlock(password, "reopen")
 assert {:error, _} = Owner.verify_session(first)
 assert {:error, _} = Owner.verify_session(second)
 assert {:ok, _} = Owner.verify_session(reopened)
-{:ok, _} = %{tag: "resumed-background"} |> Lovelace.SyntheticVaultHeartbeat.new() |> Oban.insert()
+{:ok, _} = %{tag: "resumed-background"} |> Monolith.SyntheticVaultHeartbeat.new() |> Oban.insert()
 assert_receive {:heartbeat, "resumed-background"}, 10_000
 
 expiry = :sys.get_state(Vault).timer |> elem(1)
 send(Vault, {:expire, expiry})
 :sys.get_state(Vault)
 refute Vault.open?()
-assert is_nil(Process.whereis(Lovelace.Repo))
+assert is_nil(Process.whereis(Monolith.Repo))
 assert {:error, _} = Owner.verify_session(reopened)
 
 assert {:ok, _} = Owner.unlock(password, "before-provider-fences")
@@ -569,7 +569,7 @@ assert {:ok, _} = Owner.unlock(password, "after-google-lock")
 # keychain authorization, and must not log the owner out.
 keychain_attributes = %{
   account: "01234567-89ab-cdef-0123-456789abcdef",
-  service: "LOVELACE Gmail"
+  service: "MONOLITH Gmail"
 }
 
 assert {:error, :not_found} =
@@ -598,21 +598,21 @@ assert {:ok, before_keychain_failure} = Owner.unlock(password, "before-keychain-
 keychain_session_topic =
   before_keychain_failure |> Owner.Actions.digest() |> Owner.Actions.topic()
 
-Phoenix.PubSub.subscribe(Lovelace.PubSub, keychain_session_topic)
+Phoenix.PubSub.subscribe(Monolith.PubSub, keychain_session_topic)
 observer = self()
 
 {owner_view, owner_view_ref} =
   spawn_monitor(fn ->
     socket = %Phoenix.LiveView.Socket{
-      endpoint: LovelaceWeb.Endpoint,
-      router: LovelaceWeb.Router,
+      endpoint: MonolithWeb.Endpoint,
+      router: MonolithWeb.Router,
       transport_pid: self(),
       assigns: %{__changed__: %{}},
       private: %{lifecycle: %Phoenix.LiveView.Lifecycle{}}
     }
 
     assert {:cont, _} =
-             LovelaceWeb.OwnerAuth.on_mount(
+             MonolithWeb.OwnerAuth.on_mount(
                :require_owner,
                %{},
                %{"owner_session_token" => before_keychain_failure},
@@ -630,17 +630,17 @@ assert_receive :connected_owner_admitted
 Scenario.google_request(:keychain_failure)
 assert_receive {:google_transport, :keychain_failure, keychain_google}, 10_000
 keychain_google_ref = Process.monitor(keychain_google)
-assert {:ok, _} = %{} |> Lovelace.SyntheticKeychainFailureJob.new() |> Oban.insert()
+assert {:ok, _} = %{} |> Monolith.SyntheticKeychainFailureJob.new() |> Oban.insert()
 assert_receive {:keychain_failure_job, _}, 10_000
 assert Scenario.await(fn -> not Vault.open?() end)
 assert %{mode: :locked, runtime: nil} = :sys.get_state(Vault, 25_000)
 assert_receive {:DOWN, ^keychain_google_ref, :process, ^keychain_google, :killed}
 assert_receive {:DOWN, ^owner_view_ref, :process, ^owner_view, :killed}
 assert_receive %Phoenix.Socket.Broadcast{event: "disconnect", topic: ^keychain_session_topic}
-Phoenix.PubSub.unsubscribe(Lovelace.PubSub, keychain_session_topic)
-assert is_nil(Process.whereis(Lovelace.Repo))
+Phoenix.PubSub.unsubscribe(Monolith.PubSub, keychain_session_topic)
+assert is_nil(Process.whereis(Monolith.Repo))
 assert is_nil(Oban.Registry.whereis(Oban))
-assert {:ok, :locked} = Lovelace.SyntheticNativeStore.status()
+assert {:ok, :locked} = Monolith.SyntheticNativeStore.status()
 assert {:error, :locked} = Scenario.exchange()
 send(keychain_google, :publish)
 refute_receive {:google_published, :keychain_failure}, 100
@@ -665,15 +665,15 @@ for {operation, attributes, output, expected} <- [
     ] do
   assert {:ok, previous_session} = Vault.unlock(password, authenticate_owner)
   session_topic = previous_session |> Owner.Actions.digest() |> Owner.Actions.topic()
-  Phoenix.PubSub.subscribe(Lovelace.PubSub, session_topic)
+  Phoenix.PubSub.subscribe(Monolith.PubSub, session_topic)
   assert ^expected = Keychain.with_test_runner(operation, attributes, fn _ -> {:ok, output} end)
   refute Vault.open?()
   assert %{mode: :locked, runtime: nil} = :sys.get_state(Vault, 25_000)
-  assert is_nil(Process.whereis(Lovelace.Repo))
+  assert is_nil(Process.whereis(Monolith.Repo))
   assert is_nil(Oban.Registry.whereis(Oban))
-  assert {:ok, :locked} = Lovelace.SyntheticNativeStore.status()
+  assert {:ok, :locked} = Monolith.SyntheticNativeStore.status()
   assert_receive %Phoenix.Socket.Broadcast{event: "disconnect", topic: ^session_topic}
-  Phoenix.PubSub.unsubscribe(Lovelace.PubSub, session_topic)
+  Phoenix.PubSub.unsubscribe(Monolith.PubSub, session_topic)
   assert {:ok, _} = Vault.unlock(password, authenticate_owner)
   assert {:error, _} = Owner.verify_session(previous_session)
 end
@@ -681,13 +681,13 @@ end
 # An ungated native reporter may itself belong to protected supervision. Its
 # reply must not wait on teardown of its own supervisor or unrelated queue work.
 assert Scenario.await(fn -> is_pid(Oban.Registry.whereis(Oban)) end)
-assert {:ok, _} = %{} |> Lovelace.SyntheticVaultShutdownJob.new() |> Oban.insert()
+assert {:ok, _} = %{} |> Monolith.SyntheticVaultShutdownJob.new() |> Oban.insert()
 assert_receive {:shutdown_job_started, draining_job}, 10_000
 observer = self()
 
 assert {:ok, _} =
          Supervisor.start_child(
-           Lovelace.Security.ProtectedSupervisor,
+           Monolith.Security.ProtectedSupervisor,
            %{
              id: :keychain_failure_reporter,
              restart: :temporary,
@@ -764,7 +764,7 @@ queued = Scenario.reserve_scene()
 assert {:ok, true} = Vault.lock()
 
 assert {:snooze, 1} =
-         Lovelace.StageDesigner.GenerationWorker.perform(%Oban.Job{
+         Monolith.StageDesigner.GenerationWorker.perform(%Oban.Job{
            args: %{"id" => queued.id, "operation" => "submit"}
          })
 
@@ -774,7 +774,7 @@ assert_receive {:gemini_dispatched, ^queued_id, admission_open?}, 10_000
 assert admission_open?
 assert_receive {:gemini_credentials, gemini_job, true, {:ok, _}}, 10_000
 gemini_job_ref = Process.monitor(gemini_job)
-assert {:ok, %{status: :submitting}} = Lovelace.StageDesigner.Attempt.get(queued.id)
+assert {:ok, %{status: :submitting}} = Monolith.StageDesigner.Attempt.get(queued.id)
 assert {:ok, true} = Vault.lock()
 refute Process.alive?(gemini_job)
 assert_receive {:DOWN, ^gemini_job_ref, :process, ^gemini_job, :killed}
@@ -803,7 +803,7 @@ Scenario.unknown_without_resubmit(attempt.id)
 # Abrupt manager death cannot strand independent/trapping consumers. Keep an
 # actual Oban job running during old-runtime teardown to prove the native
 # exclusion remains pinned until that runtime, not merely the manager, is gone.
-{:ok, _} = %{} |> Lovelace.SyntheticVaultShutdownJob.new() |> Oban.insert()
+{:ok, _} = %{} |> Monolith.SyntheticVaultShutdownJob.new() |> Oban.insert()
 assert_receive {:shutdown_job_started, old_job}, 10_000
 Scenario.google_request(:manager_restart)
 assert_receive {:google_transport, :manager_restart, old_google}, 10_000
@@ -837,8 +837,8 @@ send(old_job, :finish)
 assert_receive :shutdown_job_finished, 10_000
 replacement = Scenario.replacement(old_manager)
 assert %{mode: :locked, runtime: nil} = :sys.get_state(replacement, 25_000)
-assert {:ok, :locked} = Lovelace.SyntheticNativeStore.status()
-assert is_nil(Process.whereis(Lovelace.Repo))
+assert {:ok, :locked} = Monolith.SyntheticNativeStore.status()
+assert is_nil(Process.whereis(Monolith.Repo))
 assert is_nil(Oban.Registry.whereis(Oban))
 send(old_google, :publish)
 send(holder, :publish)
@@ -848,30 +848,30 @@ refute_receive :stale_holder_published, 100
 
 # Ordinary Application.stop must not impose GenServer's default five-second
 # shutdown on the manager while Oban is honoring its fifteen-second job drain.
-{:ok, _} = %{} |> Lovelace.SyntheticVaultShutdownJob.new() |> Oban.insert()
+{:ok, _} = %{} |> Monolith.SyntheticVaultShutdownJob.new() |> Oban.insert()
 assert_receive {:shutdown_job_started, shutdown_job}, 10_000
 shutdown_started = System.monotonic_time(:millisecond)
 observer = self()
-spawn(fn -> send(observer, {:application_stopped, Application.stop(:lovelace)}) end)
+spawn(fn -> send(observer, {:application_stopped, Application.stop(:monolith)}) end)
 Process.sleep(6_000)
 assert Process.alive?(shutdown_job)
 refute_receive {:application_stopped, _}, 0
-assert {:ok, :unlocked} = Lovelace.SyntheticNativeStore.status()
+assert {:ok, :unlocked} = Monolith.SyntheticNativeStore.status()
 send(shutdown_job, :finish)
 assert_receive :shutdown_job_finished, 10_000
 assert_receive {:application_stopped, :ok}, 10_000
 assert System.monotonic_time(:millisecond) - shutdown_started >= 6_000
-assert {:ok, :locked} = Lovelace.SyntheticNativeStore.status()
-{:ok, _} = Application.ensure_all_started(:lovelace)
+assert {:ok, :locked} = Monolith.SyntheticNativeStore.status()
+{:ok, _} = Application.ensure_all_started(:monolith)
 refute Vault.open?()
-assert is_nil(Process.whereis(Lovelace.Repo))
+assert is_nil(Process.whereis(Monolith.Repo))
 assert is_nil(Oban.Registry.whereis(Oban))
-assert {:ok, :locked} = Lovelace.SyntheticNativeStore.status()
+assert {:ok, :locked} = Monolith.SyntheticNativeStore.status()
 assert {:ok, final} = Owner.unlock(password, "after-restart")
 assert {:error, _} = Owner.verify_session(before_restart)
 assert {:ok, _} = Owner.verify_session(final)
 assert {:ok, true} = Vault.lock()
-:ok = Application.stop(:lovelace)
+:ok = Application.stop(:monolith)
 refute File.read!(Path.join(root, "owner.db")) =~ "SQLite format 3"
 refute File.read!(Keychain.path()) =~ password
 

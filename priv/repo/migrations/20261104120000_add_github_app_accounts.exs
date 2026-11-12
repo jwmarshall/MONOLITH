@@ -1,4 +1,4 @@
-defmodule Lovelace.Repo.Migrations.AddGithubAppAccounts do
+defmodule Monolith.Repo.Migrations.AddGithubAppAccounts do
   use Ecto.Migration
 
   def up do

@@ -3,7 +3,9 @@
 This records the current, unmigrated owner, workspace and mail presentation.
 The approved full application/codebase identity is MONOLITH under
 [MONOLITH_DESIGN_SYSTEM.md](MONOLITH_DESIGN_SYSTEM.md); old naming and paths here
-describe existing implementation, not a requirement to preserve LOVELACE identifiers.
+are intentionally retained for browser presentation in phase 1, not runtime identifiers.
+Code, commands, environment variables and browser storage/event keys use MONOLITH;
+no visual redesign or visible product-copy migration is included in that phase.
 Selected visual surfaces follow that design target instead of the legacy presentation;
 do not require both visual systems simultaneously. Product/security behavior
 continues unchanged. Update affected requirements and their coverage map when
@@ -528,7 +530,7 @@ Use the same hierarchy on static setup/unlock pages and authenticated views.
   its swatch, name and native radio; retain visible selection and keyboard focus. Changes apply
   immediately to the entire UI, including mail,
   dialogs, status signals and static unlock; they never select, recolor or generate scene imagery.
-  Selection stays in this browser's `localStorage` under `lovelace:theme`, not an account or database.
+  Selection stays in this browser's `localStorage` under `monolith:theme`, not an account or database.
   A synchronous self-hosted bootstrap restores the allowlisted choice before CSS paints; missing or
   invalid values use Sea Glass. Without JavaScript the default remains usable. If browser storage
   is denied, apply the choice only to the current document and announce that it could not be saved.
@@ -556,7 +558,7 @@ Use the same hierarchy on static setup/unlock pages and authenticated views.
 ## Verification map
 
 Use native Node and synchronous LiveView/ConnTest suites plus the explicit
-`LOVELACE_STAGE_ENABLED=false bin/lovelace mix test.ui` Chrome/Chromium regression
+`MONOLITH_STAGE_ENABLED=false bin/monolith mix test.ui` Chrome/Chromium regression
 gate. No real mailbox, real credential or billable provider calls are needed. Native
 keychain creation/cancellation/resume verification is a separate, explicitly attended
 disposable-keychain check, never an unattended CI prompt. See [DEVELOPMENT.md](DEVELOPMENT.md)
@@ -577,7 +579,7 @@ historical results do not certify a new change.
   modal idle suspension/resume, timer cleanup and shared static/live image-load observer.
 - `test/js/native_modal_test.mjs`: opening/focus, sticky open state, Escape isolation,
   server-owned dismissal, listener cleanup and focus restoration (including disabled triggers).
-- `test/lovelace_web/components/status_components_test.exs` and `test/js/status_signal_test.mjs`:
+- `test/monolith_web/components/status_components_test.exs` and `test/js/status_signal_test.mjs`:
   custom SVG states, accessible names, visible warning text, link focus reuse, detail dismissal,
   boundary placement, patch transitions and listener teardown.
 - `test/js/calendar_agenda_test.mjs`: browser-local midnight/DST boundaries,
@@ -585,21 +587,21 @@ historical results do not certify a new change.
 - `test/js/onboarding_calendar_test.mjs`: actual controller-page initializer with fake
   DOM/fetch/clock, browser-local POST fields, identity races, selection/focus continuity,
   duplicate/late requests, teardown, owner redirects and bounded status-only recovery.
-- `test/lovelace/calendar_test.exs` and `test/lovelace_web/live/calendar_live_test.exs`:
+- `test/monolith/calendar_test.exs` and `test/monolith_web/live/calendar_live_test.exs`:
   account/context/generation fencing, selection, bounded/truncated results, cooldown,
   freshness/retention, escaped render-local events and exclusive Connections navigation.
-- `test/lovelace/integrations/google_calendar_test.exs` and
-  `test/lovelace_web/controllers/google_calendar_oauth_test.exs`: read-only requests,
+- `test/monolith/integrations/google_calendar_test.exs` and
+  `test/monolith_web/controllers/google_calendar_oauth_test.exs`: read-only requests,
   strict provider parsing, explicit optional scopes, identity/generation-bound consent
   and refusal of late callbacks across disconnect/reconnect.
-- `test/lovelace/github_test.exs`, `test/lovelace/github_auth_test.exs`,
-  `test/lovelace/integrations/github_test.exs` and `test/lovelace_web/live/github_live_test.exs`:
+- `test/monolith/github_test.exs`, `test/monolith/github_auth_test.exs`,
+  `test/monolith/integrations/github_test.exs` and `test/monolith_web/live/github_live_test.exs`:
   account/owner/repository isolation across PR/issues/Actions, immutable identity including
   empty results, editable independent workspace selections, single-use PKCE authorization,
   cancellation/revocation/disconnect/client-generation fencing, one-shot refresh reservations,
   legacy credential cleanup, cooldown/expiry, honest optional-permission/partial/error readouts,
   failed-auth recovery, credential-deletion retry and provider/workspace navigation.
-  `test/lovelace_web/controllers/github_credentials_test.exs` covers early client-settings/intent
+  `test/monolith_web/controllers/github_credentials_test.exs` covers early client-settings/intent
   POSTs and callbacks, CSRF/revoked sessions and secret scrubbing; transport tests enforce
   fixed destinations and bounded read-only payloads. Synthetic keychain tests cover service isolation.
 - `test/js/home_readouts_test.mjs`: local greeting/date, timestamp aging, patched failure
@@ -607,42 +609,42 @@ historical results do not certify a new change.
 - `test/js/mail_reader_test.mjs`: async reader focus/latest-reply handoff, exact return
   scroll/focus, context fencing and teardown; local date formatting and independently
   aging fetch freshness, patched attributes and timer/resume-listener cleanup.
-- `test/lovelace_web/live/navigation_live_test.exs`: native deep links, global provider
+- `test/monolith_web/live/navigation_live_test.exs`: native deep links, global provider
   overview, obsolete-query/bookmark normalization, workspace history, direct account/thread/search/page entry, reload-equivalent mounts, URL
   transitions, invalid/unavailable recovery and account fencing. Owner controller/auth tests
   cover safe requested destinations through unlock and reject unsafe/form-injected returns.
-- `test/lovelace_web/workspace_return_test.exs`: exact one-use redirect destinations,
+- `test/monolith_web/workspace_return_test.exs`: exact one-use redirect destinations,
   expiry/session binding, early callback/credential returns, connected mounts, ordinary
   reloads and locked/revoked denial. Return markers never bypass owner guards.
-- `test/lovelace_web/live/home_overview_live_test.exs`: distinct connection summaries,
+- `test/monolith_web/live/home_overview_live_test.exs`: distinct connection summaries,
   shared/unattached membership, paired total/recent unread metrics, unknown/zero/stale counts,
   Home navigation and account isolation.
-- `test/lovelace/stage_designer/bundled_scenes_test.exs`: fresh-database default reads,
+- `test/monolith/stage_designer/bundled_scenes_test.exs`: fresh-database default reads,
   immutable initialization across connections/restarts and concurrent boots, authorization,
   pinned JPEG hashes/validation and independence from generated scenes/reservations.
-- `test/lovelace_web/live/scenes_live_test.exs`: exclusive Scenes navigation, truthful
+- `test/monolith_web/live/scenes_live_test.exs`: exclusive Scenes navigation, truthful
   empty/missing/unconfirmed states, immediate manual eligibility after success/failure,
   confirmed-only requests with safe fake-vault failure, paginated access to all saved images,
   persistent selection and app-wide stage updates; guided prompt preview/save/discard,
   reload persistence, draft-safe refresh and stale-confirmation refusal. Backend scene/coordination tests cover
   reservation policy, selection during generation, duplicate output and publication/notification exclusion.
-- `test/lovelace_web/live/home_live_test.exs`: shell, client commands, accessible/decorative
+- `test/monolith_web/live/home_live_test.exs`: shell, client commands, accessible/decorative
   branding, Lock POST/token structure, image URL allowlist and stage updates.
-- `test/lovelace_web/live/workspaces_live_test.exs`: persistence, validation and unsaved-form
+- `test/monolith_web/live/workspaces_live_test.exs`: persistence, validation and unsaved-form
   preservation in dialogs; navigation emits heading-focus events while modal dismissal
   leaves trigger focus restoration to its hook; rejected saves keep the modal open.
-- `test/lovelace_web/live/gemini_connection_live_test.exs` and
-  `test/lovelace_web/controllers/gemini_credentials_test.exs`: safe presence/failure states,
+- `test/monolith_web/live/gemini_connection_live_test.exs` and
+  `test/monolith_web/controllers/gemini_credentials_test.exs`: safe presence/failure states,
   ordinary POST forms, auth/revocation/CSRF, bounded input and secret-free Phoenix telemetry.
   Backend credential tests cover owner-only actions, validation, exception containment,
   separate Keychain framing and refusal by an outdated helper; tests use fake vaults only.
-- `test/lovelace_web/live/mail_live_test.exs` and `connections_live_test.exs`: workspace/account
+- `test/monolith_web/live/mail_live_test.exs` and `connections_live_test.exs`: workspace/account
   navigation, management effects, explicit OAuth context and stale async/PubSub isolation;
   single-title reader/native disclosures, escaped bodies/metadata, result-context resets
   and retention of search/page on return without provider payloads in socket assigns.
   Credential-check tests cover local-only safe results, account/generation fences,
   denied actors, native error sanitization and unchanged persisted sync metadata.
-- `test/lovelace_web/controllers/owner_controller_test.exs`: static unlock/setup, session
+- `test/monolith_web/controllers/owner_controller_test.exs`: static unlock/setup, session
   revocation and real CSRF enforcement on Lock (missing/invalid denial, valid token acceptance).
   Asset tests pin local vendor/font files and retained licenses.
 - `test/browser/ui_contract.mjs`, launched by `test/support/ui_browser.exs`: actual browser

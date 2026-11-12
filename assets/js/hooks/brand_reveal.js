@@ -4,7 +4,7 @@ import {gsap} from "../../vendor/gsap/gsap.js"
 // CSS owns the glass/background focal planes; server rendering owns application state.
 const BrandAnimation = {
   initialize() {
-    const stroke = this.el.querySelector("#lovelace-monogram-stroke")
+    const stroke = this.el.querySelector("#monolith-monogram-stroke")
     const letters = this.el.querySelectorAll(".workspace-letter")
     const length = stroke.getTotalLength()
 
@@ -52,8 +52,8 @@ const BrandAnimation = {
       if (this.active && this.motionPreference.matches) this.finishWithoutMotion()
     }
 
-    this.el.addEventListener("lovelace:brand-focus", this.onFocus)
-    this.el.addEventListener("lovelace:brand-reset", this.onReset)
+    this.el.addEventListener("monolith:brand-focus", this.onFocus)
+    this.el.addEventListener("monolith:brand-reset", this.onReset)
     this.motionPreference.addEventListener("change", this.onMotionChange)
   },
 
@@ -77,12 +77,12 @@ const BrandAnimation = {
   complete() {
     if (this.completed) return
     this.completed = true
-    this.el.dispatchEvent(new CustomEvent("lovelace:brand-complete", {bubbles: true}))
+    this.el.dispatchEvent(new CustomEvent("monolith:brand-complete", {bubbles: true}))
   },
 
   destroy() {
-    this.el.removeEventListener("lovelace:brand-focus", this.onFocus)
-    this.el.removeEventListener("lovelace:brand-reset", this.onReset)
+    this.el.removeEventListener("monolith:brand-focus", this.onFocus)
+    this.el.removeEventListener("monolith:brand-reset", this.onReset)
     this.motionPreference.removeEventListener("change", this.onMotionChange)
     this.context.revert()
   },

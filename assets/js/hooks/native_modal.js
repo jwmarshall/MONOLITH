@@ -35,7 +35,7 @@ export default {
     // streamed cards). Rename returns to its visible management disclosure,
     // not the Rename button inside the now-collapsed menu.
     this.window.requestAnimationFrame(() => {
-      this.document.dispatchEvent(new this.window.Event("lovelace:modal-closed"))
+      this.document.dispatchEvent(new this.window.Event("monolith:modal-closed"))
       if (this.document.querySelector("dialog[open]")) return
       const trigger = this.document.querySelector(this.returnFocus)
       const target = trigger && !trigger.disabled ? trigger :

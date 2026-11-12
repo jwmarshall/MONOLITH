@@ -1,9 +1,9 @@
-defmodule Lovelace.MixProject do
+defmodule Monolith.MixProject do
   use Mix.Project
 
   def project do
     [
-      app: :lovelace,
+      app: :monolith,
       version: "0.1.0",
       elixir: "~> 1.20",
       elixirc_paths: elixirc_paths(Mix.env()),
@@ -23,7 +23,7 @@ defmodule Lovelace.MixProject do
   # Type `mix help compile.app` for more information.
   def application do
     [
-      mod: {Lovelace.Application, []},
+      mod: {Monolith.Application, []},
       extra_applications: [:logger, :runtime_tools]
     ]
   end
@@ -144,16 +144,16 @@ defmodule Lovelace.MixProject do
         "deps.get",
         "deps.clean --build exqlite",
         "deps.compile exqlite --include-children",
-        "lovelace.developer.setup",
+        "monolith.developer.setup",
         "assets.setup",
         "assets.build"
       ],
       test: ["ecto.create --quiet", "ecto.migrate --quiet", "test"],
       "assets.setup": ["tailwind.install --if-missing", "esbuild.install --if-missing"],
-      "assets.build": ["compile", "tailwind lovelace", "esbuild lovelace"],
+      "assets.build": ["compile", "tailwind monolith", "esbuild monolith"],
       "assets.deploy": [
-        "tailwind lovelace --minify",
-        "esbuild lovelace --minify",
+        "tailwind monolith --minify",
+        "esbuild monolith --minify",
         "phx.digest"
       ],
       lint: ["compile --warnings-as-errors", "credo --strict"],
@@ -164,7 +164,7 @@ defmodule Lovelace.MixProject do
       check: [
         "format --check-formatted",
         "lint",
-        "lovelace.architecture.check",
+        "monolith.architecture.check",
         "security",
         "ash.codegen --check",
         "test --cover",

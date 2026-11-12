@@ -1,0 +1,149 @@
+defmodule Monolith.StageDesigner.Designer do
+  @moduledoc false
+  use Ash.Resource,
+    domain: Monolith.StageDesigner,
+    authorizers: [Ash.Policy.Authorizer]
+
+  actions do
+    action :gemini_connection_status, :atom do
+      run {Monolith.StageDesigner.CredentialOperations, operation: :status}
+    end
+
+    action :save_gemini_key, :boolean do
+      argument :api_key, :string do
+        allow_nil? false
+        sensitive? true
+        # Validate length inside Credentials: Ash constraint errors retain raw values
+        # even for sensitive arguments, while our implementation returns safe atoms.
+        constraints trim?: false
+      end
+
+      run {Monolith.StageDesigner.CredentialOperations, operation: :save}
+    end
+
+    action :remove_gemini_key, :boolean do
+      run {Monolith.StageDesigner.CredentialOperations, operation: :delete}
+    end
+
+    action :list_scenes, :map do
+      argument :page, :integer do
+        allow_nil? false
+        default 1
+        constraints min: 1
+      end
+
+      argument :attempt_page, :integer do
+        allow_nil? false
+        default 1
+        constraints min: 1
+      end
+
+      run {Monolith.StageDesigner.Scenes, operation: :list}
+    end
+
+    action :select_scene, :atom do
+      argument :digest, :string do
+        allow_nil? false
+        constraints match: ~r/\A[0-9a-f]{64}\z/
+      end
+
+      run {Monolith.StageDesigner.Scenes, operation: :select}
+    end
+
+    action :prepare_scene_generation, :map do
+      argument :model, :string, allow_nil?: false
+      argument :aspect_ratio, :string, allow_nil?: false
+      argument :image_size, :string, allow_nil?: false
+      run {Monolith.StageDesigner.Generation, operation: :prepare}
+    end
+
+    action :acknowledge_scene_attempt, :atom do
+      argument :id, :string, allow_nil?: false
+      run {Monolith.StageDesigner.Generation, operation: :acknowledge}
+    end
+
+    action :check_scene_attempt, :atom do
+      argument :id, :uuid, allow_nil?: false
+      run {Monolith.StageDesigner.Generation, operation: :check}
+    end
+
+    action :request_scene_generation, :atom do
+      argument :confirmation, :string, allow_nil?: false, sensitive?: true
+      run {Monolith.StageDesigner.Generation, operation: :manual}
+    end
+
+    action :background, :map do
+      run Monolith.StageDesigner.ReadBackground
+    end
+
+    action :image, :binary do
+      argument :digest, :string do
+        allow_nil? false
+        constraints match: ~r/\A[0-9a-f]{64}\z/
+      end
+
+      run Monolith.StageDesigner.ReadImage
+    end
+
+    action :schedule_recovery, :atom do
+      run {Monolith.StageDesigner.Startup, operation: :schedule_recovery}
+    end
+
+    action :recover, :atom do
+      run {Monolith.StageDesigner.Startup, operation: :recover}
+    end
+
+    action :startup, :atom do
+      argument :now, :utc_datetime_usec do
+        allow_nil? false
+        default &DateTime.utc_now/0
+      end
+
+      run Monolith.StageDesigner.Startup
+    end
+
+    # Operator-only opt-in for a single failed-attempt diagnostic retry. Not called
+    # by application startup or the browser, and never retries a successful image.
+    action :retry_failed, :atom do
+      argument :now, :utc_datetime_usec do
+        allow_nil? false
+        default &DateTime.utc_now/0
+      end
+
+      run {Monolith.StageDesigner.Startup, retry_failed?: true}
+    end
+  end
+
+  policies do
+    policy action([
+             :gemini_connection_status,
+             :save_gemini_key,
+             :remove_gemini_key,
+             :list_scenes,
+             :select_scene,
+             :request_scene_generation,
+             :prepare_scene_generation,
+             :acknowledge_scene_attempt,
+             :check_scene_attempt
+           ]) do
+      access_type :strict
+      authorize_if Monolith.Workspaces.LocalOwner
+    end
+
+    policy action(:background) do
+      authorize_if always()
+    end
+
+    policy action(:image) do
+      authorize_if always()
+    end
+
+    policy action([:startup, :schedule_recovery, :recover]) do
+      authorize_if actor_attribute_equals(:role, :stage_designer)
+    end
+
+    policy action(:retry_failed) do
+      authorize_if actor_attribute_equals(:role, :stage_designer)
+    end
+  end
+end

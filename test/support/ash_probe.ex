@@ -1,11 +1,11 @@
-defmodule Lovelace.TestSupport.AshProbe do
+defmodule Monolith.TestSupport.AshProbe do
   @moduledoc false
   use Ash.Resource,
-    domain: Lovelace.TestSupport.AshDomain,
+    domain: Monolith.TestSupport.AshDomain,
     data_layer: AshSqlite.DataLayer
 
   sqlite do
-    repo Lovelace.Repo
+    repo Monolith.Repo
     table "ash_tooling_probes"
   end
 

@@ -6,7 +6,7 @@ import "phoenix_html"
 // Establish Phoenix Socket and LiveView configuration.
 import {Socket} from "phoenix"
 import {LiveSocket} from "phoenix_live_view"
-import {hooks as colocatedHooks} from "phoenix-colocated/lovelace"
+import {hooks as colocatedHooks} from "phoenix-colocated/monolith"
 import topbar from "../vendor/topbar"
 import BrandReveal from "./hooks/brand_reveal"
 import WorkspaceIdle from "./hooks/workspace_idle"
@@ -48,7 +48,7 @@ const configureThemeChrome = () => {
   document.querySelector("meta[name='theme-color']").content = styles.getPropertyValue("--color-base-100").trim()
 }
 configureThemeChrome()
-window.addEventListener("lovelace:theme-change", configureThemeChrome)
+window.addEventListener("monolith:theme-change", configureThemeChrome)
 window.addEventListener("phx:page-loading-start", _info => {
   configureThemeChrome()
   topbar.show(300)

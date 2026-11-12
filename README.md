@@ -1,8 +1,8 @@
-# LOVELACE
+# MONOLITH
 
 A quiet place to orient your day.
 
-LOVELACE is a personal homepage that runs locally on your Mac. Read Gmail,
+MONOLITH is a personal homepage that runs locally on your Mac. Read Gmail,
 optionally see today's Google Calendar agendas, and follow open GitHub pull requests.
 Workspaces group separate accounts and GitHub personal/organization installations by area of life.
 
@@ -12,6 +12,10 @@ Workspaces group separate accounts and GitHub personal/organization installation
 - Startup is locked. Explicit Lock stops protected background work; visual idle/Escape does not.
 - No password recovery. Existing plaintext data requires an explicit, stopped migration.
 
+Phase 1 uses MONOLITH for code, commands, configuration and storage identifiers.
+The browser still shows the existing LOVELACE copy, artwork and presentation; the UI rebrand is separate.
+No existing private data is moved, reset or migrated by this identity cutover.
+
 A glass interface keeps your work in front of the scenery.
 [Optional generated scenery](docs/STAGE_DESIGNER.md) is opt-in and may incur API costs.
 
@@ -20,8 +24,8 @@ A glass interface keeps your work in front of the scenery.
 After installing the [local prerequisites](docs/DEVELOPMENT.md#local-setup), run:
 
 ```sh
-bin/lovelace setup
-bin/lovelace server
+bin/monolith setup
+bin/monolith server
 ```
 
 Open <http://localhost:4321>, pair the browser using the code printed in the terminal,
@@ -69,8 +73,8 @@ system serif/monospace fallbacks. The whole `design-concepts` folder can be copi
 ### MONOLITH designer study
 
 The [expanded MONOLITH study](design-concepts/monolith-study/index.html) defines the committed
-**redesign and rebrand of LOVELACE as MONOLITH**. This change is scoped to the static study;
-the running application, commands, backend and keychain identifiers are not migrated here.
+**redesign and rebrand of LOVELACE as MONOLITH**. The application uses the MONOLITH
+codebase/runtime identity; the study's visual design has not been applied to the running UI.
 All ten original demos remain unchanged. Serve it with the command above,
 then visit <http://127.0.0.1:8176/monolith-study/>. Charcoal is the study’s only interface
 theme; Settings contains focus and scenery preferences, not a palette selector.
@@ -192,8 +196,8 @@ For implementation, use the [distilled MONOLITH design rules](docs/MONOLITH_DESI
 and [reviewer/skill routing](docs/REVIEWERS.md#monolith-rebrand-routing). The project-local
 MONOLITH Scopewright reviewers and Skillwright workflows enforce that target while
 retaining real product/security behavior, not importing the study simulator.
-The current source and unmigrated UI contract remain evidence of today's implementation,
-not a veto on the full rename. Preparing these artifacts does not rename application source.
+The source uses MONOLITH identifiers. The unmigrated UI contract governs existing
+presentation until a separately authorized visual cutover; the study remains a reference, not runtime UI.
 
 Open **View / state** for authored scenarios, or follow product navigation.
 Hash URLs preserve destinations and mail context. Ordinary product-route reloads replay
@@ -219,9 +223,9 @@ Copy the entire `design-concepts` folder to retain local fonts, scenery and orig
 Built with Elixir, Phoenix LiveView, Ash, and SQLite.
 
 ```sh
-bin/lovelace check           # format, compile, lint/security, tests, and assets
-bin/lovelace audit           # online dependency audit
-bin/lovelace mix test.ui     # browser checks; requires Chrome/Chromium
+bin/monolith check           # format, compile, lint/security, tests, and assets
+bin/monolith audit           # online dependency audit
+bin/monolith mix test.ui     # browser checks; requires Chrome/Chromium
 ```
 
 [Development guide](docs/DEVELOPMENT.md) · [Gmail](docs/GMAIL.md) ·

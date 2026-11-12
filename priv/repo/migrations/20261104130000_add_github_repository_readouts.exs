@@ -1,4 +1,4 @@
-defmodule Lovelace.Repo.Migrations.AddGithubRepositoryReadouts do
+defmodule Monolith.Repo.Migrations.AddGithubRepositoryReadouts do
   use Ecto.Migration
 
   def up do

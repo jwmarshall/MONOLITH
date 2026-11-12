@@ -1,4 +1,4 @@
-defmodule Lovelace.Repo.Migrations.ArchitectureOperations do
+defmodule Monolith.Repo.Migrations.ArchitectureOperations do
   @moduledoc """
   Updates resources based on their most recent snapshots.
 

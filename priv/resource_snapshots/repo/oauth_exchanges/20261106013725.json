@@ -89,7 +89,7 @@
     "strategy": null
   },
   "identities": [],
-  "repo": "Elixir.Lovelace.Repo",
+  "repo": "Elixir.Monolith.Repo",
   "strict?": false,
   "custom_indexes": [
     {

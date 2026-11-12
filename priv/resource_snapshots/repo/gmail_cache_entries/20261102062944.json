@@ -116,7 +116,7 @@
       "index_name": "gmail_cache_entries_account_key_index"
     }
   ],
-  "repo": "Elixir.Lovelace.Repo",
+  "repo": "Elixir.Monolith.Repo",
   "strict?": false,
   "custom_indexes": [],
   "base_filter": null,

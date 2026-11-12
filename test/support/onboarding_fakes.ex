@@ -1,4 +1,4 @@
-defmodule Lovelace.TestSupport.OnboardingKeychain do
+defmodule Monolith.TestSupport.OnboardingKeychain do
   @moduledoc false
   use Agent
 
@@ -42,11 +42,11 @@ defmodule Lovelace.TestSupport.OnboardingKeychain do
   defp found(:error), do: {:error, :not_found}
 end
 
-defmodule Lovelace.TestSupport.OnboardingGoogleTransport do
+defmodule Monolith.TestSupport.OnboardingGoogleTransport do
   @moduledoc false
-  @behaviour Lovelace.Integrations.Google.Transport
+  @behaviour Monolith.Integrations.Google.Transport
 
-  alias Lovelace.TestSupport.OnboardingKeychain
+  alias Monolith.TestSupport.OnboardingKeychain
 
   @impl true
   def request(%{host: "oauth2.googleapis.com", path: "/token", method: "POST", body: body}, _opts) do

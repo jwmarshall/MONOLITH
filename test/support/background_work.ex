@@ -1,4 +1,4 @@
-defmodule Lovelace.TestSupport.BackgroundWork do
+defmodule Monolith.TestSupport.BackgroundWork do
   @moduledoc false
 
   def complete(view) do

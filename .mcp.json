@@ -1,6 +1,6 @@
 {
   "mcpServers": {
-    "lovelace-tidewave": {
+    "monolith-tidewave": {
       "url": "http://localhost:4321/tidewave/mcp"
     }
   }
