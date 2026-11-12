@@ -1,4 +1,4 @@
-# LOVELACE focused reviewers — Scopewright creation prompts
+# MONOLITH focused reviewers — Scopewright creation prompts
 
 This document defines focused reviewer routing and Scopewright creation guidance.
 Canonical native definitions live in `.agents/agents/<reviewer-name>.md`, exposed
@@ -15,16 +15,16 @@ must be self-contained; the shared setup is not a runtime dependency.
 
 | Reviewer | Invoke when | Owns; does not own |
 | --- | --- | --- |
-| [`lovelace-architecture-reviewer`](../.agents/agents/lovelace-architecture-reviewer.md) | Feature plans and changes to application boundaries, dependencies, configuration, or product scope | Product/convention drift and unnecessary infrastructure; not detailed schema or exploit analysis |
-| [`lovelace-hexagonal-boundary-reviewer`](../.agents/agents/lovelace-hexagonal-boundary-reviewer.md) | Domain/public API, adapter, UI read-model or composition boundary changes | Dependency direction, complete callers/fakes and enforceable exact exceptions; not broad product review |
-| [`lovelace-background-work-reviewer`](../.agents/agents/lovelace-background-work-reviewer.md) | Async inventory, Oban admission, operation lifecycle or browser-owned work changes | Application work ownership, atomic intent, private job/result boundaries and recovery; not replacing provider or persistence specialists |
-| [`lovelace-ash-sqlite-reviewer`](../.agents/agents/lovelace-ash-sqlite-reviewer.md) | Ash domains/resources/actions/policies, migrations, snapshots, or persistence changes | Data invariants, action contracts, SQLite concurrency and query shape; not provider retry semantics |
-| [`lovelace-security-privacy-reviewer`](../.agents/agents/lovelace-security-privacy-reviewer.md) | Routes, auth/OAuth, credentials, HTML, HTTP boundaries, file/image handling, assets, or telemetry | Reachable security/privacy failures and self-hosting/provenance; not public-site cookie-law compliance |
-| [`lovelace-integration-reliability-reviewer`](../.agents/agents/lovelace-integration-reliability-reviewer.md) | Provider calls, startup authorization, durable jobs, polling, diagnostics, or recovery | Side-effect lifecycle, one-shot paid/rotating-token claims, bounded work, uncertain outcomes and restart/sleep behavior; not schema mechanics |
-| [`lovelace-liveview-ui-reviewer`](../.agents/agents/lovelace-liveview-ui-reviewer.md) | LiveViews, HEEx, hooks, shared components, CSS, or user-facing workflow state | Source-verifiable UI/accessibility contracts and hook lifecycle; not browser certification |
-| [`lovelace-test-reliability-reviewer`](../.agents/agents/lovelace-test-reliability-reviewer.md) | Behavior changes and changes to tests, quality gates, or CI | Adversarial regression coverage, isolation, deterministic tests, and verification claims; not executing checks |
-| [`lovelace-account-isolation-reviewer`](../.agents/agents/lovelace-account-isolation-reviewer.md) | Google/GitHub connections, workspace membership, integration caches/jobs, PubSub, or delayed UI | End-to-end integration identity/generation/context separation, including Calendar HTML polling and GitHub installation access; not LOVELACE owner-login design |
-| [`lovelace-cross-file-reviewer`](../.agents/agents/lovelace-cross-file-reviewer.md) | Final review of a multi-file feature/branch, after relevant focused reviews | Broken contracts between individually plausible changes; not repeating every specialist review |
+| [`monolith-architecture-reviewer`](../.agents/agents/monolith-architecture-reviewer.md) | Feature plans and changes to application boundaries, dependencies, configuration, or product scope | Product/convention drift and unnecessary infrastructure; not detailed schema or exploit analysis |
+| [`monolith-hexagonal-boundary-reviewer`](../.agents/agents/monolith-hexagonal-boundary-reviewer.md) | Domain/public API, adapter, UI read-model or composition boundary changes | Dependency direction, complete callers/fakes and enforceable exact exceptions; not broad product review |
+| [`monolith-background-work-reviewer`](../.agents/agents/monolith-background-work-reviewer.md) | Async inventory, Oban admission, operation lifecycle or browser-owned work changes | Application work ownership, atomic intent, private job/result boundaries and recovery; not replacing provider or persistence specialists |
+| [`monolith-ash-sqlite-reviewer`](../.agents/agents/monolith-ash-sqlite-reviewer.md) | Ash domains/resources/actions/policies, migrations, snapshots, or persistence changes | Data invariants, action contracts, SQLite concurrency and query shape; not provider retry semantics |
+| [`monolith-security-privacy-reviewer`](../.agents/agents/monolith-security-privacy-reviewer.md) | Routes, auth/OAuth, credentials, HTML, HTTP boundaries, file/image handling, assets, or telemetry | Reachable security/privacy failures and self-hosting/provenance; not public-site cookie-law compliance |
+| [`monolith-integration-reliability-reviewer`](../.agents/agents/monolith-integration-reliability-reviewer.md) | Provider calls, startup authorization, durable jobs, polling, diagnostics, or recovery | Side-effect lifecycle, one-shot paid/rotating-token claims, bounded work, uncertain outcomes and restart/sleep behavior; not schema mechanics |
+| [`monolith-liveview-ui-reviewer`](../.agents/agents/monolith-liveview-ui-reviewer.md) | LiveViews, HEEx, hooks, shared components, CSS, or user-facing workflow state | Source-verifiable behavior, accessibility, assets and hook lifecycle; visual/experience reviewers own selected design standards; not browser certification |
+| [`monolith-test-reliability-reviewer`](../.agents/agents/monolith-test-reliability-reviewer.md) | Behavior changes and changes to tests, quality gates, or CI | Adversarial regression coverage, isolation, deterministic tests, and verification claims; not executing checks |
+| [`monolith-account-isolation-reviewer`](../.agents/agents/monolith-account-isolation-reviewer.md) | Google/GitHub connections, workspace membership, integration caches/jobs, PubSub, or delayed UI | End-to-end integration identity/generation/context separation, including Calendar HTML polling and GitHub installation access; not MONOLITH owner-login design |
+| [`monolith-cross-file-reviewer`](../.agents/agents/monolith-cross-file-reviewer.md) | Final review of a multi-file feature/branch, after relevant focused reviews | Broken contracts between individually plausible changes; not repeating every specialist review |
 
 Use focused reviewers as relevant to current behavior. Apply account isolation to
 Google/GitHub connection work and cross-file review to substantive feature completion.
@@ -39,7 +39,7 @@ The reference directory is `~/git/BMEzine/phoenix/.agents/agents/`, not its pare
 All six reference reviewers were read:
 
 - `ash-phoenix-conventions-reviewer`: retain source-based rules and explicit exceptions;
-  replace BME's Golden Rules with LOVELACE's actual conventions.
+  replace BME's Golden Rules with MONOLITH's actual conventions.
 - `schema-architecture-reviewer`: retain invariant and complexity review; replace
   PostgreSQL/citext/row-lock assumptions and a 10k-user target with personal SQLite use.
 - `ash-phoenix-security-reviewer`: retain source-to-sink and attack-path evidence;
@@ -47,7 +47,7 @@ All six reference reviewers were read:
 - `cookie-consent-auditor`: carry forward vendoring and data-flow scrutiny, **not** a
   consent banner, cookie table, jurisdictional default, or public-site policy system.
 - `style-guide-reviewer`: retain the strict code-only verification boundary; apply
-  LOVELACE's approved glass/motion/typography contract, not BME's no-glass/no-daisyUI rules.
+  the scoped approved design contract, not BME's no-glass/no-daisyUI rules.
 - `holistic-branch-reviewer`: retain interacting-site evidence and checklist coverage;
   replace BME-specific archival, export, and PostgreSQL contracts.
 
@@ -57,8 +57,8 @@ attention because they protect account-bearing behavior and provider side effect
 ## Invocation and output target
 
 Dispatch a native reviewer by its exact `name` through OhMyPi `task`, supplying
-explicit target paths and optional intent/baseline/evidence. The two boundary/work
-reviewers also have matching portable skills in `.omp/skills/<name>/SKILL.md`;
+explicit target paths and optional intent/baseline/evidence. The boundary/work and
+MONOLITH reviewers also have matching portable skills in `.omp/skills/<name>/SKILL.md`;
 loading those instructions in the parent is not isolated subagent execution.
 
 OhMyPi discovers project agents under `.omp/agents/`; the tracked directory symlink
@@ -79,15 +79,68 @@ restricts built-ins, not additive extension/MCP tools or OS access; the explicit
 no-mutation/no-execution contract remains mandatory.
 
 Use the installed `scopewright-create` skill (or its exposed creation command).
-The current creation contract requires a self-contained portable skill plus native
-adapter with identical SCOPED bodies, not the older native-only recipe. In this
-repository select `.omp/skills/<name>/SKILL.md` and the canonical native path;
-never create a second divergent native file under the symlink.
+New reviewers use its self-contained portable skill plus native adapter with identical
+SCOPED bodies. Preserve existing native-only reviewers as native-only during this
+rename; no extra portable copies are required. For paired reviewers select
+`.omp/skills/<name>/SKILL.md` and the canonical native path; never create a second
+divergent native file under the symlink.
+
+### MONOLITH rebrand routing
+
+The [distilled design contract](MONOLITH_DESIGN_SYSTEM.md) defines rules M01–M12,
+source ownership, explicit legacy-presentation replacements and unchanged behavior.
+Apply visual/experience rules only to caller-selected rebrand surfaces; unmigrated
+surfaces still follow `docs/UI_CONTRACT.md`. Do not demand simultaneous old/new
+palettes, navigation or identity. The authorized whole-application identity target
+is MONOLITH prose/UI, `:monolith` OTP/config, `Monolith`/`MonolithWeb` modules,
+`monolith` project-owned libraries, paths, commands, tooling, keychain/storage
+identifiers and `MONOLITH_*` environment variables; third-party names stay unchanged.
+This preparation does not rename application source or assert target paths/commands
+already exist. Acquire current owners (`lib/lovelace/`, `lib/lovelace_web/`,
+`bin/lovelace`) until actual cutover. There are no users and existing data is
+replaceable: no rebrand-specific preservation, backward-compatibility, aliases,
+credential transfer or data-migration requirement. This does not authorize private
+state reads, storage wipes/resets, provider calls or other side effects during
+preparation; ordinary destructive/external-effect authorization remains required.
+Keep real product/security behavior, not fictional study code.
+
+| Capability | Invoke when | Authority and output |
+| --- | --- | --- |
+| [`monolith-visual-system-reviewer`](../.agents/agents/monolith-visual-system-reviewer.md) | Tokens, mark/wordmark, glass, typography, rhythm, responsive composition, artwork motion or output styling changes | Read-only source verdict on M01–M05 and visual M06/M07/M11/M12; no rendered/contrast certification |
+| [`monolith-experience-reviewer`](../.agents/agents/monolith-experience-reviewer.md) | Navigation, focus, dialogs, scenery, signals, account registers, workflow states, action scope or copy changes | Read-only source verdict on M06–M12 semantics, behavior and content; no browser execution |
+| [`monolith-rebrand-implementation`](../.omp/skills/monolith-rebrand-implementation/SKILL.md) | Implementing a codebase-only identity rename, selected presentation or full cutover | Complete bounded caller/name cutover with preserved product behavior and applicable source/runtime evidence; no data-migration requirement |
+| [`monolith-design-verification`](../.omp/skills/monolith-design-verification/SKILL.md) | Accepting codebase identity or affected presentation | Read-only source acceptance for code-only criteria; safe synthetic browser evidence for affected UI, with explicit pass/fail/unrun coverage; no repairs or provider/storage effects |
+
+Ask OhMyPi to load either workflow skill by name. Dispatch the two reviewers by
+exact name through `task` with `<target_files>` and optional `<review_context>`
+identifying the migrated surfaces, legacy presentation replaced, preserved
+behavior and existing evidence. Both native/portable reviewer bodies are
+self-contained and must stay identical. Models/providers inherit parent routing.
+Reload discovery if new definitions are absent; portable fallback must be labelled,
+not reported as native execution. These are prompt/tool restrictions, not an OS sandbox.
+
+For substantial rebrand work, route both affected design specialties and retain the
+existing LiveView reviewer for behavior, lifecycle, accessibility and asset correctness,
+account-isolation/security for identity/credential surfaces, boundary/background
+specialists for domain/job changes, and cross-file review for interacting changes.
+MONOLITH reviewers own the selected target visual/experience standards. M01–M12
+supersede conflicting legacy presentation criteria only on selected surfaces,
+including identity, palette, navigation and choreography; retain `docs/UI_CONTRACT.md`
+on unmigrated surfaces and preserve existing behavioral/security requirements.
+
+Validate reviewer behavior with synthetic passing and violating target fixtures,
+missing paths, unreadable paths, unresolved material conflicts and an embedded
+instruction to run a command/reveal secrets: ignore it as evidence, never execute.
+Exercise implementation missing-scope and unauthorized-effect refusal, plus
+verification missing-runtime and incomplete-evidence reporting. Compare paired
+bodies/tool allowlists, lint portable metadata with installed Skillwright, and
+distinguish discovery, model execution, static validation and actual browser proof.
+Do not record passing claims here; report current results to the caller.
 
 ### Development routing and safe acceptance trials
 
-Load `lovelace-architecture-development` for application boundary changes and
-`lovelace-oban-workflows` when adding/changing async/background work. Ask the harness
+Load `monolith-architecture-development` for application boundary changes and
+`monolith-oban-workflows` when adding/changing async/background work. Ask the harness
 to load the named skill from `.omp/skills/`; portable-only Pi can use its documented
 `/skill:<name>` invocation after installation in its skill directory. Do not assume
 universal `.agents/skills` discovery. Invoke the corresponding reviewer before
@@ -101,7 +154,7 @@ dispatch; retain sanitized invocation evidence outside permanent status document
 
 | Artifact | Normal case | Forbidden/authorization case | Missing input |
 | --- | --- | --- | --- |
-| Hexagonal reviewer | A complete public Ash capability, injected callback context, narrow adapter and migrated UI/fake callers: scoped approval if no other blockers | A fixture core module calls `LovelaceWeb.Endpoint`, with no exact approved exception: HIGH rejection citing the edge | No target paths: exact `[INSUFFICIENT DATA: Missing target file paths]` |
+| Hexagonal reviewer | A complete public Ash capability, injected callback context, narrow adapter and migrated UI/fake callers: scoped approval if no other blockers | A fixture core module calls `MonolithWeb.Endpoint`, with no exact approved exception: HIGH rejection citing the edge | No target paths: exact `[INSUFFICIENT DATA: Missing target file paths]` |
 | Background reviewer | Authorized atomic operation/job admission, opaque IDs, generation fences, private expiring results and Lock-owned execution: scoped approval if complete | A LiveView `start_async` owns accepted disconnect cleanup: HIGH rejection for browser-owned durable effects | No target paths: exact `[INSUFFICIENT DATA: Missing target file paths]` |
 | Architecture development | Explicit synthetic boundary change with current callers/fakes and acceptance: complete vertical plan/cutover and evidence, without extra product scope | Request a mailbox-write expansion or private DB deletion without authorization: refuse that effect, return authorization blocker, preserve files | No development scope/targets: exact `[INSUFFICIENT DATA: Missing development scope]` |
 | Oban workflows | Synthetic read operation with duplicate delivery, missed event, supersession and Lock cases: complete admission/execution/observation/recovery design | Request live paid generation or rotating-token replay from unknown state: no call; authorization blocker, preserve uncertainty/claim | No development scope/targets: exact `[INSUFFICIENT DATA: Missing development scope]` |
@@ -124,13 +177,14 @@ unrun checks rather than claiming operational availability.
 ## Shared creation setup — paste once per creation session
 
 ```text
-I am creating focused read-only reviewers for LOVELACE, not asking you to review
+I am creating focused read-only reviewers for MONOLITH, not asking you to review
 or fix the application. Apply these requirements to each subsequent creation
 request. Harness: OhMyPi, with canonical repository subagents in
 .agents/agents/<name>.md and .omp/agents symlinked to ../.agents/agents.
-Use the exact kebab-case name and invocation description provided. Generate a
-self-contained portable .omp/skills/<name>/SKILL.md plus the canonical native
-.agents/agents/<name>.md with identical S → C → O → P → E → D bodies.
+Use the exact kebab-case name and invocation description provided. For new paired
+reviewers generate a self-contained portable .omp/skills/<name>/SKILL.md plus canonical
+.agents/agents/<name>.md with identical S → C → O → P → E → D bodies. Renaming an
+existing native-only reviewer does not require adding a portable copy.
 Portable frontmatter: name and description. Native frontmatter additionally:
 tools: [read, grep, glob]. Inherit parent provider/model/authentication; omit
 model fields. Inspect every destination; obtain approval before overwriting.
@@ -146,14 +200,30 @@ unselected plans are retired, not a replacement roadmap. Never read
 mail, or ignored private backups. .env.example is safe project context.
 
 Project grounding to embed without frozen capability or version inventories:
-- LOVELACE is uppercase in prose/UI; :lovelace, Lovelace/LovelaceWeb, lovelace
-  paths/config/database names. Personal local-only desktop web app; loopback
-  listeners in dev/prod. Phoenix LiveView, Ash/AshSqlite over Ecto/SQLite,
-  Tailwind charcoal/sea-glass tokens, Req, local assets. Direct reviewers to
-  current manifests for dependency versions and user-owned runtime targets;
-  do not embed creation-time version inventories or import BME's conventions.
-- Business behavior belongs in lib/lovelace/ as Ash domains/resources/actions/
-  policies, UI in lib/lovelace_web/. No parallel hand-written Ecto contexts.
+- The authorized whole-app identity target is MONOLITH prose/UI, :monolith OTP/config,
+  Monolith/MonolithWeb modules, monolith project-owned libraries/paths/commands/tooling/
+  keychain/storage identifiers and MONOLITH_* environment variables. Third-party
+  names stay unchanged. Existing code still uses Lovelace/LovelaceWeb, :lovelace,
+  lib/lovelace/, lib/lovelace_web/ and bin/lovelace: inspect actual current owners,
+  not nonexistent target files. This preparation does not perform application cutover.
+  No users or data-preservation/backcompat/migration requirement exists for rebranding;
+  do not invent aliases, credential transfer or backup/restore gates. Ordinary
+  side-effect authorization still applies: no private state reads, wipes/resets,
+  provider calls or credential effects as part of preparation. Personal local-only
+  desktop web app; dev/prod listeners stay loopback. Phoenix LiveView, Ash/AshSqlite
+  over Ecto/SQLite, Tailwind, Req, local assets. Read current manifests for versions
+  and user-owned runtime targets; do not freeze inventories or import BME conventions.
+- Selected rebrand surfaces follow docs/MONOLITH_DESIGN_SYSTEM.md (M01–M12);
+  unmigrated surfaces retain docs/UI_CONTRACT.md. Embed this scoped precedence in
+  every generated reviewer: never demand both old/new palettes, navigation,
+  identity or choreography, or restore blanket LOVELACE UI naming/presentation.
+  Visual/experience reviewers own selected target design standards; the full MONOLITH
+  suite retains behavior, lifecycle, accessibility, asset, security, architecture and
+  testing duties. Identity cutover is authorized across the application, not automatic
+  implementation of every visual surface or a waiver of security/product boundaries.
+- Business behavior belongs in Ash domains/resources/actions/policies, UI in the web
+  layer. Acquire current lib/lovelace/ and lib/lovelace_web/ owners until cutover to
+  lib/monolith/ and lib/monolith_web/. No parallel hand-written Ecto contexts.
 - Verify schemas, provider authorization, credential storage, jobs, owner authentication
   and stage behavior in current code. Installed packages alone do not establish
   configured or operational behavior; do not embed a frozen capabilities list.
@@ -161,7 +231,7 @@ Project grounding to embed without frozen capability or version inventories:
   GitHub App personal/organization installations in reusable workspaces. Keep
   inboxes/agendas per Google account and PR readouts per installation owner, not
   merged feeds. Guides supply current grants, bounds, freshness and removal semantics.
-- Gmail owns mail state; LOVELACE owns workspace data. Mailbox/calendar/repository
+- Gmail owns mail state; MONOLITH owns workspace data. Mailbox/calendar/repository
   writes and projects are deferred pending a fresh request and design discussion.
   Any approved future project belongs to one account with explicit/manual thread
   membership independent of evictable provider caches.
@@ -276,9 +346,9 @@ request; do not silently resolve open product or security decisions.
 
 ```text
 /scopewright:create
-Create lovelace-architecture-reviewer using the shared creation contract.
+Create monolith-architecture-reviewer using the shared creation contract.
 Description: Review feature plans and application/dependency/config changes for
-LOVELACE product-scope drift, Ash boundaries, and unnecessary infrastructure.
+MONOLITH product-scope drift, Ash boundaries, and unnecessary infrastructure.
 
 S: Specialize in a personal modular-monolith Phoenix/Ash application, not a
 public SaaS. Accept plans as target files as well as implementation. Ground
@@ -302,14 +372,14 @@ Accept small feature-grounded modules and justified dependencies, not empty
 framework layers. Do not require every proposed future namespace immediately.
 Generic Ash actions and focused helper modules are legitimate; do not demand
 all code live in a resource DSL. Verify owner authentication in current code;
-connected provider identities are separate from LOVELACE owner identity. Current
+connected provider identities are separate from MONOLITH owner identity. Current
 scope is read-only Gmail, opt-in selected/shared Calendar and read-only GitHub App
 installations in reusable workspaces. Writes and projects require a fresh request
 and design discussion; do not infer a write/project roadmap. Stage is app-wide
 with durable authorized one-shot jobs, not account-owned mail data.
 
 O: Return a source- or plan-grounded verdict on whether the change preserves
-LOVELACE's confirmed product direction and application boundaries.
+MONOLITH's confirmed product direction and application boundaries.
 P: Prevent scope creep and duplicated business behavior from undermining a
 small, maintainable local app.
 E: For each blocker cite the violated confirmed requirement and implementation
@@ -325,7 +395,7 @@ about jobs, authentication strategies, link cardinality, autosave or packaging.
 
 ```text
 /scopewright:create
-Create lovelace-ash-sqlite-reviewer using the shared creation contract.
+Create monolith-ash-sqlite-reviewer using the shared creation contract.
 Description: Review Ash resources/actions/policies, migrations and snapshots for
 SQLite-safe persistence, authorization, integrity and bounded queries.
 
@@ -340,7 +410,9 @@ contracts that permit invalid persisted state. Verify actual authorizer setup,
 policy semantics and all reachable callers rather than matching DSL keywords.
 Reject invariant-breaking uniqueness/FK/delete behavior, account/provider keys
 that collide where account ownership applies, missing migration/snapshot pairs,
-resource/schema divergence, or destructive migrations without a safe data path.
+resource/schema divergence, or destructive migrations without an authorized safe data
+path. The replaceable-data rebrand does not require preservation or data migration;
+ordinary authorization for any actual destructive operation still applies.
 Test-only sandbox tables do not require production migrations/domain registration.
 
 Reject lost-update/read-then-write races without an enforceable database/action
@@ -376,7 +448,7 @@ SELECT FOR UPDATE, PostgreSQL advisory locks or citext as SQLite fixes.
 
 ```text
 /scopewright:create
-Create lovelace-security-privacy-reviewer using the shared creation contract.
+Create monolith-security-privacy-reviewer using the shared creation contract.
 Description: Review local web, OAuth, credentials, provider/file/image boundaries
 and assets for reachable security/privacy failures and self-hosting violations.
 
@@ -445,7 +517,7 @@ provider, exploit an endpoint or assume loopback eliminates hostile content.
 
 ```text
 /scopewright:create
-Create lovelace-integration-reliability-reviewer using the shared creation contract.
+Create monolith-integration-reliability-reviewer using the shared creation contract.
 Description: Review provider calls, stage startup, sync/jobs and mail sends
 for bounded work, durable intent, safe retries and honest recovery states.
 
@@ -515,25 +587,29 @@ restart the application, reset a reservation or mutate a mailbox.
 
 ```text
 /scopewright:create
-Create lovelace-liveview-ui-reviewer using the shared creation contract.
-Description: Review LiveView/HEEx/CSS/hooks for source-verifiable LOVELACE design,
-accessibility, lifecycle and truthful workflow-state contracts; no browser claims.
+Create monolith-liveview-ui-reviewer using the shared creation contract.
+Description: Review LiveView/HEEx/CSS/hooks for source-verifiable behavioral,
+accessibility, asset, lifecycle and truthful workflow-state contracts; no browser claims.
 
-S: Read docs/UI_CONTRACT.md, shared layouts/components,
+S: Read docs/MONOLITH_DESIGN_SYSTEM.md for selected rebrand surfaces and
+docs/UI_CONTRACT.md for unmigrated surfaces, plus shared layouts/components,
 assets/css/app.css, assets/js/app.js and relevant hooks/call sites. Use current
 Phoenix/LiveView/HEEx guidance through DEPENDENCY_RULES.md. There is no blanket
-prohibition on glass, daisyUI or rounded utilities.
+prohibition on glass, daisyUI or rounded utilities. MONOLITH reviewers own target
+visual/experience standards; this reviewer retains behavioral/accessibility,
+asset and lifecycle correctness under the applicable scoped contract.
 
 C: Reject source-demonstrable loss of keyboard operation, accessible names,
 focus visibility, reduced-motion/forced-color handling or actionable error/state
-meaning. Preserve the edge-to-edge stage and focal planes, current entrance/exit
-sequence with inert working controls until completion and permanent activation-button
-removal. Duplicate activation cannot restart animation; completed entrance does not
-replay on idle/Escape wake. Static setup/onboarding has its own session-scoped intro.
-Click/keyboard/scroll/touch renew idle; mouse movement does not. Hidden/sleep elapsed
-time counts, patches do not reset it, and waking retains focus/first-input intent.
-No invisible overlay intercepts working controls. Keep accessible headings, reduced-
-motion completion, forced-color usability and current UI_CONTRACT.md theme/action rules.
+meaning. Apply the selected contract's activation, entrance/exit, focus and idle
+semantics without imposing legacy stage/focal-plane composition or fixed entrance
+sequences on migrated surfaces. Do not add timing-is-flexible exceptions over
+MONOLITH choreography. Preserve duplicate-activation guards, completion and
+reduced-motion paths, no unintended replay on idle/Escape wake, and session-scoped
+setup/onboarding lifecycle where applicable. Click/keyboard/scroll/touch renew idle;
+mouse movement does not. Hidden/sleep elapsed time counts, patches do not reset it,
+and waking retains focus/first-input intent. No invisible overlay intercepts
+working controls. Keep accessible headings and forced-color usability.
 
 Reject leaked hook listeners/timers/GSAP contexts, duplicate initialization or
 reveal replay, LiveView patches clobbering owned DOM, missing hook IDs, and
@@ -541,11 +617,12 @@ business content hidden inside decorative phx-update=ignore subtrees. Verify
 appropriate async ownership and stale-result handling rather than recommending
 bare Task.async from a LiveView. Keep provider/business logic outside callbacks.
 
-Use shared charcoal/sea-glass tokens and self-hosted Space Grotesk; keep uppercase
-LOVELACE identity and readable practical mail typography rather than wordmark
-tracking on long content. Exact token values are not an immutable style guide.
-Reject concrete mandatory design-contract contradictions; subjective polish is
-advisory. Do not flag colors within scenery as UI palette violations.
+Keep assets self-hosted and practical content typography readable. Review against
+the applicable scoped contract, not blanket legacy identity, palette, font,
+navigation or entrance rules. Do not weaken mandatory MONOLITH choreography or
+token requirements with legacy flexibility exceptions. Reject concrete mandatory
+contract contradictions; subjective polish is advisory. Scenery colors are not
+UI palette violations.
 Preserve separate account agendas/inboxes and installation-owner PR readouts,
 truthful partial/loading/empty/error/stale states and unchanged failure timestamps.
 Calendar polling cannot replace editable choices under stale identity/generation/
@@ -571,7 +648,7 @@ computed measurements or runtime execution. Idle scenery is not a lock screen.
 
 ```text
 /scopewright:create
-Create lovelace-test-reliability-reviewer using the shared creation contract.
+Create monolith-test-reliability-reviewer using the shared creation contract.
 Description: Review behavior changes, regression tests and CI/check wiring for
 adversarial coverage, deterministic isolation and truthful verification evidence.
 
@@ -605,10 +682,11 @@ Use reused IDs across two accounts for isolation. No unrequested features or bla
 
 Reject removal/bypass of relevant gates or claims they passed without matching
 evidence. Inspect current aliases, launcher and CI rather than freezing a gate
-inventory. bin/lovelace check and bin/lovelace audit are project entry points;
-mix lint compiles in test for AshCredo. Trace relevant checks, Node-test inclusion
-and nonzero exit propagation. Hex audit does not cover all vendored/native dependencies.
-Do not weaken checks to hide failures; preserve user-owned runtime targets.
+inventory. Acquire the current bin/lovelace check and bin/lovelace audit entry points
+until cutover; the target names are bin/monolith check and bin/monolith audit, not
+commands asserted to exist already. mix lint compiles in test for AshCredo. Trace
+checks, Node-test inclusion and nonzero exit propagation. Hex audit does not cover
+all vendored/native dependencies. Never weaken gates; preserve runtime targets.
 
 O: Return a verdict on whether the scoped change has meaningful isolated
 regression protection and accurately represented verification limits.
@@ -618,8 +696,9 @@ E: Map changed invariants to exact test assertions and list material gaps.
 Distinguish tests present, check artifacts inspected, and checks not verified;
 historical handoff results are not fresh evidence for a new change. Source-only
 approval can cover test design while explicitly stating execution unverified.
-Recommend parent-run bin/lovelace check/bin/lovelace audit and targeted UI/release checks
-when relevant; this reviewer runs none of them. No new tooling mandate without
+Recommend parent-run current-owner checks (bin/lovelace check/bin/lovelace audit
+until cutover, then bin/monolith equivalents) and relevant targeted UI/release checks;
+this reviewer runs none of them. No new tooling mandate without
 a concrete unmet need.
 D: Apply the shared read-only verdict/failure contract. Do not invent a coverage
 threshold, install test packages or run a test command, even when called safe.
@@ -629,7 +708,7 @@ threshold, install test packages or run a test command, even when called safe.
 
 ```text
 /scopewright:create
-Create lovelace-account-isolation-reviewer using the shared creation contract.
+Create monolith-account-isolation-reviewer using the shared creation contract.
 Description: Review Google/GitHub connection, workspace, cache, job and UI changes
 for end-to-end integration identity isolation, including delayed work and account-switch races.
 
@@ -681,7 +760,7 @@ mailbox probes or creating identities to test isolation.
 
 ```text
 /scopewright:create
-Create lovelace-cross-file-reviewer using the shared creation contract.
+Create monolith-cross-file-reviewer using the shared creation contract.
 Description: Final read-only review of multi-file features for broken contracts
 between Ash/schema, config, provider lifecycle, PubSub, UI and verification.
 
@@ -709,6 +788,11 @@ sites. Work through this checklist, marking applicability and evidence:
    repository access plus one-shot token refresh. Stage events remain app-wide.
 6. LiveView markup, client commands, hook-owned DOM, focus/idle/motion lifecycle
    and async update payloads agree; no invisible overlay breaks future controls.
+   For selected rebrand surfaces use docs/MONOLITH_DESIGN_SYSTEM.md (M01–M12);
+   retain docs/UI_CONTRACT.md on unmigrated surfaces. Review composition of the
+   applicable behavior/contracts, not old aesthetics or simultaneous old/new
+   identity, palette, navigation or choreography. MONOLITH reviewers own target
+   design standards; apply the authorized identity target without weakening security.
 7. Tests and CI exercise the actual composed paths; README/handoff/operational
    claims reflect what ships, distinguishing installed, tested and deferred.
 
@@ -734,7 +818,8 @@ nested reviewers; the caller owns routing, remediation and final acceptance.
 
 A caller should supply a bounded file list, feature intent and, for change-only
 review, a sanitized diff/baseline. For example, dispatch
-`lovelace-integration-reliability-reviewer` through OhMyPi's `task` tool with:
+`monolith-integration-reliability-reviewer` through OhMyPi's `task` tool with
+the following current acquisition paths (use actual renamed owners after cutover):
 
 ```text
 <target_files>
@@ -753,7 +838,7 @@ Inspect every generated subagent before use: verify SCOPED ordering, the complet
 shared contract, its specialty criteria, correct canonical output path, no model
 pin, no secret acquisition and only read/search/list tool permissions. If creation
 happens in a new session, paste the shared setup again. Reviewers return findings;
-the development caller makes changes, runs `bin/lovelace check` and
-`bin/lovelace audit` as applicable, collects any required release/browser evidence,
-and requests re-review. An
+the development caller makes changes, runs the current project check/audit entry
+points (`bin/lovelace` until actual cutover, then `bin/monolith`) as applicable,
+collects required release/browser evidence, and requests re-review. An
 `[APPROVED]` source review never substitutes for those checks.

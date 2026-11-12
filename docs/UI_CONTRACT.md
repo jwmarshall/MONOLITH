@@ -1,7 +1,14 @@
 # LOVELACE — visual and interaction contract
 
-This is the current contract for all owner, workspace and mail surfaces. Keep visual and
-interaction decisions here and durable product/safety rules in [AGENTS.md](../AGENTS.md).
+This records the current, unmigrated owner, workspace and mail presentation.
+The approved full application/codebase identity is MONOLITH under
+[MONOLITH_DESIGN_SYSTEM.md](MONOLITH_DESIGN_SYSTEM.md); old naming and paths here
+describe existing implementation, not a requirement to preserve LOVELACE identifiers.
+Selected visual surfaces follow that design target instead of the legacy presentation;
+do not require both visual systems simultaneously. Product/security behavior
+continues unchanged. Update affected requirements and their coverage map when
+the application actually cuts over, not merely when preparing reviewer guidance.
+Keep durable product/safety rules in [AGENTS.md](../AGENTS.md).
 Later approved decisions replace old requirements rather than accumulating a chronology.
 Verify implementation in code; the coverage map below is not evidence that checks passed.
 

@@ -1,8 +1,15 @@
-# Working on LOVELACE
+# Working on MONOLITH
 
-The project name is **LOVELACE**, always uppercase in prose and UI. Use `:lovelace`
-for the OTP application, `Lovelace`/`LovelaceWeb` for modules, and `lovelace` in paths,
-configuration keys, and database filenames.
+The approved application identity is **MONOLITH**, uppercase in prose and UI.
+The full rebrand includes `:monolith` for the OTP application/configuration,
+`Monolith`/`MonolithWeb` modules, `monolith` project-owned libraries, paths,
+commands, database/keychain identifiers and tooling, and `MONOLITH_*` environment
+variables. Third-party dependencies retain their upstream names.
+The current application source still uses LOVELACE identifiers until its codebase
+cutover; inspect actual owners rather than assuming target paths already exist.
+There are no users and existing local data is replaceable: this pre-user rebrand
+requires no data migration, preservation, backward compatibility or legacy aliases.
+Preparing enforcement artifacts does not itself rename source or reset local state.
 
 Stack: Phoenix LiveView, Ash/AshSqlite over Ecto/SQLite, and Tailwind.
 
@@ -33,7 +40,7 @@ Stack: Phoenix LiveView, Ash/AshSqlite over Ecto/SQLite, and Tailwind.
   reservation; unknown outcomes require sign-in again. No repository writes, contents,
   workflow logs or artifacts. See the GitHub section in docs/DEVELOPMENT.md before changing
   credentials or polling.
-- Gmail owns mail state; LOVELACE owns workspace/project data. Use bounded on-demand caching
+- Gmail owns mail state; MONOLITH owns workspace/project data. Use bounded on-demand caching
   and Gmail search, not a full offline mirror or local mail index. Poll while the app runs;
   do not promise instant updates or execution while the computer is asleep/off.
 - Show honest health, freshness and failure states. Unread signals must be per-account inbox
@@ -108,22 +115,31 @@ Stack: Phoenix LiveView, Ash/AshSqlite over Ecto/SQLite, and Tailwind.
 
 ## Experience
 
-- Warm cinematic minimalism: quiet brutalist geometry, charcoal/sea-glass, Space Grotesk,
-  restrained motion and an edge-to-edge transparent glass stage shared by owner/workspace/mail views.
-  Use quiet workspace cards; preserve the scenery/working-content focal-plane model.
-  Escape/idle is visual, **not Lock**.
-- Keyboard access, readable mail, contrast, reduced motion and forced colors outrank atmosphere.
-  See docs/UI_CONTRACT.md for visual/interaction requirements and their verification map.
+- Explicitly selected rebrand surfaces follow docs/MONOLITH_DESIGN_SYSTEM.md;
+  unmigrated surfaces retain docs/UI_CONTRACT.md. Do not require both presentation
+  systems on the same surface. MONOLITH reviewers own the target visual/experience
+  standards; existing specialists retain application correctness and safety.
+- Preserve the scenery/working-content focal-plane model. Escape/idle is visual,
+  **not Lock**. Keyboard access, readable mail, contrast, reduced motion and forced
+  colors outrank atmosphere in either presentation.
 
 ## Verification
 
-Load `lovelace-architecture-development` for boundary changes and `lovelace-oban-workflows`
+Load `monolith-architecture-development` for boundary changes and `monolith-oban-workflows`
 for async/background changes; invoke the corresponding hexagonal-boundary/background-work
 reviewer before completion. See docs/REVIEWERS.md for discovery, fallback and specialist routing.
+For MONOLITH rebrand work, load `monolith-rebrand-implementation` and
+`monolith-design-verification`; use docs/MONOLITH_DESIGN_SYSTEM.md for the approved
+target and migration boundary. Invoke `monolith-visual-system-reviewer` and
+`monolith-experience-reviewer` for their affected scopes before completion.
+The rebrand includes application/runtime/library/tooling identity, not just display
+strings. Preserve product/security behavior rather than importing the study simulator.
 
 Run `bin/lovelace check` (format/compile/Credo/AshCredo/architecture/Sobelow/tests/assets)
 and `bin/lovelace audit` (online advisories/retired packages). For UI
 changes also run `bin/lovelace mix test.ui` (installed Chrome/Chromium; see docs/DEVELOPMENT.md). `mix lint` compiles in test for AshCredo introspection.
+These are current wrapper paths until the codebase cutover; migrate commands and
+their callers to `bin/monolith` with the application, then use the renamed wrappers.
 Keep durable decisions here and operational contracts in the relevant docs. Do not maintain
 handoff documents, completion histories or speculative backlogs. Choose future work from the
 current user request; retired plans are not obligations. Verify implementation in code and
