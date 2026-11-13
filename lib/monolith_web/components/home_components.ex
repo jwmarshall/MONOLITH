@@ -1,14 +1,23 @@
 defmodule MonolithWeb.HomeComponents do
-  @moduledoc "Small daily-orientation readouts, independent of the workspace directory."
+  @moduledoc "Daily orientation with separate account readouts and real local preferences."
   use MonolithWeb, :html
 
   def daily_heading(assigns) do
     ~H"""
-    <header id="daily-heading" class="daily-heading" phx-hook="DailyOrientation" phx-update="ignore">
-      <h2 id="directory-heading" tabindex="-1" data-workspace-heading data-daily-greeting>
-        Good day
-      </h2>
-      <time data-daily-date class="daily-date"></time>
+    <div class="page-register-row page-header-row">
+      <p class="page-register">01 / Home</p>
+      <.lock_control />
+    </div>
+    <header id="daily-heading" class="home-hero" phx-hook="DailyOrientation" phx-update="ignore">
+      <div class="date-block">
+        <time data-daily-date class="daily-date">
+          <span data-daily-number class="day-number"></span>
+          <span class="date-caption"><span data-daily-weekday></span><span data-daily-month></span></span>
+        </time>
+      </div>
+      <div class="home-greeting">
+        <h1 id="directory-heading" tabindex="-1" data-workspace-heading>A day<br />in focus.</h1>
+      </div>
     </header>
     """
   end
@@ -26,25 +35,24 @@ defmodule MonolithWeb.HomeComponents do
       aria-busy={to_string(@loading)}
     >
       <div class="home-section-heading">
-        <h3 id="home-mail-heading" class="home-eyebrow">Gmail</h3>
+        <h2 id="home-mail-heading" class="section-register">01 / Email</h2>
       </div>
       <p :if={@loading} class="home-empty" role="status">
         <.status_signal id="home-loading-signal" state={:active} label="Loading accounts…" />
       </p>
       <div :if={@error} id="home-error" class="home-empty" role="alert">
-        <p>Accounts couldn’t be loaded.</p>
-        <button type="button" class="workspace-action" phx-click="retry_workspaces">Try again</button>
+        <p>Accounts couldn’t be loaded.</p><button
+          type="button"
+          class="workspace-action"
+          phx-click="retry_workspaces"
+        >Try again</button>
       </div>
       <div :if={!@loading && !@error && @accounts == []} id="home-empty" class="empty-state">
         <.icon name="hero-envelope" class="empty-state-mark size-6" />
         <div class="empty-state-body">
-          <h4 class="empty-state-title">No Gmail accounts connected</h4>
-          <p class="empty-state-copy">
+          <h3 class="empty-state-title">No Gmail accounts connected</h3><p class="empty-state-copy">
             Connect an account to see unread counts here. Each inbox stays separate.
-          </p>
-          <.link patch="/connections/gmail" class="workspace-action workspace-action-link">
-            Connect Gmail
-          </.link>
+          </p><.link patch="/connections/gmail" class="workspace-action workspace-action-link">Connect Gmail</.link>
         </div>
       </div>
       <ul :if={!@error && !@loading && @accounts != []} id="home-accounts" class="home-accounts">
@@ -55,13 +63,14 @@ defmodule MonolithWeb.HomeComponents do
   end
 
   attr :account, :map, required: true
+  attr :inbox_path, :string, default: nil
 
   def account_readout(assigns) do
     ~H"""
     <li id={"home-account-#{@account.id}"} class="home-account">
       <.link
         id={"open-home-account-#{@account.id}"}
-        patch={MonolithWeb.HomeNavigation.account_path(@account.id)}
+        patch={@inbox_path || MonolithWeb.HomeNavigation.account_path(@account.id)}
         class="home-account-open"
         aria-label={"Open inbox for #{@account.email}"}
         aria-describedby={"home-count-#{@account.id} home-health-#{@account.id}"}
@@ -74,33 +83,37 @@ defmodule MonolithWeb.HomeComponents do
               else: Enum.join(@account.workspaces, " · ")}
           </span>
         </span>
-        <.icon name="hero-arrow-up-right" class="home-account-arrow size-4" />
         <span id={"home-count-#{@account.id}"} class="home-unread">
-          <span class="home-unread-label">unread</span>
-          <span class="home-unread-values" aria-hidden="true">
-            <span class="home-unread-number">{if is_integer(@account.inbox_unread_count),
+          <span class="home-count">
+            <b aria-hidden="true">{if is_integer(@account.inbox_unread_count),
               do: @account.inbox_unread_count,
-              else: "—"}</span><span class="home-unread-separator"> / </span><span class="home-unread-recent">{if is_integer(
-                                                                                                                    @account.inbox_unread_recent_count
-                                                                                                                  ),
-                                                                                                                  do:
-                                                                                                                    @account.inbox_unread_recent_count,
-                                                                                                                  else:
-                                                                                                                    "—"}</span>
-          </span>
-          <span class="home-unread-context" aria-hidden="true">Total / last 24h</span>
-          <span class="sr-only">
-            {if is_integer(@account.inbox_unread_count),
+              else: "—"}</b>
+            <span>Unread inbox conversations</span>
+            <span class="sr-only">{if is_integer(@account.inbox_unread_count),
               do: "#{@account.inbox_unread_count} total",
-              else: "total unavailable"}; {if is_integer(@account.inbox_unread_recent_count),
+              else: "Total unavailable"}</span>
+          </span>
+          <span class="home-count home-count-recent">
+            <b aria-hidden="true">{if is_integer(@account.inbox_unread_recent_count),
+              do: @account.inbox_unread_recent_count,
+              else: "—"}</b>
+            <span>Received in the last 24h</span>
+            <span class="sr-only">{if is_integer(@account.inbox_unread_recent_count),
               do: "#{@account.inbox_unread_recent_count} received in the last 24 hours",
-              else: "last 24 hours unavailable"}
+              else: "Last 24 hours unavailable"}</span>
           </span>
         </span>
+        <span class="home-account-affordance">Open account inbox</span>
       </.link>
       <div id={"home-health-#{@account.id}"} class="home-account-health">
         <.freshness account={@account} />
         <span :if={health_message(@account)} class="connection-warning">{health_message(@account)}</span>
+        <.status_signal
+          :if={!@account.inbox_unread_at && !health_message(@account)}
+          id={"home-unknown-#{@account.id}"}
+          state={:unknown}
+          label="No unread count observation available"
+        />
         <.link
           :if={@account.status == :reconnect || @account.last_error == :keychain}
           patch="/connections/gmail"
@@ -130,60 +143,101 @@ defmodule MonolithWeb.HomeComponents do
             !is_nil(@account.last_error)
         )
       }
-    >
-      {if @account.status != :ready || @account.inbox_unread_error || @account.last_error,
-        do: "Stale unread count"}
-    </span>
+    ></span>
     """
   end
 
+  attr :startup_preference, :map, default: nil
+  attr :startup_error, :boolean, default: false
+  attr :startup_status, :string, default: ""
+
   def settings(assigns) do
+    assigns =
+      assign(
+        assigns,
+        :default_minutes,
+        Application.get_env(:monolith, :workspace_idle_minutes, 3)
+      )
+
     ~H"""
-    <section id="settings-panel" class="settings-panel" aria-labelledby="directory-heading">
-      <fieldset
-        id="theme-picker"
-        class="theme-picker"
-        phx-hook="ThemePicker"
-        phx-update="ignore"
-        aria-describedby="theme-description theme-status"
-      >
-        <legend>Appearance</legend>
-        <p id="theme-description" class="settings-description">
-          Choose a palette for LOVELACE. This preference stays in this browser, not your account.
-          Your scenery is unchanged.
+    <section id="settings-panel" aria-labelledby="directory-heading">
+      <div class="settings-panel">
+        <section class="settings-section" aria-labelledby="idle-heading">
+          <header class="card-section-heading">
+            <p class="mail-eyebrow">Visual focus</p>
+            <h2 id="idle-heading">Scenery after inactivity</h2>
+          </header>
+          <div class="settings-section-content">
+            <p>Escape or inactivity reveals the scenery. It doesn’t lock MONOLITH or stop work.</p>
+            <form
+              id="idle-preference"
+              phx-hook="IdlePreference"
+              phx-update="ignore"
+              data-default-minutes={@default_minutes}
+            >
+              <div class="field">
+                <label for="idle-minutes">Minutes without interaction</label><input
+                  id="idle-minutes"
+                  name="minutes"
+                  type="number"
+                  min="1"
+                  max="60"
+                  step="1"
+                  value={@default_minutes}
+                  required
+                  aria-describedby="idle-help"
+                  class="workspace-name-input"
+                /><p id="idle-help" class="settings-help">
+                  1–60 minutes. Default: 3 minutes. Saved in this browser.
+                </p>
+              </div>
+              <button type="submit" class="workspace-action workspace-action-primary">Save preference</button>
+              <p data-idle-status class="settings-status" role="status"></p>
+            </form>
+          </div>
+        </section>
+        <section class="settings-section" aria-labelledby="startup-heading">
+          <header class="card-section-heading">
+            <p class="mail-eyebrow">Scene generation</p>
+            <h2 id="startup-heading">Automatic startup scenery</h2>
+          </header>
+          <div class="settings-section-content">
+            <p>Saving this choice doesn’t generate a scene. Existing authorized work is unchanged.</p>
+            <p :if={@startup_error} role="alert">
+              The startup preference couldn’t be read or saved. No generation was started. Try loading Settings again.
+            </p>
+            <.form
+              :if={@startup_preference}
+              for={%{}}
+              id="startup-preference"
+              phx-submit="settings:startup"
+            >
+              <input type="hidden" name="enabled" value="false" />
+              <label><input
+                type="checkbox"
+                name="enabled"
+                value="true"
+                checked={@startup_preference.enabled}
+              />Allow a new scene at startup</label>
+              <p>
+                Opt-in only. Generation can incur Google charges and uses Google’s background interaction storage. Automatic startup has a persisted 24-hour cooldown. Manual requests always need fresh cost confirmation.
+              </p>
+              <p :if={!@startup_preference.environment_enabled}>
+                Automatic startup is blocked by the terminal configuration. Saving an opt-in won’t override that restriction.
+              </p>
+              <button type="submit" class="workspace-action workspace-action-primary">Save startup choice</button>
+            </.form>
+            <p :if={@startup_status != ""} id="startup-status" class="settings-status" role="status">
+              {@startup_status}
+            </p>
+          </div>
+        </section>
+      </div>
+      <section class="settings-accessibility" aria-labelledby="accessibility-heading">
+        <h2 id="accessibility-heading">Accessibility preferences</h2><p>
+          Reduced motion and forced colors follow your browser or system setting. Mouse movement neither wakes the working plane nor extends visual focus.
         </p>
-        <div class="theme-options">
-          <label
-            :for={
-              {id, name} <- [
-                {"charcoal", "Charcoal"},
-                {"earth", "Earth"},
-                {"sea-glass", "Sea Glass"},
-                {"mist", "Mist"}
-              ]
-            }
-            class="theme-option"
-            data-theme-choice={id}
-            for={"theme-#{id}"}
-          >
-            <span class="theme-swatch" aria-hidden="true"></span>
-            <span class="theme-option-name">{name}</span>
-            <input
-              id={"theme-#{id}"}
-              type="radio"
-              name="theme"
-              value={id}
-              checked={id == "sea-glass"}
-            />
-          </label>
-        </div>
-        <p id="theme-status" class="theme-status" role="status" aria-live="polite" aria-atomic="true">
-          Choose a theme to apply it in this browser.
-        </p>
-        <noscript>
-          <p class="settings-description">Enable JavaScript to choose and save a theme.</p>
-        </noscript>
-      </fieldset>
+      </section>
     </section>
     """
   end

@@ -118,7 +118,7 @@ defmodule Monolith.WorkerLifecycleTest.Calendar do
        c do
     prepared = prepare(c, c.a)
     assert :ok = PollWorker.perform(job(prepared))
-    revised = Calendar.select_calendars!(c.a.id, [], actor: @owner)
+    revised = Calendar.select_calendars!(c.a.id, c.a.generation, [], actor: @owner)
     calls = Monolith.TestMail.calls()
     assert :ok = PollWorker.perform(job(prepared))
     assert Monolith.TestMail.calls() == calls

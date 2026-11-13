@@ -13,7 +13,7 @@ defmodule Monolith.Calendar do
         action: :prepare,
         args: [:account_id, :from_iso, :to_iso, :local_date, :timezone]
 
-      define :select_calendars, action: :select_calendars, args: [:account_id, :ids]
+      define :select_calendars, action: :select_calendars, args: [:account_id, :generation, :ids]
       define :refresh, action: :refresh, args: [:account_id]
       define :poll, action: :poll, args: [:account_id, :generation, :revision]
       define :sweep, action: :sweep

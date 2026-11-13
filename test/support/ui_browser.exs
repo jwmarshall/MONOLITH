@@ -1,17 +1,26 @@
 # Run only through `mix test.ui`: a separate test BEAM and disposable database.
 if Mix.env() != :test, do: Mix.raise("UI regressions require MIX_ENV=test")
 
+review = System.get_env("MONOLITH_UI_REVIEW")
+unless review in [nil, "full", "setup"], do: Mix.raise("MONOLITH_UI_REVIEW must be full or setup")
+
 browser =
   System.get_env("MONOLITH_BROWSER") || System.find_executable("chromium") ||
     System.find_executable("chromium-browser") || System.find_executable("google-chrome") ||
     "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
 
-unless File.regular?(browser),
-  do: Mix.raise("Install Chrome/Chromium or set MONOLITH_BROWSER to its executable")
+if is_nil(review) and not File.regular?(browser),
+  do: Mix.raise("Provide Chrome/Chromium through MONOLITH_BROWSER; no tools are installed")
 
 root = Path.join(System.tmp_dir!(), "monolith-ui-#{Ecto.UUID.generate()}")
 File.mkdir_p!(root)
 File.chmod!(root, 0o700)
+
+review_owner = self()
+
+if review do
+  System.trap_signal(:sigterm, :monolith_ui_review, fn -> send(review_owner, :stop_ui_review) end)
+end
 
 # No test may fall through to a real provider or credential operation. These are
 # synthetic read-only responses; the normal test-build guards also remain.
@@ -203,6 +212,8 @@ end
 
 try do
   System.put_env("MONOLITH_STAGE_ENABLED", "false")
+  # Do not inherit a workstation's native-vault opt-in in this test-only process.
+  Application.put_env(:monolith, :vault_managed, false)
   # Apply migrations during disposable application startup, just as releases do.
   System.put_env("RELEASE_NAME", "ui-contract-test")
   repo = Application.fetch_env!(:monolith, Monolith.Repo)
@@ -238,7 +249,7 @@ try do
     Oban,
     Keyword.merge(oban,
       testing: :disabled,
-      queues: [gemini: 1, gmail: 1, diagnostics: 1, github: 1],
+      queues: [gemini: 1, gmail: 1, calendar: 1, diagnostics: 1, github: 1],
       plugins: []
     )
   )
@@ -256,34 +267,69 @@ try do
   )
 
   {:ok, _} = Application.ensure_all_started(:monolith)
-  Monolith.Owner.configure!("synthetic browser owner password", actor: %{role: :owner_setup})
   {:ok, {_ip, port}} = MonolithWeb.Endpoint.server_info(:http)
+  origin = "http://localhost:#{port}"
 
-  # First exercise a genuinely empty installation, using only bundled public
-  # artwork and a synthetic owner. No generated catalog or provider call exists.
-  {_output, default_status} =
-    System.cmd(
-      "node",
-      [
-        "test/browser/ui_contract.mjs",
-        browser,
-        root,
-        "http://localhost:#{port}",
-        "",
-        "",
-        "",
-        "bundled-default"
-      ],
-      into: IO.stream(:stdio, :line),
-      env: [{"MONOLITH_STAGE_ENABLED", "false"}]
+  if review == "setup" do
+    # Test builds intentionally bypass the native vault. Exercise the actual
+    # terminal pairing and password forms against only this disposable Ash DB.
+    # Never change the production Bootstrap callback or enable native storage.
+    :ok = Supervisor.terminate_child(Monolith.Supervisor, Monolith.Security.Bootstrap)
+    :ok = Supervisor.delete_child(Monolith.Supervisor, Monolith.Security.Bootstrap)
+
+    {:ok, _} =
+      Monolith.Security.Bootstrap.start_link(
+        status: fn ->
+          if match?({:ok, true}, Monolith.Owner.configured()), do: :configured, else: :new
+        end,
+        announce: fn code -> IO.puts("Synthetic terminal pairing code: #{code}") end,
+        configure: fn password ->
+          Monolith.Owner.configure!(password, actor: %{role: :owner_setup})
+          Monolith.Owner.unlock(password, "synthetic-ui-setup")
+        end
+      )
+
+    IO.puts("MONOLITH synthetic setup review: #{origin}/setup")
+    IO.puts("Disposable root: #{root}")
+    IO.puts("Suggested synthetic password: synthetic browser owner password")
+
+    IO.puts(
+      "Native vault is not exercised. Pair once, set a synthetic password; no real credentials."
     )
 
-  if default_status != 0, do: Mix.raise("Bundled default scenery browser regressions failed")
+    IO.puts("Stop this owned process to tear down its server and disposable storage.")
 
-  # The full gallery requires a configured integration. Test builds reject the
-  # production Gemini connector, so this synthetic key cannot reach Google.
+    receive do
+      :stop_ui_review -> throw(:ui_review_finished)
+    end
+  end
+
+  Monolith.Owner.configure!("synthetic browser owner password", actor: %{role: :owner_setup})
+
+  if is_nil(review) do
+    # Empty-installation regressions run only in automated mode.
+    {_output, default_status} =
+      System.cmd(
+        "node",
+        [
+          "test/browser/ui_contract.mjs",
+          browser,
+          root,
+          origin,
+          "",
+          "",
+          "",
+          "bundled-default"
+        ],
+        into: IO.stream(:stdio, :line),
+        env: [{"MONOLITH_STAGE_ENABLED", "false"}]
+      )
+
+    if default_status != 0, do: Mix.raise("Bundled default scenery browser regressions failed")
+  end
+
+  # Test transports reject production Gemini calls even with this synthetic key.
   :ok = Monolith.TestSupport.GeminiVault.put(nil, "synthetic-browser-gemini-key")
-
   owner = %{role: :local_owner}
 
   :ok =
@@ -292,9 +338,7 @@ try do
       "synthetic-browser-google-secret"
     )
 
-  # Publish only locally encoded fixtures through the real validated image route.
-  # All 23 distinct archived images remain available beyond the recent fallback
-  # window and fill two gallery pages (20 + 3), without a total retention cap.
+  # Publish only synthetic encoded fixtures through the real validated route.
   # Archive dates are old; seed a recent failed reservation below to verify
   # manual generation stays available inside the automatic startup cooldown.
   now = DateTime.utc_now()
@@ -437,6 +481,30 @@ try do
   # Bounded synthetic latency lets Chrome observe the durable discovery claim.
   Monolith.TestGitHub.configure(installation_response: {:delay, 5_000})
 
+  if review == "full" do
+    IO.puts("MONOLITH synthetic full review: #{origin}/unlock")
+    IO.puts("Disposable root: #{root}")
+    IO.puts("Synthetic password: synthetic browser owner password")
+    IO.puts("Workspace: #{workspace.id}")
+    IO.puts("Google account: #{account.id}; unattached Google account: #{unattached.id}")
+
+    for organization <- Monolith.GitHub.directory!(actor: owner).organizations do
+      IO.puts("Synthetic GitHub owner #{organization.login}: #{organization.id}")
+
+      IO.puts(
+        "Activity URL: #{origin}#{MonolithWeb.HomeNavigation.github_activity_path(workspace.id, organization.id)}"
+      )
+    end
+
+    IO.puts("Safe fixture routes: / /workspaces /connections /scenes /settings")
+    IO.puts("Only synthetic credentials/providers. Do not follow external OAuth/provider links.")
+    IO.puts("Stop this owned process to tear down its server and disposable storage.")
+
+    receive do
+      :stop_ui_review -> throw(:ui_review_finished)
+    end
+  end
+
   {_output, status} =
     System.cmd(
       "node",
@@ -454,6 +522,8 @@ try do
     )
 
   if status != 0, do: Mix.raise("Browser UI contract regressions failed")
+catch
+  :ui_review_finished -> :ok
 after
   Application.stop(:monolith)
   Application.stop(:oban)

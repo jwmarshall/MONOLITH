@@ -15,6 +15,7 @@ defmodule Monolith.StageDesigner.Generation do
     PaidRender,
     Settings,
     Startup,
+    StartupPreferences,
     Storage
   }
 
@@ -95,21 +96,21 @@ defmodule Monolith.StageDesigner.Generation do
   end
 
   def startup(settings, now, retry? \\ false) do
-    case Directions.effective_settings(settings) do
-      {:ok, resolved} ->
-        snapshot =
-          resolved
-          |> Map.from_struct()
-          |> Map.take([:model, :aspect_ratio, :image_size, :prompt, :timeout_seconds])
+    with :ok <- StartupPreferences.authorize_startup(settings),
+         {:ok, resolved} <- Directions.effective_settings(settings) do
+      snapshot =
+        resolved
+        |> Map.from_struct()
+        |> Map.take([:model, :aspect_ratio, :image_size, :prompt, :timeout_seconds])
 
-        reserve(
-          Map.put(snapshot, :id, Ash.UUID.generate()),
-          if(retry?, do: :operator, else: :startup),
-          now
-        )
-
-      _ ->
-        :unavailable
+      reserve(
+        Map.put(snapshot, :id, Ash.UUID.generate()),
+        if(retry?, do: :operator, else: :startup),
+        now
+      )
+    else
+      :disabled -> :disabled
+      _ -> :unavailable
     end
   end
 

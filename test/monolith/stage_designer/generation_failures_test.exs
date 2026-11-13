@@ -226,6 +226,7 @@ defmodule Monolith.StageDesigner.GenerationFailuresTest do
 
   test "startup and recovery admission refuse success when their jobs cannot be persisted" do
     Application.put_env(:monolith, :stage_designer, %{Settings.get() | enabled: true})
+    StageDesigner.save_startup_preference!(%{enabled: true}, actor: @owner)
     reject_writes("BEFORE INSERT ON oban_jobs")
     assert {:ok, :unavailable} = StageDesigner.generate_on_startup(actor: @service)
     assert {:error, _} = StageDesigner.schedule_recovery(actor: @service)

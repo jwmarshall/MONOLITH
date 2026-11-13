@@ -19,369 +19,420 @@ defmodule MonolithWeb.OnboardingHTML do
         id="main-content"
         class="workspace-glass owner-glass onboarding-glass"
         aria-labelledby="onboarding-heading"
+        tabindex="-1"
       >
         <section class="onboarding-content">
-          <header>
-            <p class="onboarding-eyebrow">LOVELACE · Setup</p>
-            <h1 id="onboarding-heading" tabindex="-1">{title(@step)}</h1>
-            <p>
+          <header class="owner-heading">
+            <p class="onboarding-eyebrow">First-run guide / Resumable</p>
+            <h1 id="onboarding-heading" tabindex="-1">Start with a workspace.</h1>
+            <p class="owner-supporting">
               Your place is saved locally when you continue. Google, Gmail, and Calendar are optional; you control every Google change.
             </p>
           </header>
           <nav aria-label="Setup steps" class="onboarding-steps">
             <ol>
-              <li :for={{step, number} <- Enum.with_index(Onboarding.steps(), 1)}>
-                <a href={Onboarding.path(step)} aria-current={if step == @step, do: "step"}>
-                  <span aria-hidden="true">{number}.</span> {short_title(step)}
+              <li :for={{{step, label, steps}, number} <- Enum.with_index(setup_groups(), 1)}>
+                <a href={Onboarding.path(step)} aria-current={if @step in steps, do: "step"}>
+                  <span aria-hidden="true">{number
+                  |> Integer.to_string()
+                  |> String.pad_leading(2, "0")}</span> {label}
                 </a>
               </li>
             </ol>
           </nav>
-          <p
-            :if={@error && @error != :calendars_saved}
-            id="onboarding-error"
-            class="onboarding-error"
-            role="alert"
-          >
-            {error_message(@error)}
-          </p>
-          <div class="onboarding-instructions">
-            <%= case @step do %>
-              <% :workspace -> %>
-                <p>
-                  Workspaces are areas of your life. Name your first one—for example, Work, Home, or Study.
-                  Integrations are optional. You can use your workspace now and add connections later.
-                </p>
-                <form
-                  id="onboarding-workspace"
-                  action="/onboarding/workspace"
-                  method="post"
-                  class="onboarding-form"
+          <section class="onboarding-plane" aria-labelledby="onboarding-step-heading">
+            <div
+              :if={@error && @error != :calendars_saved}
+              id="onboarding-error"
+              class="onboarding-error"
+              role="alert"
+            >
+              <p>{error_message(@error)}</p>
+              <a href={error_target(@error)}>Return to this step</a>
+            </div>
+            <div class="onboarding-instructions">
+              <header class="onboarding-task-heading">
+                <p
+                  :if={@step in [:project, :authentication, :audience, :client]}
+                  class="onboarding-eyebrow"
                 >
-                  <input type="hidden" name="_csrf_token" value={@csrf_token} />
-                  <input type="hidden" name="operation" value="save_workspace" />
-                  <label for="onboarding-workspace-name">Workspace name</label>
-                  <input
-                    id="onboarding-workspace-name"
-                    name="name"
-                    type="text"
-                    value={@workspace_name}
-                    autocomplete="off"
-                    required
-                    maxlength="64"
-                    aria-describedby="onboarding-workspace-hint"
-                  />
-                  <p id="onboarding-workspace-hint">
-                    Up to 64 characters. You can rename this workspace later.
-                    Returning to this step updates the same workspace; it does not create another.
-                  </p>
-                  <button class="workspace-action workspace-action-primary" type="submit">
-                    Continue
-                  </button>
-                </form>
-              <% :project -> %>
-                <p>
-                  Optionally use your own Google Cloud project for a private, read-only Gmail connection. You can set up Google later in Connections. LOVELACE will not create or change a Google project for you.
+                  Google project guide
                 </p>
+                <h2 id="onboarding-step-heading" tabindex="-1">{title(@step)}</h2>
+              </header>
+              <nav
+                :if={@step in [:project, :authentication, :audience, :client]}
+                aria-label="Google setup details"
+                class="onboarding-google-steps"
+              >
                 <ol>
-                  <li>
-                    <.external href="https://console.cloud.google.com/">
-                      Open Google Cloud Console
-                    </.external>
-                    and select the project picker at the top.
-                  </li>
-                  <li>
-                    Choose <strong>New Project</strong>, give it a recognizable name such as LOVELACE, and create it. Select that project before continuing.
-                  </li>
-                  <li>
-                    <.external href="https://console.cloud.google.com/apis/library/gmail.googleapis.com">
-                      Open Gmail API
-                    </.external>
-                    in the API Library and choose <strong>Enable</strong>. If it is already enabled, leave it enabled.
+                  <li :for={step <- [:project, :authentication, :audience, :client]}>
+                    <a href={Onboarding.path(step)} aria-current={if step == @step, do: "step"}>
+                      {short_title(step)}
+                    </a>
                   </li>
                 </ol>
-                <p>
-                  For optional Calendar agendas, also
-                  <.external href="https://console.cloud.google.com/apis/library/calendar-json.googleapis.com">
-                    open Google Calendar API
-                  </.external>
-                  and enable it in the same project. No billing is needed for this guide.
-                </p>
-                <.actions
-                  step={@step}
-                  csrf_token={@csrf_token}
-                  skip="Skip Google"
-                />
-              <% :authentication -> %>
-                <p>
-                  In the same project, configure <strong>Google Auth Platform</strong>. These settings describe your own consent application, not a new LOVELACE owner identity.
-                </p>
-                <ol>
-                  <li>
-                    <.external href="https://console.cloud.google.com/auth/overview">Open Google Auth Platform</.external>. If prompted, choose <strong>Get started</strong>.
-                  </li>
-                  <li>
-                    Under <strong>Branding</strong>, enter an app name such as LOVELACE, your user support email, and your developer contact email. Complete Google's required fields and save.
-                  </li>
-                  <li>
-                    Choose <strong>External</strong>
-                    for personal Gmail or Google accounts from different organizations.
-                    <strong>Internal</strong>
-                    works only for the project's own Google Workspace organization.
-                  </li>
-                  <li>
-                    Under <.external href="https://console.cloud.google.com/auth/scopes">Data Access</.external>, choose
-                    <strong>Add or remove scopes</strong>
-                    and add the Gmail scopes below. If you want Calendar agendas, add the two Calendar scopes too, then save.
-                  </li>
-                </ol>
-                <ul class="onboarding-scopes" aria-label="Required Gmail scopes">
-                  <li><code>openid</code></li>
-                  <li><code>https://www.googleapis.com/auth/userinfo.email</code></li>
-                  <li><code>https://www.googleapis.com/auth/gmail.readonly</code></li>
-                </ul>
-                <h2>Optional Google Calendar scopes</h2>
-                <ul class="onboarding-scopes" aria-label="Optional Google Calendar scopes">
-                  <li><code>https://www.googleapis.com/auth/calendar.events.readonly</code></li>
-                  <li><code>https://www.googleapis.com/auth/calendar.calendarlist.readonly</code></li>
-                </ul>
-                <p>
-                  These let LOVELACE read events and list your calendars, including shared calendars.
-                  Adding them to your Google project's consent configuration does not grant LOVELACE access.
-                  The Gmail connection step requests Gmail-only access; the optional Calendar step then lets you authorize Calendar for the same account.
-                </p>
-                <p>
-                  The console uses <code>userinfo.email</code>; OAuth may show its equivalent
-                  <code>email</code>
-                  alias. Do not add <code>userinfo.profile</code>, write scopes, service accounts, or domain-wide delegation.
-                </p>
-                <.actions
-                  step={@step}
-                  csrf_token={@csrf_token}
-                  skip="Skip Google"
-                />
-              <% :audience -> %>
-                <p>
-                  <.external href="https://console.cloud.google.com/auth/audience">
-                    Open Audience
-                  </.external>
-                  in Google Auth Platform and review the publishing status for the selected project.
-                </p>
-                <h2>If you use Testing</h2>
-                <p>
-                  Add every Google account you intend to connect under <strong>Test users</strong>. With External apps in <strong>Testing</strong>, Gmail refresh tokens generally expire after <strong>seven days</strong>. Reconnecting every week is not a durable setup.
-                </p>
-                <h2>For ongoing personal use</h2>
-                <p>
-                  Review <.external href="https://support.google.com/cloud/answer/13464323">Google's personal-use verification exemption</.external>. If your app qualifies, use
-                  <strong>Publish app</strong>
-                  to move its publishing status to <strong>In production</strong>, then connect or reconnect Gmail. Do not assume an old Testing grant becomes permanent.
-                </p>
-                <p>
-                  <code>gmail.readonly</code>
-                  is a restricted scope. Personal-use exemptions do not remove Google's data-use rules, unverified-app warnings, user caps, or Workspace administrator restrictions. Managed accounts may require administrator approval. Tokens can also expire or be revoked for other reasons.
-                </p>
-                <p class="onboarding-note">
-                  Continue records your place in this guide. It does not verify your audience, publication, scopes, or exemption with Google.
-                </p>
-                <.actions
-                  step={@step}
-                  csrf_token={@csrf_token}
-                  skip="Skip Google"
-                />
-              <% :client -> %>
-                <ol>
-                  <li>
-                    <.external href="https://console.cloud.google.com/auth/clients">
-                      Open Clients
-                    </.external>
-                    in Google Auth Platform, then choose <strong>Create client</strong>.
-                  </li>
-                  <li>
-                    For <strong>Application type</strong>, select <strong>Desktop app</strong>. Name it, create it, and copy its client ID and client secret into the private form below.
-                  </li>
-                </ol>
-                <p>
-                  A Desktop client supports LOVELACE's local loopback callback without registering each port. Do not choose Web application, a service account, or the obsolete out-of-band flow for this guide.
-                </p>
-                <p>
-                  A Desktop client's secret is not a security boundary for a distributed app. Still keep both values local: never put them in chat, source, shell history, or a URL, and do not commit downloaded client JSON.
-                </p>
-                <form
-                  id="google-setup-credentials"
-                  action="/onboarding/credentials"
-                  method="post"
-                  autocomplete="off"
-                  class="onboarding-form"
-                >
-                  <input type="hidden" name="_csrf_token" value={@csrf_token} />
-                  <label for="google-client-id">Client ID</label>
-                  <input
-                    id="google-client-id"
-                    name="client_id"
-                    type="password"
-                    autocomplete="off"
-                    spellcheck="false"
-                    autocapitalize="none"
-                    required
-                    maxlength="8192"
-                    aria-describedby="google-client-privacy"
-                  />
-                  <label for="google-client-secret">Client secret</label>
-                  <input
-                    id="google-client-secret"
-                    name="client_secret"
-                    type="password"
-                    autocomplete="off"
-                    spellcheck="false"
-                    autocapitalize="none"
-                    required
-                    maxlength="8192"
-                    aria-describedby="google-client-privacy"
-                  />
-                  <p id="google-client-privacy">
-                    Saved directly to your unlocked, dedicated LOVELACE keychain. Values are never shown again here. Saving does not contact Google, verify this client, or require a restart.
-                  </p>
-                </form>
-                <.actions
-                  step={@step}
-                  csrf_token={@csrf_token}
-                  submit_form="google-setup-credentials"
-                  saved_client={@progress && @progress.credentials_saved}
-                  skip="Skip Google"
-                />
-              <% :connect -> %>
-                <p>
-                  Optionally connect the intended Google account to your workspace. Google authorization starts only when you press the button below.
-                </p>
-                <.connection_status connection={@connection} />
-                <form
-                  :if={@workspace && @progress && @progress.credentials_saved}
-                  id="onboarding-google-connect"
-                  action="/oauth/google/start"
-                  method="post"
-                  class="onboarding-form"
-                >
-                  <input type="hidden" name="_csrf_token" value={@csrf_token} />
-                  <input type="hidden" name="workspace_id" value={@workspace.id} />
-                  <input type="hidden" name="capability" value="gmail" />
-                  <input type="hidden" name="origin" value="onboarding" />
+              </nav>
+              <%= case @step do %>
+                <% :workspace -> %>
                   <p>
-                    <strong>Destination:</strong> {@workspace.name}
+                    Workspaces are areas of your life. Name your first one—for example, Work, Home, or Study.
+                    Integrations are optional. You can use your workspace now and add connections later.
                   </p>
+                  <form
+                    id="onboarding-workspace"
+                    action="/onboarding/workspace"
+                    method="post"
+                    class="onboarding-form"
+                  >
+                    <input type="hidden" name="_csrf_token" value={@csrf_token} />
+                    <input type="hidden" name="operation" value="save_workspace" />
+                    <div class="owner-field">
+                      <label for="onboarding-workspace-name">Workspace name</label>
+                      <input
+                        id="onboarding-workspace-name"
+                        name="name"
+                        type="text"
+                        value={@workspace_name}
+                        autocomplete="off"
+                        required
+                        maxlength="64"
+                        aria-describedby={
+                          if @error == :workspace,
+                            do: "onboarding-error onboarding-workspace-hint",
+                            else: "onboarding-workspace-hint"
+                        }
+                      />
+                      <p id="onboarding-workspace-hint">
+                        Up to 64 characters. You can rename this workspace later.
+                        Returning to this step updates the same workspace; it does not create another.
+                      </p>
+                    </div>
+                    <button class="workspace-action workspace-action-primary" type="submit">
+                      Continue
+                    </button>
+                  </form>
+                <% :project -> %>
                   <p>
-                    <strong>Access:</strong>
-                    read-only Gmail plus your Google identity and email address. LOVELACE cannot send, archive, delete, or mark messages as read.
+                    Optionally use your own Google Cloud project for a private, read-only Gmail connection. You can set up Google later in Connections. MONOLITH will not create or change a Google project for you.
                   </p>
-                  <button class="workspace-action workspace-action-primary" type="submit">Connect Google account</button>
-                </form>
-                <p :if={!@progress || !@progress.credentials_saved} role="status">
-                  Save your <a href={Onboarding.path(:client)}>Desktop client settings</a>
-                  before connecting Google.
-                </p>
-                <p>
-                  Choose the intended Google identity in Google's browser flow. If you see an unverified-app warning, review it against your own project and personal-use eligibility before proceeding. If you decline, Gmail remains disconnected.
-                </p>
-                <p>
-                  Successful consent returns to <a href={Onboarding.path(:calendar)}>optional Calendar setup</a>.
-                  If consent is cancelled or fails, you return here to retry or continue without connecting.
-                </p>
-                <.actions
-                  step={@step}
-                  csrf_token={@csrf_token}
-                  continue={!is_nil(@calendar_account)}
-                  skip="Skip Gmail"
-                />
-              <% :calendar -> %>
-                <p>
-                  Add read-only agendas for your connected Google account, or skip Calendar and finish setup. Calendar is never enabled automatically.
-                </p>
-                <.calendar_status connection={@connection} />
-                <form
-                  :if={
-                    @workspace && @calendar_account &&
-                      (!@calendar_account.calendar_enabled || calendar_reconnect?(@calendar))
-                  }
-                  id="onboarding-calendar-connect"
-                  action="/oauth/google/start"
-                  method="post"
-                  class="onboarding-form"
-                >
-                  <input type="hidden" name="_csrf_token" value={@csrf_token} />
-                  <input type="hidden" name="workspace_id" value={@workspace.id} />
-                  <input type="hidden" name="expected_account_id" value={@calendar_account.id} />
-                  <input type="hidden" name="capability" value="calendar" />
-                  <input type="hidden" name="origin" value="onboarding" />
-                  <p><strong>Google account:</strong> {@calendar_account.email}</p>
+                  <ol>
+                    <li>
+                      <.external href="https://console.cloud.google.com/">
+                        Open Google Cloud Console
+                      </.external>
+                      and select the project picker at the top.
+                    </li>
+                    <li>
+                      Choose <strong>New Project</strong>, give it a recognizable name such as MONOLITH, and create it. Select that project before continuing.
+                    </li>
+                    <li>
+                      <.external href="https://console.cloud.google.com/apis/library/gmail.googleapis.com">
+                        Open Gmail API
+                      </.external>
+                      in the API Library and choose <strong>Enable</strong>. If it is already enabled, leave it enabled.
+                    </li>
+                  </ol>
                   <p>
-                    Choose this same account in Google. LOVELACE will request access to list your calendars and read events, retaining read-only Gmail access. It cannot create or change events.
-                  </p>
-                  <p>
-                    Enable the
+                    For optional Calendar agendas, also
                     <.external href="https://console.cloud.google.com/apis/library/calendar-json.googleapis.com">
-                      Google Calendar API
+                      open Google Calendar API
                     </.external>
-                    in your existing project and add both read-only scopes from
-                    <a href={Onboarding.path(:authentication)}>Authentication</a>
-                    if you have not already done so.
+                    and enable it in the same project. No billing is needed for this guide.
                   </p>
-                  <button class="workspace-action workspace-action-primary" type="submit">
-                    {if calendar_reconnect?(@calendar),
-                      do: "Authorize Calendar again",
-                      else: "Enable read-only Calendar"}
-                  </button>
-                </form>
-                <p>
-                  Successful consent returns here so you can choose calendars before reviewing setup.
-                  Cancelling or declining leaves your existing Gmail connection intact.
-                </p>
-                <p :if={@error == :calendars_saved} role="status">
-                  Your calendar selection is saved.
-                </p>
-                <.calendar_picker
-                  :if={@calendar_account && @calendar_account.calendar_enabled}
-                  result={@calendar}
-                  csrf_token={@csrf_token}
-                  status_only={@calendar_status_only?}
-                />
-                <.actions
-                  step={@step}
-                  csrf_token={@csrf_token}
-                  continue={!is_nil(@calendar_account) && @calendar_account.calendar_enabled}
-                  skip="Skip Calendar"
-                />
-              <% :complete -> %>
-                <.connection_status connection={@connection} />
-                <.calendar_status connection={@connection} />
-                <p :if={@connection == {:ok, nil}}>
-                  Gmail is not connected. You can continue without Gmail; finishing this guide does not create a connection.
-                </p>
-                <p :if={@workspace}>
-                  <a href={"/workspaces/#{@workspace.id}"}>Open {@workspace.name}</a>
-                  to view the receiving workspace. Accounts remain separate, even when you add more later.
-                </p>
-                <p>
-                  Google console settings were not independently verified by this guide. Connection and read status reflect only LOVELACE's saved observations; opening this page performs no provider check.
-                </p>
-                <p>
-                  Add integrations later in <a href="/connections">Connections</a>.
-                  The <a href="/onboarding/project">Google setup guide</a>
-                  remains available whenever you need it.
-                </p>
-                <form id="onboarding-finish" action="/onboarding/complete" method="post">
-                  <input type="hidden" name="_csrf_token" value={@csrf_token} />
-                  <input type="hidden" name="operation" value="finish" />
-                  <div class="onboarding-actions">
-                    <button class="workspace-action workspace-action-primary" type="submit">Finish setup</button>
-                  </div>
-                </form>
-            <% end %>
-          </div>
-          <footer class="onboarding-footer">
-            <p>
-              Console links open a new tab. Check that the same Google Cloud project is selected in each tab.
-            </p>
-          </footer>
+                  <.actions
+                    step={@step}
+                    csrf_token={@csrf_token}
+                    skip="Skip Google"
+                  />
+                <% :authentication -> %>
+                  <p>
+                    In the same project, configure <strong>Google Auth Platform</strong>. These settings describe your own consent application, not a new MONOLITH owner identity.
+                  </p>
+                  <ol>
+                    <li>
+                      <.external href="https://console.cloud.google.com/auth/overview">Open Google Auth Platform</.external>. If prompted, choose <strong>Get started</strong>.
+                    </li>
+                    <li>
+                      Under <strong>Branding</strong>, enter an app name such as MONOLITH, your user support email, and your developer contact email. Complete Google's required fields and save.
+                    </li>
+                    <li>
+                      Choose <strong>External</strong>
+                      for personal Gmail or Google accounts from different organizations.
+                      <strong>Internal</strong>
+                      works only for the project's own Google Workspace organization.
+                    </li>
+                    <li>
+                      Under <.external href="https://console.cloud.google.com/auth/scopes">Data Access</.external>, choose
+                      <strong>Add or remove scopes</strong>
+                      and add the Gmail scopes below. If you want Calendar agendas, add the two Calendar scopes too, then save.
+                    </li>
+                  </ol>
+                  <ul class="onboarding-scopes" aria-label="Required Gmail scopes">
+                    <li><code>openid</code></li>
+                    <li><code>https://www.googleapis.com/auth/userinfo.email</code></li>
+                    <li><code>https://www.googleapis.com/auth/gmail.readonly</code></li>
+                  </ul>
+                  <h3>Optional Google Calendar scopes</h3>
+                  <ul class="onboarding-scopes" aria-label="Optional Google Calendar scopes">
+                    <li><code>https://www.googleapis.com/auth/calendar.events.readonly</code></li>
+                    <li>
+                      <code>https://www.googleapis.com/auth/calendar.calendarlist.readonly</code>
+                    </li>
+                  </ul>
+                  <p>
+                    These let MONOLITH read events and list your calendars, including shared calendars.
+                    Adding them to your Google project's consent configuration does not grant MONOLITH access.
+                    The Gmail connection step requests Gmail-only access; the optional Calendar step then lets you authorize Calendar for the same account.
+                  </p>
+                  <p>
+                    The console uses <code>userinfo.email</code>; OAuth may show its equivalent
+                    <code>email</code>
+                    alias. Do not add <code>userinfo.profile</code>, write scopes, service accounts, or domain-wide delegation.
+                  </p>
+                  <.actions
+                    step={@step}
+                    csrf_token={@csrf_token}
+                    skip="Skip Google"
+                  />
+                <% :audience -> %>
+                  <p>
+                    <.external href="https://console.cloud.google.com/auth/audience">
+                      Open Audience
+                    </.external>
+                    in Google Auth Platform and review the publishing status for the selected project.
+                  </p>
+                  <h3>If you use Testing</h3>
+                  <p>
+                    Add every Google account you intend to connect under <strong>Test users</strong>. With External apps in <strong>Testing</strong>, Gmail refresh tokens generally expire after <strong>seven days</strong>. Reconnecting every week is not a durable setup.
+                  </p>
+                  <h3>For ongoing personal use</h3>
+                  <p>
+                    Review <.external href="https://support.google.com/cloud/answer/13464323">Google's personal-use verification exemption</.external>. If your app qualifies, use
+                    <strong>Publish app</strong>
+                    to move its publishing status to <strong>In production</strong>, then connect or reconnect Gmail. Do not assume an old Testing grant becomes permanent.
+                  </p>
+                  <p>
+                    <code>gmail.readonly</code>
+                    is a restricted scope. Personal-use exemptions do not remove Google's data-use rules, unverified-app warnings, user caps, or Workspace administrator restrictions. Managed accounts may require administrator approval. Tokens can also expire or be revoked for other reasons.
+                  </p>
+                  <p class="onboarding-note">
+                    Continue records your place in this guide. It does not verify your audience, publication, scopes, or exemption with Google.
+                  </p>
+                  <.actions
+                    step={@step}
+                    csrf_token={@csrf_token}
+                    skip="Skip Google"
+                  />
+                <% :client -> %>
+                  <ol>
+                    <li>
+                      <.external href="https://console.cloud.google.com/auth/clients">
+                        Open Clients
+                      </.external>
+                      in Google Auth Platform, then choose <strong>Create client</strong>.
+                    </li>
+                    <li>
+                      For <strong>Application type</strong>, select <strong>Desktop app</strong>. Name it, create it, and copy its client ID and client secret into the private form below.
+                    </li>
+                  </ol>
+                  <p>
+                    A Desktop client supports MONOLITH's local loopback callback without registering each port. Do not choose Web application, a service account, or the obsolete out-of-band flow for this guide.
+                  </p>
+                  <p>
+                    A Desktop client's secret is not a security boundary for a distributed app. Still keep both values local: never put them in chat, source, shell history, or a URL, and do not commit downloaded client JSON.
+                  </p>
+                  <form
+                    id="google-setup-credentials"
+                    action="/onboarding/credentials"
+                    method="post"
+                    autocomplete="off"
+                    class="onboarding-form"
+                  >
+                    <input type="hidden" name="_csrf_token" value={@csrf_token} />
+                    <div class="owner-field">
+                      <label for="google-client-id">Client ID</label>
+                      <input
+                        id="google-client-id"
+                        name="client_id"
+                        type="password"
+                        autocomplete="off"
+                        spellcheck="false"
+                        autocapitalize="none"
+                        required
+                        maxlength="8192"
+                        aria-describedby={
+                          if @error == :credentials,
+                            do: "onboarding-error google-client-privacy",
+                            else: "google-client-privacy"
+                        }
+                      />
+                    </div>
+                    <div class="owner-field">
+                      <label for="google-client-secret">Client secret</label>
+                      <input
+                        id="google-client-secret"
+                        name="client_secret"
+                        type="password"
+                        autocomplete="off"
+                        spellcheck="false"
+                        autocapitalize="none"
+                        required
+                        maxlength="8192"
+                        aria-describedby={
+                          if @error == :credentials,
+                            do: "onboarding-error google-client-privacy",
+                            else: "google-client-privacy"
+                        }
+                      />
+                    </div>
+                    <p id="google-client-privacy">
+                      Saved directly to your unlocked, dedicated MONOLITH keychain. Values are never shown again here. Saving does not contact Google, verify this client, or require a restart.
+                    </p>
+                  </form>
+                  <.actions
+                    step={@step}
+                    csrf_token={@csrf_token}
+                    submit_form="google-setup-credentials"
+                    saved_client={@progress && @progress.credentials_saved}
+                    skip="Skip Google"
+                  />
+                <% :connect -> %>
+                  <p>
+                    Optionally connect the intended Google account to your workspace. Google authorization starts only when you press the button below.
+                  </p>
+                  <.connection_status connection={@connection} />
+                  <form
+                    :if={@workspace && @progress && @progress.credentials_saved}
+                    id="onboarding-google-connect"
+                    action="/oauth/google/start"
+                    method="post"
+                    class="onboarding-form"
+                  >
+                    <input type="hidden" name="_csrf_token" value={@csrf_token} />
+                    <input type="hidden" name="workspace_id" value={@workspace.id} />
+                    <input type="hidden" name="capability" value="gmail" />
+                    <input type="hidden" name="origin" value="onboarding" />
+                    <p>
+                      <strong>Destination:</strong> {@workspace.name}
+                    </p>
+                    <p>
+                      <strong>Access:</strong>
+                      read-only Gmail plus your Google identity and email address. MONOLITH cannot send, archive, delete, or mark messages as read.
+                    </p>
+                    <button class="workspace-action workspace-action-primary" type="submit">Connect Google account</button>
+                  </form>
+                  <p :if={!@progress || !@progress.credentials_saved} role="status">
+                    Save your <a href={Onboarding.path(:client)}>Desktop client settings</a>
+                    before connecting Google.
+                  </p>
+                  <p>
+                    Choose the intended Google identity in Google's browser flow. If you see an unverified-app warning, review it against your own project and personal-use eligibility before proceeding. If you decline, Gmail remains disconnected.
+                  </p>
+                  <p>
+                    Successful consent returns to <a href={Onboarding.path(:calendar)}>optional Calendar setup</a>.
+                    If consent is cancelled or fails, you return here to retry or continue without connecting.
+                  </p>
+                  <.actions
+                    step={@step}
+                    csrf_token={@csrf_token}
+                    continue={!is_nil(@calendar_account)}
+                    skip="Skip Gmail"
+                  />
+                <% :calendar -> %>
+                  <p>
+                    Add read-only agendas for your connected Google account, or skip Calendar and finish setup. Calendar is never enabled automatically.
+                  </p>
+                  <.calendar_status connection={@connection} />
+                  <form
+                    :if={
+                      @workspace && @calendar_account &&
+                        (!@calendar_account.calendar_enabled || calendar_reconnect?(@calendar))
+                    }
+                    id="onboarding-calendar-connect"
+                    action="/oauth/google/start"
+                    method="post"
+                    class="onboarding-form"
+                  >
+                    <input type="hidden" name="_csrf_token" value={@csrf_token} />
+                    <input type="hidden" name="workspace_id" value={@workspace.id} />
+                    <input type="hidden" name="expected_account_id" value={@calendar_account.id} />
+                    <input type="hidden" name="capability" value="calendar" />
+                    <input type="hidden" name="origin" value="onboarding" />
+                    <p><strong>Google account:</strong> <bdi>{@calendar_account.email}</bdi></p>
+                    <p>
+                      Choose this same account in Google. MONOLITH will request access to list your calendars and read events, retaining read-only Gmail access. It cannot create or change events.
+                    </p>
+                    <p>
+                      Enable the
+                      <.external href="https://console.cloud.google.com/apis/library/calendar-json.googleapis.com">
+                        Google Calendar API
+                      </.external>
+                      in your existing project and add both read-only scopes from
+                      <a href={Onboarding.path(:authentication)}>Authentication</a>
+                      if you have not already done so.
+                    </p>
+                    <button class="workspace-action workspace-action-primary" type="submit">
+                      {if calendar_reconnect?(@calendar),
+                        do: "Authorize Calendar again",
+                        else: "Enable read-only Calendar"}
+                    </button>
+                  </form>
+                  <p>
+                    Successful consent returns here so you can choose calendars before reviewing setup.
+                    Cancelling or declining leaves your existing Gmail connection intact.
+                  </p>
+                  <p :if={@error == :calendars_saved} class="onboarding-saved" role="status">
+                    Your calendar selection is saved.
+                  </p>
+                  <.calendar_picker
+                    :if={@calendar_account && @calendar_account.calendar_enabled}
+                    result={@calendar}
+                    csrf_token={@csrf_token}
+                    status_only={@calendar_status_only?}
+                  />
+                  <.actions
+                    step={@step}
+                    csrf_token={@csrf_token}
+                    continue={!is_nil(@calendar_account) && @calendar_account.calendar_enabled}
+                    skip="Skip Calendar"
+                  />
+                <% :complete -> %>
+                  <.connection_status connection={@connection} />
+                  <.calendar_status connection={@connection} />
+                  <p :if={@connection == {:ok, nil}}>
+                    Gmail is not connected. You can continue without Gmail; finishing this guide does not create a connection.
+                  </p>
+                  <p :if={@workspace}>
+                    <a href={"/workspaces/#{@workspace.id}"}>Open {@workspace.name}</a>
+                    to view the receiving workspace. Accounts remain separate, even when you add more later.
+                  </p>
+                  <p>
+                    Google console settings were not independently verified by this guide. Connection and read status reflect only MONOLITH's saved observations; opening this page performs no provider check.
+                  </p>
+                  <p>
+                    Add integrations later in <a href="/connections">Connections</a>.
+                    The <a href="/onboarding/project">Google setup guide</a>
+                    remains available whenever you need it.
+                  </p>
+                  <form id="onboarding-finish" action="/onboarding/complete" method="post">
+                    <input type="hidden" name="_csrf_token" value={@csrf_token} />
+                    <input type="hidden" name="operation" value="finish" />
+                    <div class="onboarding-actions">
+                      <button class="workspace-action workspace-action-primary" type="submit">Finish setup</button>
+                    </div>
+                  </form>
+              <% end %>
+            </div>
+            <footer
+              :if={@step in [:project, :authentication, :audience, :client, :connect, :calendar]}
+              class="onboarding-footer"
+            >
+              <p>
+                Console links open a new tab. Check that the same Google Cloud project is selected in each tab.
+              </p>
+            </footer>
+          </section>
         </section>
       </main>
       <Layouts.brand id="first-run-brand" static />
@@ -419,7 +470,10 @@ defmodule MonolithWeb.OnboardingHTML do
           name="operation"
           value="continue"
           form={@submit_form}
-          class="workspace-action workspace-action-primary"
+          class={[
+            "workspace-action",
+            @step not in [:connect, :calendar] && "workspace-action-primary"
+          ]}
         >
           Continue
         </button>
@@ -455,7 +509,7 @@ defmodule MonolithWeb.OnboardingHTML do
       data-account-id={calendar_identity(@result, :account_id)}
       data-generation={calendar_identity(@result, :generation)}
     >
-      <h2 id="onboarding-calendar-picker-heading" tabindex="-1">Choose your calendars</h2>
+      <h3 id="onboarding-calendar-picker-heading" tabindex="-1">Choose your calendars</h3>
       <p data-calendar-client-error role="alert" hidden>
         Calendar setup could not be updated. Reload this step to check your connection before retrying.
       </p>
@@ -477,7 +531,11 @@ defmodule MonolithWeb.OnboardingHTML do
             data-status-only={to_string(@status_only)}
           >
             <p :if={setup.loading} data-calendar-loading-message role="status">
-              Loading your calendars… You can stay on this step.
+              <.status_signal
+                id="onboarding-calendar-loading-signal"
+                state={:active}
+                label="Loading your calendars… You can stay on this step."
+              />
             </p>
             <p :if={setup.error} role="status">{calendar_error(setup.error)}</p>
             <p :if={setup.truncated} role="status">
@@ -507,9 +565,9 @@ defmodule MonolithWeb.OnboardingHTML do
               <input type="hidden" name="generation" value={setup.generation} />
               <input type="hidden" name="calendar_ids[]" value="" />
               <fieldset disabled={setup.loading || setup.error == :reconnect}>
-                <legend>Calendars shown in LOVELACE · choose up to 20</legend>
+                <legend>Calendars shown in MONOLITH · choose up to 20</legend>
                 <p>
-                  Google-selected calendars are checked by default. Changes affect only LOVELACE.
+                  Google-selected calendars are checked by default. Changes affect only MONOLITH.
                   Uncheck all to show none.
                 </p>
                 <label :for={calendar <- setup.calendars} class="setup-acknowledgement">
@@ -531,6 +589,9 @@ defmodule MonolithWeb.OnboardingHTML do
                 form="onboarding-calendar-selection"
                 class="workspace-action workspace-action-primary"
                 disabled={setup.loading || setup.error == :reconnect}
+                aria-describedby={
+                  if setup.loading || setup.error == :reconnect, do: "onboarding-calendar-disabled"
+                }
               >Save calendar selection</button>
               <form
                 id="onboarding-calendar-load"
@@ -554,6 +615,10 @@ defmodule MonolithWeb.OnboardingHTML do
                   id="onboarding-calendar-load-button"
                   type="submit"
                   class="workspace-action"
+                  aria-describedby={
+                    if setup.loading || setup.error == :reconnect || calendar_cooling_down?(setup),
+                      do: "onboarding-calendar-disabled"
+                  }
                   disabled={
                     setup.loading || setup.error == :reconnect || calendar_cooling_down?(setup)
                   }
@@ -562,6 +627,20 @@ defmodule MonolithWeb.OnboardingHTML do
                 </button>
               </form>
             </div>
+            <p
+              :if={setup.loading || setup.error == :reconnect || calendar_cooling_down?(setup)}
+              id="onboarding-calendar-disabled"
+              class="owner-supporting"
+            >
+              <%= cond do %>
+                <% setup.error == :reconnect -> %>
+                  Authorize Calendar again above before loading or saving calendars.
+                <% setup.loading -> %>
+                  A Calendar read is in progress. Wait for it to finish before loading or saving calendars.
+                <% true -> %>
+                  Calendar reads are cooling down. Refresh is available after the current wait.
+              <% end %>
+            </p>
             <noscript>
               <p>Enable JavaScript to load calendars using this browser's local day.</p>
             </noscript>
@@ -599,7 +678,7 @@ defmodule MonolithWeb.OnboardingHTML do
     do: "Google has temporarily limited Calendar reads. Wait five minutes before retrying."
 
   defp calendar_error(:keychain),
-    do: "Calendar credentials are unavailable. Unlock LOVELACE again, then retry here."
+    do: "Calendar credentials are unavailable. Unlock MONOLITH again, then retry here."
 
   defp calendar_error(_), do: "The calendar list could not be updated. Try loading it again here."
 
@@ -615,26 +694,29 @@ defmodule MonolithWeb.OnboardingHTML do
       class="onboarding-note"
       aria-labelledby="onboarding-calendar-heading"
     >
-      <h2 id="onboarding-calendar-heading">Optional Calendar</h2>
+      <h3 id="onboarding-calendar-heading">Optional Calendar</h3>
       <%= case @connection do %>
         <% {:ok, %{calendar_enabled: true, email: email}} -> %>
           <p>
-            Calendar authorization is saved for {email}. This is not a fresh check of access or a successful agenda read.
+            Calendar authorization is saved for <bdi>{email}</bdi>. This is not a fresh check of access or a successful agenda read.
           </p>
           <p>
             Agendas appear on Home and in your workspace after a successful read.
           </p>
-        <% {:ok, %{status: :ready}} -> %>
-          <p>Calendar is not enabled. You can keep Gmail without adding Calendar.</p>
+        <% {:ok, %{status: :ready, email: email}} -> %>
+          <p>
+            Calendar is not enabled for <bdi>{email}</bdi>. You can keep Gmail without adding Calendar.
+          </p>
         <% {:ok, nil} -> %>
           <p>
             Connect Gmail before enabling Calendar for the same Google account. <a href={
               Onboarding.path(:connect)
             }>Return to Connect Gmail</a>, or continue without Calendar.
           </p>
-        <% {:ok, _} -> %>
+        <% {:ok, account} -> %>
+          <p class="onboarding-account-identity"><bdi>{account.email}</bdi></p>
           <p>
-            Your Google account needs reconnection before Calendar can be enabled. <a href={
+            This Google account needs reconnection before Calendar can be enabled. <a href={
               Onboarding.path(:connect)
             }>Return to Connect Gmail</a>, or continue without Calendar.
           </p>
@@ -656,17 +738,19 @@ defmodule MonolithWeb.OnboardingHTML do
       class="onboarding-note"
       aria-labelledby="onboarding-connection-heading"
     >
-      <h2 id="onboarding-connection-heading">Gmail connection and first read</h2>
+      <h3 id="onboarding-connection-heading">Gmail connection and first read</h3>
       <%= case @connection do %>
         <% {:ok, nil} -> %>
           <p>No Gmail account is connected to your chosen workspace.</p>
-        <% {:ok, %{status: :reconnect}} -> %>
+        <% {:ok, %{status: :reconnect} = account} -> %>
+          <p class="onboarding-account-identity"><bdi>{account.email}</bdi></p>
           <p>
-            A saved Google account needs reconnection. Usable Gmail access is not confirmed. Manage it in <a href="/connections/gmail">Gmail connections</a>.
+            This Google account needs reconnection. Usable Gmail access is not confirmed. Manage it in <a href="/connections/gmail">Gmail connections</a>.
           </p>
         <% {:ok, account} -> %>
+          <p class="onboarding-account-identity"><bdi>{account.email}</bdi></p>
           <p>
-            Google authorization has been saved for an account in your chosen workspace. This is not a fresh check of its grant.
+            Google authorization has been saved for this account in your chosen workspace. This is not a fresh check of its grant.
           </p>
           <p :if={account.last_error || account.inbox_unread_error}>
             The last Gmail read reported a problem. Check the account's current status in Connections; this page does not retry provider work.
@@ -680,7 +764,7 @@ defmodule MonolithWeb.OnboardingHTML do
             }>{Calendar.strftime(account.last_success_at || account.inbox_unread_at, "%Y-%m-%d %H:%M UTC")}</time>. This saved observation may be stale.
           </p>
           <p>
-            <a href={"/accounts/#{account.id}/mail"}>Open this account's read-only inbox</a>. Reading in LOVELACE never marks messages as read in Gmail.
+            <a href={"/accounts/#{account.id}/mail"}>Open this account's read-only inbox</a>. Reading in MONOLITH never marks messages as read in Gmail.
           </p>
         <% {:error, _} -> %>
           <p role="status">
@@ -691,23 +775,35 @@ defmodule MonolithWeb.OnboardingHTML do
     """
   end
 
-  defp title(:workspace), do: "Create your first workspace"
-  defp title(:project), do: "Create your Google project"
-  defp title(:authentication), do: "Describe your consent application"
-  defp title(:audience), do: "Choose your audience and publishing mode"
-  defp title(:client), do: "Create a Desktop OAuth client"
-  defp title(:connect), do: "Connect Gmail to your workspace"
-  defp title(:calendar), do: "Add Calendar to your Google account"
-  defp title(:complete), do: "Review your local setup"
+  defp title(:workspace), do: "Name your first workspace."
+  defp title(:project), do: "Create your Google project."
+  defp title(:authentication), do: "Describe your consent application."
+  defp title(:audience), do: "Choose your audience and publishing mode."
+  defp title(:client), do: "Create a Desktop OAuth client."
+  defp title(:connect), do: "Connect Gmail to your workspace."
+  defp title(:calendar), do: "Add Calendar to your Google account."
+  defp title(:complete), do: "Review your local setup."
 
-  defp short_title(:workspace), do: "Workspace"
+  defp setup_groups do
+    [
+      {:workspace, "Workspace", [:workspace]},
+      {:project, "Google", [:project, :authentication, :audience, :client]},
+      {:connect, "Gmail", [:connect]},
+      {:calendar, "Calendar", [:calendar]},
+      {:complete, "Review", [:complete]}
+    ]
+  end
+
   defp short_title(:project), do: "Project"
   defp short_title(:authentication), do: "Authentication"
   defp short_title(:audience), do: "Audience"
   defp short_title(:client), do: "Client"
-  defp short_title(:connect), do: "Gmail"
-  defp short_title(:calendar), do: "Calendar"
-  defp short_title(:complete), do: "Complete"
+
+  defp error_target(:workspace), do: "#onboarding-workspace-name"
+  defp error_target(:credentials), do: "#google-client-id"
+  defp error_target(:calendar_selection), do: "#onboarding-calendar-picker-heading"
+  defp error_target(:calendar_load), do: "#onboarding-calendar-picker-heading"
+  defp error_target(_), do: "#onboarding-step-heading"
 
   defp error_message(:workspace),
     do: "Enter a workspace name of 1–64 characters. Your workspace could not be saved."

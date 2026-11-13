@@ -126,6 +126,13 @@ states, independent bounded-result/selection warnings, selection limit and coold
 Onboarding adds its workspace/account/generation fence and uses Calendar actions for every
 mutation; it does not query Calendar persistence or reconstruct Calendar policy.
 
+`Monolith.Calendar.select_calendars/4` requires the connection generation displayed by
+the picker, including for an empty selection. Under the shared account serializer it
+checks that generation against the current connection, alongside current cache generation,
+recent catalog and known calendar IDs, before changing selection, revision, events or jobs.
+Missing, forged or stale generations cannot apply an old form to a reconnected account,
+even when both generations expose the same calendar IDs.
+
 `Monolith.Google.Access` is the single shared Google identity/credential coordination owner.
 Gmail and Calendar use the same account and subject serialization, generation checks and
 refresh-token rotation. Optional Calendar consent checks the expected current generation

@@ -138,7 +138,7 @@ defmodule MonolithWeb.NavigationLiveTest do
     refute has_element?(view, "#back-from-connections")
   end
 
-  test "Settings is an exclusive patch destination with native theme choices", ctx do
+  test "Settings is an exclusive patch destination with idle and startup controls", ctx do
     {:ok, view, _} = live(ctx.conn, "/")
 
     view |> element("#show-settings") |> render_click()
@@ -146,22 +146,21 @@ defmodule MonolithWeb.NavigationLiveTest do
     assert_push_event(view, "workspace:focus-heading", %{})
     assert has_element?(view, "#show-settings[aria-current=page]")
     assert has_element?(view, "#directory-heading", "Settings")
-    assert has_element?(view, "#settings-panel #theme-picker legend", "Appearance")
-    assert has_element?(view, "#theme-status[role=status]")
 
-    for {id, name} <- [
-          {"charcoal", "Charcoal"},
-          {"earth", "Earth"},
-          {"sea-glass", "Sea Glass"},
-          {"mist", "Mist"}
-        ] do
-      assert has_element?(
-               view,
-               "#theme-picker label[for='theme-#{id}'] input[type=radio][name=theme][value='#{id}']"
-             )
+    assert has_element?(
+             view,
+             "#settings-panel #idle-preference input[name=minutes][type=number][min='1'][max='60'][required]"
+           )
 
-      assert has_element?(view, "#theme-picker label[for='theme-#{id}']", name)
-    end
+    assert has_element?(view, "#idle-preference label[for=idle-minutes]")
+    assert has_element?(view, "#idle-preference button[type=submit]", "Save preference")
+
+    assert has_element?(
+             view,
+             "#startup-preference input[type=checkbox][name=enabled]:not([checked])"
+           )
+
+    assert has_element?(view, "#startup-preference button[type=submit]", "Save startup choice")
 
     refute has_element?(
              view,
@@ -184,6 +183,23 @@ defmodule MonolithWeb.NavigationLiveTest do
       refute has_element?(view, selector)
       assert state(view).navigation_path == "/settings"
     end
+  end
+
+  test "startup opt-in persists across reload and can be switched off again", ctx do
+    {:ok, view, _} = live(ctx.conn, "/settings")
+    assert has_element?(view, "#startup-preference input[type=checkbox]:not([checked])")
+
+    view |> form("#startup-preference", %{enabled: "true"}) |> render_submit()
+    assert has_element?(view, "#startup-preference input[type=checkbox][checked]")
+    assert has_element?(view, "#startup-status[role=status]", "No generation was started")
+
+    {:ok, reloaded, _} = live(ctx.conn, "/settings")
+    assert has_element?(reloaded, "#startup-preference input[type=checkbox][checked]")
+    reloaded |> form("#startup-preference", %{enabled: "false"}) |> render_submit()
+    assert has_element?(reloaded, "#startup-preference input[type=checkbox]:not([checked])")
+
+    {:ok, disabled, _} = live(ctx.conn, "/settings")
+    assert has_element?(disabled, "#startup-preference input[type=checkbox]:not([checked])")
   end
 
   test "Settings deep entry and reload discard unrelated context without restoring mail", ctx do
@@ -283,11 +299,11 @@ defmodule MonolithWeb.NavigationLiveTest do
     BackgroundWork.complete(view)
     assert has_element?(view, "#mail-conversation", "Synthetic reader")
     assert has_element?(view, "#mail-back[href='#{results}']")
-    assert has_element?(view, "#mail-search input[value='#{query}']")
     refute has_element?(view, "#mail-threads")
     view |> element("#mail-back") |> render_click()
     assert_patch(view, results)
     BackgroundWork.complete(view)
+    assert has_element?(view, "#mail-search input[value='#{query}']")
     assert has_element?(view, "#mail-thread-deep-thread", "#{query} second")
     key = state(view).mail.list_key
     render_patch(view, thread)
@@ -312,6 +328,26 @@ defmodule MonolithWeb.NavigationLiveTest do
     assert has_element?(view, "#mail-thread-deep-thread", "everywhere first")
     view |> element("#mail-thread-deep-thread") |> render_click()
     assert_patch(view, base <> "/threads/deep-thread?q=everywhere")
+  end
+
+  test "oversized search retains results and navigation without starting another read", ctx do
+    path = HomeNavigation.account_path(ctx.account.id) <> "?q=retained&page_token=second"
+    {:ok, view, _} = live(ctx.conn, path)
+    BackgroundWork.complete(view)
+    previous = state(view).mail
+    assert has_element?(view, "#mail-thread-deep-thread", "retained second")
+
+    render_submit(view, "mail:search", %{
+      "mail_search" => %{"query" => String.duplicate("a", 1025)}
+    })
+
+    assert has_element?(view, "#flash-error[role=alert]")
+    assert has_element?(view, "#mail-thread-deep-thread", "retained second")
+    assert state(view).navigation_path == path
+    assert state(view).mail.task == previous.task
+    assert state(view).mail.generation == previous.generation
+    assert state(view).mail.query == "retained"
+    refute_patched(view)
   end
 
   test "direct account URLs support unattached accounts without creating membership", ctx do

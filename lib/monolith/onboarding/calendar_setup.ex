@@ -61,7 +61,7 @@ defmodule Monolith.Onboarding.CalendarSetup do
   def select(account_id, generation, ids, opts \\ []) do
     if is_list(ids) and Enum.all?(ids, &is_binary/1) do
       mutate(account_id, generation, opts, fn ash_opts ->
-        Calendar.select_calendars(account_id, ids, ash_opts)
+        Calendar.select_calendars(account_id, generation, ids, ash_opts)
       end)
     else
       {:error, :invalid_selection}

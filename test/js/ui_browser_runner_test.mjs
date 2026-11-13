@@ -29,3 +29,15 @@ for (const [name, script] of [["normal exit", "exit 0"], ["signal termination", 
     assert.match(result.stderr, /Chrome exited before DevTools started/)
   })
 }
+
+test("browser runner reports a missing executable without leaving a startup timer alive", t => {
+  const root = mkdtempSync(path.join(tmpdir(), "monolith-browser-runner-"))
+  t.after(() => rmSync(root, {recursive: true, force: true}))
+  const result = spawnSync(process.execPath, [
+    runner, path.join(root, "nonexistent-browser"), root, "http://localhost:1", "synthetic",
+  ], {encoding: "utf8", timeout: 5_000})
+  assert.equal(result.error, undefined)
+  assert.equal(result.signal, null)
+  assert.equal(result.status, 1)
+  assert.match(result.stderr, /ENOENT/)
+})

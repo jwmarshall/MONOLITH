@@ -1,7 +1,6 @@
 import assert from "node:assert/strict"
 import test from "node:test"
 import {initFirstRunEntrance} from "../../assets/js/first_run_entrance.js"
-import {gsap} from "../../assets/vendor/gsap/gsap.js"
 
 const SEEN_KEY = "monolith:first-run-entrance:session:v1"
 const LEGACY_KEY = "monolith:first-run-entrance:v1"
@@ -12,6 +11,13 @@ class Target extends EventTarget {
   setAttribute(name, value) { this.attributes.set(name, value) }
   removeAttribute(name) { this.attributes.delete(name) }
   hasAttribute(name) { return this.attributes.has(name) }
+  animate() {
+    let reject
+    return {
+      finished: new Promise((_resolve, fail) => { reject = fail }),
+      cancel: () => reject(new Error("Canceled")),
+    }
+  }
   addEventListener(type, listener) {
     super.addEventListener(type, listener)
     if (!this.listeners.has(type)) this.listeners.set(type, new Set())
@@ -62,10 +68,17 @@ function page(t, options = {}) {
   main.querySelector = selector => selector === "h1" ? heading : null
   const brand = new Target()
   brand.hidden = true
-  const stroke = {strokeDasharray: 0, strokeDashoffset: 0, getTotalLength: () => 100}
-  const letters = Array.from({length: 8}, () => ({opacity: 1, rotationX: 0, yPercent: 0}))
-  brand.querySelector = () => stroke
-  brand.querySelectorAll = () => letters
+  const outlines = Array.from({length: 2}, () => new Target())
+  const creases = Array.from({length: 2}, () => new Target())
+  const paths = selector => {
+    if (selector === "[data-layer=outline] path") return outlines
+    if (selector === "[data-layer=inner] path") return creases
+    return []
+  }
+  const svg = Object.assign(new Target(), {querySelectorAll: paths})
+  const letters = Array.from({length: 8}, () => new Target())
+  brand.querySelector = selector => selector === "svg" ? svg : null
+  brand.querySelectorAll = selector => selector === ".workspace-letter" ? letters : paths(selector)
   const stage = new Target()
   stage.dataset = {firstRunEntrance: options.eligible === false ? "false" : "true"}
   stage.querySelector = selector => {
@@ -75,7 +88,6 @@ function page(t, options = {}) {
   document.querySelector = () => options.noStage ? null : stage
   t.after(() => {
     view.emit("pagehide")
-    gsap.ticker.sleep()
     if (previousWindow) Object.defineProperty(globalThis, "window", previousWindow)
     else delete globalThis.window
   })
@@ -86,7 +98,6 @@ function page(t, options = {}) {
     } finally {
       if (previousWindow) Object.defineProperty(globalThis, "window", previousWindow)
       else delete globalThis.window
-      gsap.ticker.sleep()
     }
   }
   return {document, view, stage, main, brand, heading, preference, values, sessionValues, storageAccesses, start}

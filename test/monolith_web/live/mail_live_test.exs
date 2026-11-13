@@ -143,17 +143,16 @@ defmodule MonolithWeb.MailLiveTest do
 
   test "landing lists attached accounts separately and uses CSRF-protected POST connect",
        context do
-    assert {:noreply, socket} = HomeMail.handle_event("mail:add", %{}, context.socket)
-    html = panel(socket, context.workspace)
+    html = panel(context.socket, context.workspace)
     assert html =~ context.first.email
     assert html =~ context.second.email
-    refute html =~ "Separate accounts"
+    assert {:noreply, socket} = HomeMail.handle_event("mail:add", %{}, context.socket)
+    html = panel(socket, context.workspace)
     assert html =~ ~s(action="/oauth/google/start")
     assert html =~ ~s(method="post")
     assert html =~ ~s(name="_csrf_token")
     assert html =~ ~s(name="workspace_id" value="#{context.workspace.id}")
     refute html =~ "Disconnect everywhere"
-    assert html =~ "Remove from workspace"
     refute html =~ "mail-search"
     refute html =~ "Send"
   end
@@ -397,7 +396,9 @@ defmodule MonolithWeb.MailLiveTest do
     assert ViewData.get(ref) == %{"messages" => messages}
     assert html =~ "Conversation title"
 
-    assert LazyHTML.query(document, "#mail-conversation-heading") |> LazyHTML.text() ==
+    assert LazyHTML.query(document, "#mail-conversation-heading")
+           |> LazyHTML.text()
+           |> String.trim() ==
              "Conversation title"
 
     assert length(LazyHTML.query(document, ".mail-message[open]") |> LazyHTML.to_tree()) == 1
@@ -554,7 +555,7 @@ defmodule MonolithWeb.MailLiveTest do
 
     assert has_element?(
              view,
-             "#mail-account-#{context.first.id} a.mail-account-open[href='/workspaces/#{context.workspace.id}/accounts/#{context.first.id}/mail'][data-phx-link=patch]"
+             "#mail-account-#{context.first.id} a[href='/workspaces/#{context.workspace.id}/accounts/#{context.first.id}/mail'][data-phx-link=patch]"
            )
 
     render_click(view, "mail:select", %{"id" => context.first.id})
@@ -569,7 +570,7 @@ defmodule MonolithWeb.MailLiveTest do
 
     assert has_element?(
              view,
-             ".mail-toolbar a[href='/workspaces/#{context.workspace.id}'][data-phx-link=patch]",
+             ".mail-register-row a[href='/workspaces/#{context.workspace.id}'][data-phx-link=patch]",
              "All accounts"
            )
 

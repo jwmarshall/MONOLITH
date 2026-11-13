@@ -50,6 +50,17 @@ defmodule Monolith.OAuthJobsTest do
   alias Monolith.TestSupport.OnboardingKeychain
   @owner %{role: :local_owner}
 
+  defmodule CompletionRaceHolder do
+    @moduledoc false
+
+    def result(id) do
+      holder = Process.get(__MODULE__)
+      observed = holder.result(id)
+      if observed == :pending, do: Oban.drain_queue(queue: :oauth, with_safety: false)
+      observed
+    end
+  end
+
   setup %{conn: conn} do
     start_supervised!({Monolith.TestGitHub, []})
     start_supervised!(OnboardingKeychain)
@@ -114,6 +125,20 @@ defmodule Monolith.OAuthJobsTest do
       assert :ok = Worker.perform(job)
       assert count(@provider) == 1
       assert {:ok, %{status: :completed, outcome: :connected}} = Exchange.get(reference.id)
+    end
+
+    test "#{provider} completion between result and job observations retains its settled outcome",
+         context do
+      {holder, admit, _cancel} = attempt(@provider, context)
+      assert {:ok, reference} = admit.()
+      assert holder.result(reference.id) == :pending
+      Process.put(CompletionRaceHolder, holder)
+
+      assert {:ok, _} = result = Monolith.OAuth.await(reference.id, CompletionRaceHolder)
+      assert holder.result(reference.id) == result
+      assert {:ok, %{status: :completed, outcome: :connected}} = Exchange.get(reference.id)
+      assert Monolith.Repo.get!(Oban.Job, reference.job_id).state == "completed"
+      assert count(@provider) == 1
     end
 
     test "#{provider} aborted enqueue leaves no durable admission or consumed authorization",
@@ -197,6 +222,22 @@ defmodule Monolith.OAuthJobsTest do
       assert %{connections: []} = Monolith.GitHub.directory!(actor: @owner)
       assert {:ok, %{status: :failed, outcome: :reauthorize}} = Exchange.get(reference.id)
     end
+  end
+
+  test "an expired callback observation leaves accepted work available for completion", context do
+    {holder, admit, _cancel} = attempt(:google, context)
+    assert {:ok, reference} = admit.()
+
+    assert Monolith.OAuth.await(reference.id, holder, 0) == {:error, :unavailable}
+    assert holder.result(reference.id) == :pending
+    assert Monolith.Repo.get!(Oban.Job, reference.job_id).state == "available"
+    assert {:ok, %{status: :queued}} = Exchange.get(reference.id)
+    assert count(:google) == 0
+
+    assert %{success: 1, failure: 0} = Oban.drain_queue(queue: :oauth, with_safety: false)
+    assert {:ok, _} = holder.result(reference.id)
+    assert {:ok, %{status: :completed, outcome: :connected}} = Exchange.get(reference.id)
+    assert count(:google) == 1
   end
 
   test "admission denies an unauthorized actor without creating a job" do

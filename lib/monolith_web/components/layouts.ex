@@ -49,26 +49,49 @@ defmodule MonolithWeb.Layouts do
   attr :id, :string, required: true
   attr :class, :string, default: nil
   attr :stroke_id, :string, default: nil
+  attr :treatment, :atom, default: :outline, values: [:outline, :solid]
+  attr :animated, :boolean, default: false
 
   def monogram(assigns) do
     ~H"""
     <svg
       id={@id}
-      class={@class}
+      class={["monolith-mark", @class]}
       viewBox="0 0 104 104"
       fill="none"
       xmlns="http://www.w3.org/2000/svg"
       aria-hidden="true"
       focusable="false"
     >
-      <path
-        id={@stroke_id}
-        d="M16 82C34 65 64 23 56 12C48 1 33 37 29 63C24 94 41 88 57 70C73 51 89 18 80 12C70 3 56 42 52 66C47 91 62 90 88 71"
-        stroke="currentColor"
-        stroke-width="1.8"
-        stroke-linecap="round"
-        stroke-linejoin="round"
-      />
+      <%= cond do %>
+        <% @treatment == :solid -> %>
+          <defs>
+            <mask
+              id={"#{@id}-cutout"}
+              maskUnits="userSpaceOnUse"
+              x="0"
+              y="0"
+              width="104"
+              height="104"
+              style="mask-type:luminance;forced-color-adjust:none"
+            >
+              <rect width="104" height="104" fill="#fff" />
+              <path class="inverse-cut" d="M20 64H52L82 20M52 64V84" />
+            </mask>
+          </defs>
+          <path class="inverse-face" d="M20 64L50 20H82V40L52 84Z" mask={"url(##{@id}-cutout)"} />
+        <% @animated -> %>
+          <g data-layer="outline">
+            <path pathLength="1" d="M52 84L20 64L50 20H66" />
+            <path pathLength="1" d="M52 84L82 40V20H66" />
+          </g>
+          <g data-layer="inner">
+            <path pathLength="1" d="M82 20L52 64L20 64" />
+            <path pathLength="1" d="M52 64V84" />
+          </g>
+        <% true -> %>
+          <path id={@stroke_id} d="M20 64L50 20H82L52 64ZM20 64L52 84L82 40V20M52 64V84" />
+      <% end %>
     </svg>
     """
   end
@@ -90,11 +113,11 @@ defmodule MonolithWeb.Layouts do
       <.monogram
         id="monolith-monogram"
         class="workspace-monogram"
-        stroke_id="monolith-monogram-stroke"
+        animated
       />
-      <p class="workspace-wordmark" aria-label="LOVELACE">
+      <p class="workspace-wordmark" aria-label="MONOLITH">
         <span
-          :for={{letter, index} <- Enum.with_index(String.graphemes("LOVELACE"))}
+          :for={{letter, index} <- Enum.with_index(String.graphemes("MONOLITH"))}
           id={"monolith-letter-#{index}"}
           class="workspace-letter"
         >{letter}</span>
@@ -106,6 +129,7 @@ defmodule MonolithWeb.Layouts do
   attr :flash, :map, required: true
   attr :background, :map, default: %{url: nil, status: :unavailable}
   attr :enter_on_return, :boolean, default: false
+  attr :enter_on_unlock, :boolean, default: false
   slot :inner_block, required: true
 
   def app(assigns) do
@@ -132,12 +156,11 @@ defmodule MonolithWeb.Layouts do
         aria-labelledby="workspace-title"
         phx-hook="WorkspaceEntrance"
         data-enter-on-return={to_string(@enter_on_return)}
-        phx-window-keydown={reset_workspace()}
-        phx-key="Escape"
+        data-enter-on-unlock={to_string(@enter_on_unlock)}
       >
         <p id="workspace-instructions" class="sr-only">
-          Click or focus the workspace to bring the glass into focus. Press Escape to look
-          through to the landscape. After inactivity, the landscape returns; click or type to
+          Click or focus the workspace to bring it into focus. Press Escape to reveal
+          the scenery. After inactivity, scenery returns; click or type to
           resume your current view. Home summarizes your day; Workspaces organizes your areas of life. Connected
           Gmail accounts remain separate; reading mail never marks it as read.
         </p>
@@ -215,7 +238,6 @@ defmodule MonolithWeb.Layouts do
           id="client-reconnect-signal"
           state={:active}
           label={gettext("Attempting to reconnect")}
-          text
         />
       </.flash>
 
@@ -234,7 +256,6 @@ defmodule MonolithWeb.Layouts do
           id="server-reconnect-signal"
           state={:active}
           label={gettext("Attempting to reconnect")}
-          text
         />
       </.flash>
     </div>

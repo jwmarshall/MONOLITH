@@ -27,6 +27,13 @@ defmodule Monolith.StageDesigner do
       define :get_default_scene, action: :read, get_by: [:id], not_found_error?: false
     end
 
+    resource Monolith.StageDesigner.StartupPreference do
+      define :startup_preference, action: :startup_preference
+      define :save_startup_preference, action: :save_startup_preference
+      define :get_startup_preference, action: :read, get_by: [:id], not_found_error?: false
+      define :persist_startup_preference, action: :save
+    end
+
     resource Monolith.StageDesigner.Designer do
       define :background, action: :background
       define :image, action: :image, args: [:digest]

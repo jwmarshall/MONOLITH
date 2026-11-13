@@ -79,4 +79,78 @@ defmodule MonolithWeb.HomeNavigationTest do
     refute socket.assigns.home || socket.assigns.connections || socket.assigns.scenes
     assert HomeNavigation.current(socket) == "/settings"
   end
+
+  test "GitHub activity has an owner-scoped canonical URL and replaces other page projections" do
+    workspace = Ash.UUID.generate()
+    organization = Ash.UUID.generate()
+    params = %{"workspace_id" => workspace, "organization_id" => organization}
+
+    assert {:ok, destination} = HomeNavigation.destination(:workspace_github, params)
+    assert HomeNavigation.path(destination) == "/workspaces/#{workspace}/github/#{organization}"
+
+    assert HomeNavigation.github_activity_path(workspace, organization) ==
+             HomeNavigation.path(destination)
+
+    socket = %Phoenix.LiveView.Socket{assigns: %{__changed__: %{}}}
+    socket = HomeNavigation.put(socket, destination)
+    assert socket.assigns.github_activity
+    refute socket.assigns.home || socket.assigns.connections || socket.assigns.scenes
+    assert socket.assigns.destination.organization_id == organization
+    refute HomeNavigation.directory?(destination)
+
+    socket = HomeNavigation.put(socket, :index)
+    refute socket.assigns.github_activity
+    assert socket.assigns.destination.organization_id == nil
+
+    assert :error =
+             HomeNavigation.destination(:workspace_github, %{
+               "workspace_id" => workspace,
+               "organization_id" => "../other"
+             })
+  end
+
+  test "activity selection accepts only a ready owner attached to the selected workspace" do
+    workspace = Ash.UUID.generate()
+    organization = Ash.UUID.generate()
+    other = Ash.UUID.generate()
+
+    {:ok, destination} =
+      HomeNavigation.destination(:workspace_github, %{
+        "workspace_id" => workspace,
+        "organization_id" => organization
+      })
+
+    socket = %Phoenix.LiveView.Socket{
+      assigns: %{
+        __changed__: %{},
+        selected: %{id: workspace},
+        github_organizations: [%{id: organization, login: "synthetic-owner", status: :ready}],
+        github_memberships: [%{workspace_id: workspace, organization_id: organization}]
+      }
+    }
+
+    assert {:ok, selected} = MonolithWeb.HomeGitHub.select_activity(socket, destination)
+    assert selected.assigns.page_title == "synthetic-owner · GitHub"
+
+    assert :error =
+             MonolithWeb.HomeGitHub.select_activity(socket, %{
+               destination
+               | organization_id: other
+             })
+
+    assert :error =
+             MonolithWeb.HomeGitHub.select_activity(socket, %{destination | workspace_id: other})
+
+    unavailable = Phoenix.Component.assign(socket, github_memberships: [])
+    assert :error = MonolithWeb.HomeGitHub.select_activity(unavailable, destination)
+
+    revoked =
+      Phoenix.Component.assign(socket,
+        github_organizations: [
+          %{id: organization, login: "synthetic-owner", status: :reauthorization}
+        ]
+      )
+
+    assert :error = MonolithWeb.HomeGitHub.select_activity(revoked, destination)
+  end
 end

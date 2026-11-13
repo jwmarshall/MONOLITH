@@ -23,6 +23,8 @@ defmodule Monolith.StageDesigner.StartupTest do
       storage_dir: directory
     })
 
+    StageDesigner.save_startup_preference!(%{enabled: true}, actor: %{role: :local_owner})
+
     on_exit(fn ->
       Application.put_env(:monolith, :stage_designer, previous)
       File.rm_rf!(directory)

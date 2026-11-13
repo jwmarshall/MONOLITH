@@ -7,6 +7,7 @@ defmodule MonolithWeb.MailComponents do
 
   attr :mail, :map, required: true
   attr :workspace, :map, default: nil
+  attr :readouts, :list, default: []
 
   def panel(assigns) do
     # Local render assigns only; never copy provider content into the LV socket.
@@ -23,51 +24,83 @@ defmodule MonolithWeb.MailComponents do
     ~H"""
     <section
       id="mail-panel"
-      class="mail-panel"
-      aria-labelledby="mail-heading"
+      class={[
+        "mail-panel",
+        @account && if(@mail.thread_id, do: "mail-conversation-panel", else: "mail-inbox-panel"),
+        @workspace && !@account && !@mail.adding && "mail-workspace-panel"
+      ]}
+      aria-labelledby={if @mail.adding, do: "directory-heading", else: "mail-heading"}
       phx-hook="MailReader"
       data-mail-context={"#{@mail.list_key}:#{@account && @account.generation}"}
+      data-mail-account={@mail.account_id || ""}
       data-mail-thread={@mail.thread_id || ""}
       data-mail-loaded={to_string(@mail.data_loaded && !@payload_expired)}
     >
-      <div class={[
-        "mail-heading",
-        if(@account, do: "mail-inbox-heading", else: "mail-integration-heading")
-      ]}>
+      <div
+        :if={@account}
+        class={["mail-register-row page-header-row", @mail.thread_id && "mail-reader-context"]}
+      >
+        <p :if={!@mail.thread_id} class="mail-eyebrow">01 / Email</p>
+        <h2 :if={@mail.thread_id} id="mail-heading" class="mail-reader-account">
+          {@account.email}
+          <span :if={@workspace} class="mail-muted">{@workspace.name}</span>
+        </h2>
+        <.link
+          :if={@mail.thread_id}
+          id="mail-back"
+          patch={HomeNavigation.mail_path(@mail, %{thread_id: nil})}
+          class="workspace-action workspace-action-link"
+        >Back to results</.link>
+        <.link
+          :if={!@mail.thread_id}
+          patch={
+            if @mail.scope == :home, do: "/", else: HomeNavigation.workspace_path(@mail.workspace_id)
+          }
+          class="workspace-action workspace-action-link"
+        >{if @mail.scope == :home, do: "Home", else: "All accounts"}</.link>
+        <.lock_control />
+      </div>
+      <header :if={@account && !@mail.thread_id} class="mail-heading mail-inbox-heading">
         <div class="mail-account-identity">
-          <p :if={@account} class="mail-eyebrow">Read-only Gmail</p>
-          <h3 id="mail-heading" tabindex="-1">
-            {if @account, do: @account.email, else: "Integrations"}
-          </h3>
+          <p class="mail-eyebrow">
+            Gmail / {if @workspace, do: @workspace.name, else: "Account"}
+          </p>
+          <h1 id="mail-heading" tabindex="-1" data-workspace-heading>{@account.email}</h1>
+          <p class="mail-muted">Read-only Gmail</p>
         </div>
         <.form
-          :if={@account}
           for={@mail.search_form}
           id="mail-search"
           class="mail-search"
           phx-submit="mail:search"
-          aria-label="Search Gmail"
+          aria-label={"Search Gmail for #{@account.email}"}
         >
           <.input
             field={@mail.search_form[:query]}
             type="search"
+            label="Search this account"
             aria-label="Search Gmail"
-            placeholder="Search"
+            placeholder="Search Gmail"
             class="mail-search-input"
             maxlength="1024"
             autocomplete="off"
           />
           <button type="submit" class="workspace-action" disabled={!!@mail.command}>Search</button>
         </.form>
-        <.link
-          :if={!@account && !@mail.adding && @mail.scope != :home}
-          id="add-integration"
-          patch={HomeNavigation.workspace_path(@mail.workspace_id) <> "/integrations"}
-          class="workspace-action workspace-action-primary"
-        >
-          Add integration
-        </.link>
-      </div>
+      </header>
+      <header :if={@workspace && !@account && !@mail.adding} class="home-section-heading">
+        <h2 id="mail-heading" class="section-register" tabindex="-1">
+          01 / Google accounts
+        </h2>
+      </header>
+      <h2
+        :if={!@workspace && !@account && !@mail.adding}
+        id="mail-heading"
+        class="mail-section-register"
+        tabindex="-1"
+      >
+        01 / Google accounts
+      </h2>
 
       <p :if={@mail.notice} id="mail-notice" class="mail-notice" role="status">{@mail.notice}</p>
       <div :if={@mail.directory_error} class="mail-notice" role="alert">
@@ -85,11 +118,12 @@ defmodule MonolithWeb.MailComponents do
             </p>
           </div>
         </div>
-        <div class="integration-grid">
-          <.integration_tile
+        <div :if={!@mail.adding} class="mail-workspace-accounts">
+          <.workspace_account
             :for={account <- @mail.accounts}
             :if={account.id in @mail.memberships}
             account={account}
+            readout={Enum.find(@readouts, &(&1.id == account.id))}
             workspace={@workspace}
             busy={!!@mail.command}
           />
@@ -97,7 +131,7 @@ defmodule MonolithWeb.MailComponents do
         <.add_panel :if={@mail.adding} mail={@mail} workspace={@workspace} />
       </div>
 
-      <div :if={@account} id="mail-account-view">
+      <div :if={@account} id="mail-account-view" class={if !@mail.thread_id, do: "mail-inbox-plane"}>
         <.connect
           :if={@workspace && (@account.status == :reconnect || @mail.error == :reconnect)}
           workspace={@workspace}
@@ -111,17 +145,14 @@ defmodule MonolithWeb.MailComponents do
         <div class="mail-toolbar">
           <div class="mail-actions">
             <.link
-              :if={@mail.scope != :home}
-              patch={HomeNavigation.workspace_path(@mail.workspace_id)}
-              phx-click={JS.focus(to: "#mail-heading")}
+              patch="/connections/gmail"
               class="workspace-action workspace-action-link"
-            >All accounts</.link>
-            <.link
-              :if={@mail.thread_id}
-              id="mail-back"
-              patch={HomeNavigation.mail_path(@mail, %{thread_id: nil})}
-              class="workspace-action workspace-action-link"
-            >Back to results</.link>
+              aria-label={"Manage connection for #{@account.email}"}
+            >Manage connection</.link>
+            <span :if={@mail.thread_id} class="mail-muted">Read-only conversation</span>
+            <span :if={@mail.command || @mail.loading} class="mail-muted">
+              {if @mail.command, do: "Account update in progress.", else: "Read in progress."}
+            </span>
             <.link
               :if={!@mail.thread_id && (@mail.query || @mail.page_token)}
               patch={HomeNavigation.mail_path(@mail, %{page_token: nil})}
@@ -172,7 +203,12 @@ defmodule MonolithWeb.MailComponents do
               label={"Loading #{if @mail.thread_id, do: "conversation", else: "messages"}…"}
             />
           </p>
-          <p :if={@mail.error} class="mail-warning">{error_text(@mail.error)}</p>
+          <p
+            :if={@mail.error}
+            class={["mail-warning", @mail.error != :rate_limited && "mail-error"]}
+          >
+            {error_text(@mail.error)}
+          </p>
           <p :if={@payload_expired} class="mail-warning">
             This local view has expired. Refresh to load it again.
           </p>
@@ -212,8 +248,11 @@ defmodule MonolithWeb.MailComponents do
           aria-label="Conversation"
           aria-busy={to_string(@mail.loading)}
         >
-          <header :if={@messages != []} class="mail-conversation-header">
-            <h4 id="mail-conversation-heading" tabindex="-1">{@conversation_subject}</h4>
+          <header class="mail-conversation-header">
+            <p class="mail-eyebrow">Read-only conversation / {@account.email}</p>
+            <h1 id="mail-conversation-heading" tabindex="-1" data-workspace-heading>
+              {@conversation_subject}
+            </h1>
             <p class="mail-muted">
               {length(@messages)} {if length(@messages) == 1,
                 do: "message",
@@ -327,49 +366,53 @@ defmodule MonolithWeb.MailComponents do
   end
 
   attr :account, :map, required: true
+  attr :readout, :map, default: nil
   attr :workspace, :map, required: true
   attr :busy, :boolean, required: true
 
-  defp integration_tile(assigns) do
+  defp workspace_account(assigns) do
+    assigns =
+      assign(
+        assigns,
+        :readout,
+        assigns.readout ||
+          %{
+            id: assigns.account.id,
+            email: assigns.account.email,
+            workspaces: [assigns.workspace.name],
+            status: assigns.account.status,
+            last_error: assigns.account.last_error,
+            inbox_unread_count: nil,
+            inbox_unread_recent_count: nil,
+            inbox_unread_at: nil,
+            inbox_unread_error: nil
+          }
+      )
+
     ~H"""
-    <article id={"mail-account-#{@account.id}"} class="integration-tile">
-      <.link
-        patch={HomeNavigation.workspace_path(@workspace.id) <> "/accounts/" <> @account.id <> "/mail"}
-        class="mail-account-open integration-tile-open"
-        phx-click={JS.focus(to: "#mail-heading")}
-        aria-label={"Open inbox for #{@account.email}"}
-        aria-describedby={"integration-status-#{@account.id}"}
-      >
-        <.icon name="hero-envelope" class="integration-icon size-6" />
-        <span class="mail-eyebrow">Gmail · Read-only</span>
-        <span class="integration-name">{@account.email}</span>
-        <span
-          id={"integration-status-#{@account.id}"}
-          class={["mail-muted", needs_attention?(@account) && "connection-warning"]}
-        >
-          <.account_signal account={@account} id={"integration-signal-#{@account.id}"} embedded />
-        </span>
-        <.icon name="hero-arrow-up-right" class="workspace-card-arrow size-5" />
-      </.link>
-      <details id={"integration-menu-#{@account.id}"} class="workspace-menu">
-        <summary aria-label={"Manage #{@account.email}"} title={"Manage #{@account.email}"}>
-          <.icon name="hero-ellipsis-horizontal" class="size-5" />
-        </summary>
-        <div class="workspace-menu-actions">
-          <button
-            id={"detach-#{@account.id}"}
-            type="button"
-            class="workspace-action workspace-action-danger"
-            phx-click={
-              JS.remove_attribute("open", to: "#integration-menu-#{@account.id}")
-              |> JS.push("mail:detach")
-              |> JS.focus(to: "#mail-heading")
-            }
-            phx-value-id={@account.id}
-            disabled={@busy}
-          >Remove from workspace</button>
-        </div>
-      </details>
+    <article id={"mail-account-#{@account.id}"} class="mail-workspace-account">
+      <ul class="mail-workspace-readout">
+        <MonolithWeb.HomeComponents.account_readout
+          account={@readout}
+          inbox_path={HomeNavigation.workspace_path(@workspace.id) <> "/accounts/" <> @account.id <> "/mail"}
+        />
+      </ul>
+      <div class="mail-workspace-account-actions">
+        <.link
+          patch="/connections/gmail"
+          class="workspace-action workspace-action-link"
+          aria-label={"Manage connection for #{@account.email}"}
+        >Manage connection</.link>
+        <button
+          id={"detach-#{@account.id}"}
+          type="button"
+          class="workspace-action workspace-action-danger"
+          phx-click={JS.push("mail:detach") |> JS.focus(to: "#mail-heading")}
+          phx-value-id={@account.id}
+          aria-label={"Remove #{@account.email} from #{@workspace.name}"}
+          disabled={@busy}
+        >Remove from workspace</button>
+      </div>
       <div :if={@account.status == :reconnect} class="integration-recovery">
         <.connect workspace={@workspace} account={@account} busy={@busy} />
       </div>
@@ -387,22 +430,11 @@ defmodule MonolithWeb.MailComponents do
       class="integration-add-panel"
       aria-labelledby="integration-add-heading"
     >
-      <div class="mail-heading">
-        <div>
-          <h4 id="integration-add-heading" tabindex="-1" phx-mounted={JS.focus()}>Add integration</h4>
-          <p class="mail-muted">
-            Add an existing account or connect Google.
-          </p>
-        </div>
-        <.link
-          id="close-add-integration"
-          patch={HomeNavigation.workspace_path(@workspace.id)}
-          phx-click={JS.focus(to: "#mail-heading")}
-          class="workspace-action workspace-action-link"
-        >
-          Done
-        </.link>
-      </div>
+      <h3 id="integration-add-heading" class="mail-section-register">Google accounts</h3>
+      <p class="mail-muted mail-add-description">
+        Add to <strong>{@workspace.name}</strong>. Adding an existing connection only changes
+        this workspace’s membership; it doesn’t request additional Google consent.
+      </p>
       <h5 class="mail-section-title">Available connections</h5>
       <p :if={!Enum.any?(@mail.accounts, &(&1.id not in @mail.memberships))} class="mail-muted">
         No other Gmail accounts are available. Connect another Google account below.
@@ -424,7 +456,7 @@ defmodule MonolithWeb.MailComponents do
           id={"attach-#{account.id}"}
           type="button"
           class="workspace-action"
-          phx-click={JS.push("mail:attach") |> JS.focus(to: "#mail-heading")}
+          phx-click={JS.push("mail:attach") |> JS.focus(to: "#directory-heading")}
           phx-value-id={account.id}
           disabled={!!@mail.command}
         >
@@ -453,28 +485,32 @@ defmodule MonolithWeb.MailComponents do
   attr :mail, :map, required: true
   attr :workspace_options, :list, required: true
   attr :google_status, :atom, required: true
+  attr :readouts, :list, default: []
 
   def connections(assigns) do
+    assigns = assign(assigns, :busy_reason, connection_busy_reason(assigns.mail))
+
     ~H"""
     <section
       id="connections-panel"
       class="connections-panel"
       aria-labelledby="gmail-connections-heading"
     >
-      <div class="connections-heading">
-        <h3 id="gmail-connections-heading" class="mail-section-title">Gmail accounts</h3>
+      <header class="card-section-heading">
+        <p class="mail-eyebrow">Google account access</p>
+        <h3 id="gmail-connections-heading">Gmail accounts</h3>
         <button
           :if={@mail.accounts != [] || @mail.directory_error}
           id="new-gmail-connection"
           type="button"
-          class="workspace-action workspace-action-primary"
+          class="workspace-action workspace-action-primary provider-heading-action"
           phx-click="mail:new_connection"
           disabled={!!@mail.command || @mail.directory_error || @google_status != :stored}
-          aria-describedby={if @google_status != :stored, do: "gmail-google-prerequisite"}
+          aria-describedby={connection_action_description(@busy_reason, @google_status)}
         >
           Add Gmail account
         </button>
-      </div>
+      </header>
       <p
         :if={@google_status != :stored}
         id="gmail-google-prerequisite"
@@ -488,6 +524,9 @@ defmodule MonolithWeb.MailComponents do
           <.link patch="/connections/google" class="workspace-action-link">Google connections</.link>
           before adding a Gmail account.
         <% end %>
+      </p>
+      <p :if={@busy_reason} id="gmail-account-operation" class="mail-muted" role="status">
+        {@busy_reason}
       </p>
       <div
         :if={@mail.accounts == [] && !@mail.directory_error}
@@ -521,7 +560,7 @@ defmodule MonolithWeb.MailComponents do
             class="workspace-action workspace-action-primary"
             phx-click="mail:new_connection"
             disabled={!!@mail.command || @mail.directory_error || @google_status != :stored}
-            aria-describedby={if @google_status != :stored, do: "gmail-google-prerequisite"}
+            aria-describedby={connection_action_description(@busy_reason, @google_status)}
           >
             Add Gmail account
           </button>
@@ -539,18 +578,22 @@ defmodule MonolithWeb.MailComponents do
         <article
           :for={account <- @mail.accounts}
           id={"connection-account-#{account.id}"}
-          class="connection-card gmail-connection-card"
+          class="gmail-connection-card"
           aria-labelledby={"connection-email-#{account.id}"}
         >
-          <div class="connection-identity">
-            <.icon name="hero-envelope" class="integration-icon size-5" />
+          <header class="connection-card-head">
             <div class="mail-account-identity">
               <h4 id={"connection-email-#{account.id}"}>{account.email}</h4>
-              <p class={["mail-muted", needs_attention?(account) && "connection-warning"]}>
-                <.account_signal account={account} id={"connection-signal-#{account.id}"} />
-              </p>
+              <p class="identity mail-muted">Gmail · Read-only</p>
             </div>
-          </div>
+            <p class={[
+              "mail-muted",
+              needs_attention?(account) && "connection-warning"
+            ]}>
+              <.account_signal account={account} id={"connection-signal-#{account.id}"} />
+            </p>
+          </header>
+          <.connection_memberships readout={Enum.find(@readouts, &(&1.id == account.id))} />
           <div class="mail-actions">
             <button
               :if={account.status != :disconnected}
@@ -561,14 +604,20 @@ defmodule MonolithWeb.MailComponents do
               phx-value-id={account.id}
               aria-label={"Check Keychain access for #{account.email}"}
               disabled={!!@mail.command || !!@mail.credential_check}
+              aria-describedby={@busy_reason && "gmail-account-operation"}
             >Check Keychain</button>
             <.connect
               :if={account.status == :reconnect}
               account={account}
               workspace_options={@workspace_options}
               busy={!!@mail.command || !!@mail.credential_check}
+              busy_description={@busy_reason && "gmail-account-operation"}
             />
-            <.disconnect account={account} busy={!!@mail.command || !!@mail.credential_check} />
+            <.disconnect
+              account={account}
+              busy={!!@mail.command || !!@mail.credential_check}
+              busy_description={@busy_reason && "gmail-account-operation"}
+            />
           </div>
           <.credential_check account={account} check={credential_check_result(@mail, account)} />
           <div :if={cleanup = Map.get(account, :cleanup)} class="mail-muted" role="status">
@@ -619,7 +668,7 @@ defmodule MonolithWeb.MailComponents do
           change permissions, or refresh mail. A readable credential does not verify Google access.
         </p>
         <p>
-          LOVELACE uses its own password-locked keychain, separate from your login keychain.
+          MONOLITH uses its own password-locked keychain, separate from your login keychain.
           Individual items can still deny access to the monolith-vault helper after a rebuild
           changes its security identity. Preserve the vault and review access before rebuilding again.
         </p>
@@ -644,6 +693,49 @@ defmodule MonolithWeb.MailComponents do
     """
   end
 
+  defp connection_busy_reason(%{credential_check: {id, _, _}} = mail) do
+    account = Enum.find(mail.accounts, &(&1.id == id))
+    identity = if account, do: account.email, else: "another Gmail account"
+
+    "Checking local Keychain access for #{identity}. Account actions are unavailable until it finishes."
+  end
+
+  defp connection_busy_reason(%{command: {id, _}} = mail) do
+    account = Enum.find(mail.accounts, &(&1.id == id))
+    identity = if account, do: account.email, else: "a Gmail account"
+
+    "Disconnect cleanup for #{identity} is pending. Account actions are unavailable until it finishes."
+  end
+
+  defp connection_busy_reason(_mail), do: nil
+
+  defp connection_action_description(busy_reason, google_status) do
+    [
+      busy_reason && "gmail-account-operation",
+      if(google_status != :stored, do: "gmail-google-prerequisite")
+    ]
+    |> Enum.reject(&is_nil/1)
+    |> Enum.join(" ")
+  end
+
+  attr :readout, :map, default: nil
+
+  defp connection_memberships(assigns) do
+    ~H"""
+    <p class="mail-muted mail-memberships">
+      <%= cond do %>
+        <% is_nil(@readout) -> %>
+          Workspace membership unavailable.
+        <% @readout.workspaces == [] -> %>
+          Not in a workspace.
+        <% true -> %>
+          Workspaces: {Enum.join(@readout.workspaces, " · ")}
+      <% end %>
+      <span>Calendar permission and status are independent.</span>
+    </p>
+    """
+  end
+
   attr :account, :map, required: true
   attr :check, :map, default: nil
 
@@ -662,7 +754,6 @@ defmodule MonolithWeb.MailComponents do
           id={"credential-check-signal-#{@account.id}"}
           state={credential_signal_state(@check.status)}
           label={credential_check_text(@check.status)}
-          text={@check.status != :checking}
         />
       </p>
       <p :if={@check.status == :locked}>
@@ -726,6 +817,7 @@ defmodule MonolithWeb.MailComponents do
   attr :workspace_options, :list, default: []
   attr :account, :map, default: nil
   attr :busy, :boolean, default: false
+  attr :busy_description, :string, default: nil
 
   defp connect(assigns) do
     assigns =
@@ -773,6 +865,7 @@ defmodule MonolithWeb.MailComponents do
         class="connection-workspace-select"
         required
         disabled={@busy}
+        aria-describedby={@busy_description}
       />
       <.input
         :if={@account}
@@ -784,6 +877,7 @@ defmodule MonolithWeb.MailComponents do
         type="submit"
         class={["workspace-action", !@account && "workspace-action-primary"]}
         disabled={@busy}
+        aria-describedby={@busy_description}
       >{if @account, do: "Reconnect Google", else: "Connect Google account"}</button>
     </.form>
     """
@@ -791,6 +885,7 @@ defmodule MonolithWeb.MailComponents do
 
   attr :account, :map, required: true
   attr :busy, :boolean, required: true
+  attr :busy_description, :string, default: nil
 
   defp disconnect(assigns) do
     ~H"""
@@ -800,6 +895,7 @@ defmodule MonolithWeb.MailComponents do
       phx-click="mail:disconnect"
       phx-value-id={@account.id}
       disabled={@busy}
+      aria-describedby={@busy_description}
       data-confirm={"Disconnect #{@account.email} everywhere? This removes all its local cached mail, stored credentials, and connections from EVERY workspace, and attempts to revoke Google access. Your Gmail mailbox is not changed."}
     >Disconnect everywhere</button>
     """
@@ -833,7 +929,6 @@ defmodule MonolithWeb.MailComponents do
       id={@id}
       state={account_signal_state(@account)}
       label={account_status(@account)}
-      text={needs_attention?(@account)}
       embedded={@embedded}
     />
     """

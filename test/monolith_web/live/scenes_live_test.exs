@@ -47,7 +47,7 @@ defmodule MonolithWeb.ScenesLiveTest do
     assert has_element?(view, "#scenes-empty", "No generated scenes yet")
     refute has_element?(view, "#scene-gemini-setup")
 
-    assert has_element?(view, ".scene-toolbar > .scene-status.connection-card[role=status]")
+    assert has_element?(view, ".scene-toolbar > .scene-status[role=status]")
 
     refute has_element?(view, ".scene-status", "Generation is available")
     refute has_element?(view, "#scene-generation-availability")
@@ -55,7 +55,9 @@ defmodule MonolithWeb.ScenesLiveTest do
     assert has_element?(view, "#scene-generate", "Generate scene")
     assert has_element?(view, "#scene-generate [aria-hidden=true] .hero-sparkles")
     refute has_element?(view, "#scene-generate", "…")
-    refute has_element?(view, "#scenes-panel", "API charges")
+    assert has_element?(view, "#scene-settings-guidance", "API charges")
+    assert has_element?(view, "#scene-settings-guidance", "Google stores")
+    assert has_element?(view, "#scene-current-image[src]")
     refute has_element?(view, ".scene-policy")
     refute has_element?(view, "#scenes-panel", "App-wide scenery · All saved scenes")
 
@@ -552,7 +554,7 @@ defmodule MonolithWeb.ScenesLiveTest do
     assert has_element?(view, "#scenes-panel", "generation failed")
     assert has_element?(view, "#scene-generate:not([disabled])")
     refute has_element?(view, "#scene-generation-availability")
-    assert has_element?(view, "#scene-generate[aria-describedby=scene-settings-guidance]")
+    assert has_element?(view, "#scene-generate[aria-describedby~=scene-settings-guidance]")
     refute has_element?(view, "#scene-generation-modal")
     state = StageDesigner.get_state!(1, actor: @actor)
     assert state.status == :failed

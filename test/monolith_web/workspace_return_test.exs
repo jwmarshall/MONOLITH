@@ -118,6 +118,19 @@ defmodule MonolithWeb.WorkspaceReturnTest do
     end
   end
 
+  test "unlock animation intent is consumed by the first destination, never a later visit" do
+    session = %{owner_session_token: @token, workspace_unlock: @destination}
+    mismatched = owner_request(session, "/settings")
+    refute mismatched.assigns.workspace_unlock
+    refute get_session(mismatched, :workspace_unlock)
+    refute consume(mismatched, @destination).assigns.workspace_unlock
+
+    for token <- [nil, ""] do
+      missing_owner = owner_request(%{session | owner_session_token: token}, @destination)
+      refute missing_owner.assigns.workspace_unlock
+    end
+  end
+
   test "expired, malformed and differently bound markers fail closed and are deleted" do
     response = redirect_response(%{owner_session_token: @token}, @destination)
     marker = get_session(response, :workspace_return)

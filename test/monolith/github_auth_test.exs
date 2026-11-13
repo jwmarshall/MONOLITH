@@ -91,7 +91,7 @@ defmodule Monolith.GitHubAuthTest do
     TestGitHub.configure(exchange_response: {:wait, self(), {:ok, TestGitHub.bundle()}})
     params = callback_params(session)
     task = Task.async(fn -> OAuthJobs.complete(session, params) end)
-    assert_receive {:github_waiting, worker}
+    assert_receive {:github_waiting, worker}, 1_000
     assert {:error, :expired} = OAuthJobs.complete(session, params)
     assert :ok = Auth.cancel(session)
     assert {:ok, _} = Auth.begin(session)
@@ -125,7 +125,7 @@ defmodule Monolith.GitHubAuthTest do
     assert {:ok, reference} = Auth.admit(session, callback_params(session))
     job = Monolith.Repo.get!(Oban.Job, reference.job_id)
     task = Task.async(fn -> Worker.perform(job) end)
-    assert_receive {:github_waiting, worker}
+    assert_receive {:github_waiting, worker}, 1_000
     assert :ok = Worker.perform(job)
     assert {:ok, %{status: :claimed}} = Exchange.get(reference.id)
     send(worker, :continue)
@@ -153,7 +153,7 @@ defmodule Monolith.GitHubAuthTest do
     TestGitHub.configure(exchange_response: {:wait, self(), {:ok, TestGitHub.bundle()}})
     params = callback_params(session)
     task = Task.async(fn -> OAuthJobs.complete(session, params) end)
-    assert_receive {:github_waiting, worker}
+    assert_receive {:github_waiting, worker}, 1_000
     Monolith.Owner.logout(session)
     send(worker, :continue)
     assert {:error, _} = Task.await(task)
@@ -167,7 +167,7 @@ defmodule Monolith.GitHubAuthTest do
     TestGitHub.configure(exchange_response: {:wait, self(), {:ok, TestGitHub.bundle()}})
     params = callback_params(session)
     task = Task.async(fn -> OAuthJobs.complete(session, params) end)
-    assert_receive {:github_waiting, worker}
+    assert_receive {:github_waiting, worker}, 1_000
     Vault.lock()
     send(worker, :continue)
     assert {:error, _} = Task.await(task)
@@ -179,7 +179,7 @@ defmodule Monolith.GitHubAuthTest do
     TestGitHub.configure(exchange_response: {:wait, self(), {:ok, TestGitHub.bundle()}})
     params = callback_params(session)
     task = Task.async(fn -> OAuthJobs.complete(session, params) end)
-    assert_receive {:github_waiting, worker}
+    assert_receive {:github_waiting, worker}, 1_000
 
     assert {:ok, true} =
              Monolith.GitHub.save_client_credentials(
@@ -206,7 +206,7 @@ defmodule Monolith.GitHubAuthTest do
 
       params = callback_params(session)
       task = Task.async(fn -> OAuthJobs.complete(session, params) end)
-      assert_receive {:github_waiting, worker}
+      assert_receive {:github_waiting, worker}, 1_000
 
       id =
         if unquote(operation) == :disconnect_account,
@@ -291,7 +291,7 @@ defmodule Monolith.GitHubAuthTest do
     expire(initial.connection.id)
     TestGitHub.configure(refresh_response: {:wait, self(), {:ok, TestGitHub.bundle("late_pair")}})
     task = Task.async(fn -> Credentials.access_token(initial.connection.id) end)
-    assert_receive {:github_waiting, worker}
+    assert_receive {:github_waiting, worker}, 1_000
 
     assert {:ok, true} =
              Monolith.GitHub.save_client_credentials(

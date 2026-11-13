@@ -108,12 +108,15 @@ defmodule MonolithWeb.GitHubLiveTest do
     refute html =~ TestGitHub.bundle().access_token
     refute inspect(:sys.get_state(view.pid).socket.assigns) =~ TestGitHub.bundle().refresh_token
 
-    render_patch(view, "/workspaces/#{workspace.id}")
+    render_patch(view, "/workspaces/#{workspace.id}/github/#{acme.id}")
     assert has_element?(view, "#workspace-github-org-#{acme.id} .github-pr-title", hostile)
+    refute has_element?(view, "#workspace-github-org-#{beta.id}")
+    refute has_element?(view, "#github-owner-activity", "Independent personal change")
+    refute has_element?(view, "#workspace-github-readouts img")
+    render_patch(view, "/workspaces/#{workspace.id}/github/#{beta.id}")
     assert has_element?(view, "#workspace-github-org-#{beta.id}", "Independent personal change")
     assert has_element?(view, "#workspace-github-org-#{beta.id}", "Draft")
-    refute has_element?(view, "#workspace-github-org-#{acme.id}", "Independent personal change")
-    refute has_element?(view, "#workspace-github-readouts img")
+    refute has_element?(view, "#workspace-github-org-#{acme.id}")
     render_patch(view, "/")
 
     {:ok, _} = GitHub.detach(workspace.id, acme.id, actor: @owner)
@@ -149,8 +152,8 @@ defmodule MonolithWeb.GitHubLiveTest do
     assert has_element?(view, "[role=alert]", "GitHub refresh requested")
     GitHub.poll(org.id, org.generation, actor: @owner)
     render_patch(view, "/workspaces/#{workspace.id}")
-    assert has_element?(view, "#workspace-github-org-#{org.id}", "GitHub rate limit")
-    assert has_element?(view, "#workspace-github-org-#{org.id}", "Stale")
+    assert has_element?(view, "#workspace-github-#{org.id}", "GitHub rate limit")
+    assert has_element?(view, "#workspace-github-#{org.id}", "Stale")
     render_patch(view, "/")
     assert has_element?(view, "#github-org-#{org.id} .github-home-number", "1")
     refute has_element?(view, "#github-org-#{org.id}", "No open pull requests")
@@ -174,7 +177,12 @@ defmodule MonolithWeb.GitHubLiveTest do
 
     org = connect_owner(workspace, session)
     {:ok, view, _} = live(conn, "/")
-    assert has_element?(view, "#github-org-#{org.id} .github-home-number", "2")
+
+    assert has_element?(
+             view,
+             "#github-org-#{org.id} .github-home-metric:first-child .github-home-total",
+             "—"
+           )
 
     assert has_element?(
              view,
@@ -362,6 +370,7 @@ defmodule MonolithWeb.GitHubLiveTest do
     runs =
       for {repo, number} <- Enum.with_index(repositories, 1) do
         %{
+          "id" => number,
           "repository_id" => repo["id"],
           "repository" => repo["full_name"],
           "name" => "Build #{repo["name"]}",
@@ -395,16 +404,6 @@ defmodule MonolithWeb.GitHubLiveTest do
     GitHub.attach_repositories!(other.id, org.id, ["REPO_SECOND"], actor: @owner)
 
     {:ok, view, _} = live(conn, "/workspaces/#{workspace.id}")
-    assert has_element?(view, "#workspace-github-readouts", "Change in first")
-    assert has_element?(view, "#workspace-github-readouts", "Issue in first")
-    assert has_element?(view, "#workspace-github-readouts", "Build first")
-    assert has_element?(view, "#workspace-github-readouts", "Author unavailable")
-    refute has_element?(view, "#workspace-github-readouts", "Deleted user")
-    assert has_element?(view, "#workspace-github-readouts", "Failed")
-    refute has_element?(view, "#workspace-github-readouts", "Change in second")
-    refute has_element?(view, "#workspace-github-readouts", "Issue in second")
-    refute has_element?(view, "#workspace-github-readouts", "Build second")
-    refute has_element?(view, "#workspace-github-readouts", "2 open in accessible repositories")
 
     assert has_element?(
              view,
@@ -416,29 +415,260 @@ defmodule MonolithWeb.GitHubLiveTest do
              "#github-repository-form-#{org.id} input[value='REPO_SECOND'][checked]"
            )
 
-    render_patch(view, "/workspaces/#{other.id}")
+    render_patch(view, "/workspaces/#{workspace.id}/github/#{org.id}")
+    assert has_element?(view, "#workspace-github-readouts", "Change in first")
+    assert has_element?(view, "#workspace-github-readouts", "Issue in first")
+    assert has_element?(view, "#workspace-github-readouts", "Build first")
+    assert has_element?(view, "#workspace-github-readouts", "Author unavailable")
+    refute has_element?(view, "#workspace-github-readouts", "Deleted user")
+    assert has_element?(view, "#workspace-github-readouts", "Failed")
+    refute has_element?(view, "#workspace-github-readouts", "Change in second")
+    refute has_element?(view, "#workspace-github-readouts", "Issue in second")
+    refute has_element?(view, "#workspace-github-readouts", "Build second")
+    refute has_element?(view, "#workspace-github-readouts", "2 open in accessible repositories")
+
+    render_patch(view, "/workspaces/#{other.id}/github/#{org.id}")
     assert has_element?(view, "#workspace-github-readouts", "Issue in second")
     refute has_element?(view, "#workspace-github-readouts", "Issue in first")
 
     render_patch(view, "/")
     assert has_element?(view, "#github-org-#{org.id} .github-home-number", "2")
     refute has_element?(view, "#github-org-#{org.id} .github-pr-list")
-    destination = "/workspaces/#{workspace.id}#workspace-github-org-#{org.id}"
-    other_destination = "/workspaces/#{other.id}#workspace-github-org-#{org.id}"
+    destination = "/workspaces/#{workspace.id}/github/#{org.id}"
+    other_destination = "/workspaces/#{other.id}/github/#{org.id}"
     assert has_element?(view, "#github-org-#{org.id} a[href='#{other_destination}']")
 
     view
     |> element("#github-org-#{org.id} a[href='#{destination}']")
     |> render_click()
 
-    assert_patch(view, "/workspaces/#{workspace.id}")
+    assert_patch(view, destination)
     assert has_element?(view, "#workspace-github-readouts", "Change in first")
     refute has_element?(view, "#workspace-github-readouts", "Change in second")
 
     GitHub.attach!(workspace.id, org.id, actor: @owner)
-    render_patch(view, "/workspaces/#{workspace.id}")
+    render_patch(view, "/workspaces/#{workspace.id}/github/#{org.id}")
     assert has_element?(view, "#workspace-github-readouts", "Issue in second")
+    render_patch(view, "/workspaces/#{workspace.id}")
     assert has_element?(view, "#workspace-github-#{org.id}", "Whole owner")
+  end
+
+  test "workspace activity returns through its visible link and restores both history destinations",
+       %{conn: conn, workspace: workspace, session: session} do
+    org = connect_owner(workspace, session)
+    workspace_path = "/workspaces/#{workspace.id}"
+    activity_path = workspace_path <> "/github/#{org.id}"
+    {:ok, view, _} = live(conn, workspace_path)
+    mail_generation = :sys.get_state(view.pid).socket.assigns.mail.generation
+    provider_calls = TestGitHub.state().calls
+
+    view
+    |> element("#workspace-github-#{org.id} a[href='#{activity_path}']")
+    |> render_click()
+
+    assert_patch(view, activity_path)
+    assert has_element?(view, "#github-activity-title", org.login)
+    refute has_element?(view, "#workspace-landing")
+
+    view
+    |> element("#github-owner-activity a", "Back to workspace")
+    |> render_click()
+
+    assert_patch(view, workspace_path)
+    assert has_element?(view, "#workspace-landing")
+    assert has_element?(view, "#workspace-github-#{org.id}")
+    refute has_element?(view, "#github-owner-activity")
+
+    # History patches must restore the same surfaces without reopening the workspace.
+    render_patch(view, activity_path)
+    assert has_element?(view, "#github-activity-title", org.login)
+    render_patch(view, workspace_path)
+    assert has_element?(view, "#workspace-landing")
+    refute has_element?(view, "#github-owner-activity")
+    render_patch(view, activity_path)
+    assert has_element?(view, "#github-activity-title", org.login)
+    refute has_element?(view, "#workspace-landing")
+    assert :sys.get_state(view.pid).socket.assigns.mail.generation == mail_generation
+    assert TestGitHub.state().calls == provider_calls
+  end
+
+  test "activity URLs reload one workspace owner without provider work and reject unrelated membership",
+       %{conn: conn, workspace: workspace, session: session} do
+    org = connect_owner(workspace, session)
+    unrelated = Workspaces.create_workspace!("Unrelated owner view", actor: @owner)
+    path = "/workspaces/#{workspace.id}/github/#{org.id}"
+    provider_calls = TestGitHub.state().calls
+
+    {:ok, view, _} = live(conn, path)
+    assert has_element?(view, "#github-activity-title", org.login)
+    assert has_element?(view, "a[href='/workspaces'][aria-current='page']")
+    refute has_element?(view, "a[href='/'][aria-current='page']")
+    assert has_element?(view, "#github-owner-activity a[href='/workspaces/#{workspace.id}']")
+    assert has_element?(view, "#workspace-github-org-#{org.id} time", "UTC")
+    assert TestGitHub.state().calls == provider_calls
+
+    render_patch(view, "/")
+    render_patch(view, path)
+    assert has_element?(view, "#github-activity-title", org.login)
+    assert TestGitHub.state().calls == provider_calls
+
+    render_patch(view, "/workspaces/#{unrelated.id}/github/#{org.id}")
+    refute has_element?(view, "#github-owner-activity")
+    refute has_element?(view, "#workspace-github-org-#{org.id}")
+    assert TestGitHub.state().calls == provider_calls
+  end
+
+  test "detaching open activity replaces its URL but preserves the owner in another workspace",
+       %{conn: conn, workspace: workspace, session: session} do
+    TestGitHub.configure(rows: [TestGitHub.row(%{"title" => "Acme retained change"})])
+    acme = connect_owner(workspace, session)
+
+    TestGitHub.configure(
+      rows: [
+        TestGitHub.row(%{
+          "title" => "Personal retained change",
+          "repository" => "synthetic/repo",
+          "url" => "https://github.com/synthetic/repo/pull/7"
+        })
+      ]
+    )
+
+    personal = connect_owner(workspace, session, "synthetic")
+    other = Workspaces.create_workspace!("Retained GitHub membership", actor: @owner)
+    GitHub.attach!(other.id, acme.id, actor: @owner)
+    activity_path = "/workspaces/#{workspace.id}/github/#{acme.id}"
+    retained_path = "/workspaces/#{other.id}/github/#{acme.id}"
+    personal_path = "/workspaces/#{workspace.id}/github/#{personal.id}"
+    provider_calls = TestGitHub.state().calls
+    {:ok, view, _} = live(conn, activity_path)
+    assert has_element?(view, "#workspace-github-org-#{acme.id}", "Acme retained change")
+
+    assert {:ok, _} = GitHub.detach(workspace.id, acme.id, actor: @owner)
+    render(view)
+    %{proxy: {ref, topic, _}} = view
+    assert_receive {^ref, {:patch, ^topic, %{to: "/workspaces", kind: :replace}}}
+    assert has_element?(view, "#workspace-list")
+    refute has_element?(view, "#github-owner-activity, #workspace-github-readouts")
+    refute has_element?(view, "main", "Acme retained change")
+
+    render_patch(view, "/")
+    assert has_element?(view, "#github-org-#{acme.id} a[href='#{retained_path}']")
+    assert has_element?(view, "#github-org-#{personal.id} a[href='#{personal_path}']")
+    render_patch(view, "/workspaces/#{workspace.id}")
+    refute has_element?(view, "#workspace-github-#{acme.id}")
+    assert has_element?(view, "#workspace-github-#{personal.id}")
+
+    render_patch(view, retained_path)
+    assert has_element?(view, "#workspace-github-org-#{acme.id}", "Acme retained change")
+    refute has_element?(view, "#workspace-github-org-#{personal.id}")
+    render_patch(view, personal_path)
+    assert has_element?(view, "#workspace-github-org-#{personal.id}", "Personal retained change")
+    refute has_element?(view, "main", "Acme retained change")
+    assert TestGitHub.state().calls == provider_calls
+  end
+
+  test "disconnecting open activity replaces its URL and removes that owner from every workspace",
+       %{conn: conn, workspace: workspace, session: session} do
+    TestGitHub.configure(rows: [TestGitHub.row(%{"title" => "Disconnected owner change"})])
+    acme = connect_owner(workspace, session)
+
+    TestGitHub.configure(
+      rows: [
+        TestGitHub.row(%{
+          "title" => "Still connected personal change",
+          "repository" => "synthetic/repo",
+          "url" => "https://github.com/synthetic/repo/pull/7"
+        })
+      ]
+    )
+
+    personal = connect_owner(workspace, session, "synthetic")
+    other = Workspaces.create_workspace!("Second GitHub membership", actor: @owner)
+    GitHub.attach!(other.id, acme.id, actor: @owner)
+    provider_calls = TestGitHub.state().calls
+    {:ok, view, _} = live(conn, "/workspaces/#{workspace.id}/github/#{acme.id}")
+    assert has_element?(view, "#workspace-github-org-#{acme.id}", "Disconnected owner change")
+
+    assert {:ok, _} = GitHub.disconnect(acme.id, actor: @owner)
+    render(view)
+    %{proxy: {ref, topic, _}} = view
+    assert_receive {^ref, {:patch, ^topic, %{to: "/workspaces", kind: :replace}}}
+    assert has_element?(view, "#workspace-list")
+    refute has_element?(view, "#github-owner-activity, #workspace-github-readouts")
+    refute has_element?(view, "main", "Disconnected owner change")
+
+    render_patch(view, "/")
+    refute has_element?(view, "#github-org-#{acme.id}")
+    assert has_element?(view, "#github-org-#{personal.id} .github-home-number", "1")
+    render_patch(view, "/workspaces/#{other.id}")
+    refute has_element?(view, "#workspace-github-#{acme.id}")
+    refute has_element?(view, "#github-owner-activity")
+    render_patch(view, "/workspaces/#{workspace.id}")
+    refute has_element?(view, "#workspace-github-#{acme.id}")
+    assert has_element?(view, "#workspace-github-#{personal.id}")
+
+    render_patch(view, "/workspaces/#{workspace.id}/github/#{personal.id}")
+
+    assert has_element?(
+             view,
+             "#workspace-github-org-#{personal.id}",
+             "Still connected personal change"
+           )
+
+    refute has_element?(view, "main", "Disconnected owner change")
+    assert TestGitHub.state().calls == provider_calls
+  end
+
+  test "late changes from a departed activity cannot replace another owner or reopen activity",
+       %{conn: conn, workspace: workspace, session: session} do
+    TestGitHub.configure(rows: [TestGitHub.row(%{"title" => "Departed owner change"})])
+    acme = connect_owner(workspace, session)
+
+    TestGitHub.configure(
+      rows: [
+        TestGitHub.row(%{
+          "title" => "Current personal change",
+          "repository" => "synthetic/repo",
+          "url" => "https://github.com/synthetic/repo/pull/7"
+        })
+      ]
+    )
+
+    personal = connect_owner(workspace, session, "synthetic")
+    provider_calls = TestGitHub.state().calls
+    {:ok, view, _} = live(conn, "/workspaces/#{workspace.id}/github/#{acme.id}")
+    personal_path = "/workspaces/#{workspace.id}/github/#{personal.id}"
+    render_patch(view, personal_path)
+    assert_patch(view, personal_path)
+
+    assert {:ok, _} = GitHub.detach(workspace.id, acme.id, actor: @owner)
+    render(view)
+    refute_patched(view)
+    assert has_element?(view, "#github-activity-title", personal.login)
+    assert has_element?(view, "#workspace-github-org-#{personal.id}", "Current personal change")
+    refute has_element?(view, "main", "Departed owner change")
+    refute has_element?(view, "#workspace-github-org-#{acme.id}")
+
+    render_patch(view, "/settings")
+    assert_patch(view, "/settings")
+    assert {:ok, _} = GitHub.disconnect(acme.id, actor: @owner)
+    render(view)
+    refute_patched(view)
+
+    # An owner notification already in flight may arrive after its subscription is removed.
+    send(view.pid, {:github_changed, acme.id})
+    Phoenix.PubSub.broadcast(Monolith.PubSub, "github:directory", :github_directory_changed)
+    render(view)
+    refute_patched(view)
+    assert has_element?(view, "#show-settings[aria-current=page]")
+    assert has_element?(view, "#settings-panel")
+    refute has_element?(view, "#github-owner-activity, #workspace-github-readouts")
+    refute has_element?(view, "main", "Departed owner change")
+
+    render_patch(view, personal_path)
+    assert has_element?(view, "#workspace-github-org-#{personal.id}", "Current personal change")
+    refute has_element?(view, "main", "Departed owner change")
+    assert TestGitHub.state().calls == provider_calls
   end
 
   test "partial issue and Actions failures never become successful empty readouts",

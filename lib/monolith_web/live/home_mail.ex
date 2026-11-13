@@ -700,7 +700,7 @@ defmodule MonolithWeb.HomeMail do
       if(revoked,
         do: " Google access revoked.",
         else:
-          " Google revocation could not be confirmed. Remove LOVELACE access in your Google account settings."
+          " Google revocation could not be confirmed. Remove MONOLITH access in your Google account settings."
       )
   end
 

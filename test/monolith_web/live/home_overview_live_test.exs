@@ -27,6 +27,9 @@ defmodule MonolithWeb.HomeOverviewLiveTest do
       send(Application.fetch_env!(:monolith, :home_test_owner), {:home_fetch, token})
       {:ok, %{threads: [], next_page_token: nil}}
     end
+
+    @spec inbox_unread(binary()) :: {:ok, Monolith.Mail.Provider.unread()} | {:error, :timeout}
+    def inbox_unread(_token), do: Application.fetch_env!(:monolith, :home_test_unread)
   end
 
   setup %{conn: conn} do
@@ -36,6 +39,7 @@ defmodule MonolithWeb.HomeOverviewLiveTest do
           gmail_provider: Provider,
           gmail_vault: Vault,
           home_test_owner: self(),
+          home_test_unread: {:ok, %{total: 0, recent: 0}},
           google_client_keychain: Monolith.TestSupport.OnboardingKeychain
         ] do
       previous = Application.fetch_env(:monolith, key)
@@ -111,11 +115,10 @@ defmodule MonolithWeb.HomeOverviewLiveTest do
 
     assert has_element?(
              view,
-             "#center-nav #home-link[aria-label='Home'][aria-current=page]",
+             "#product-sidebar #home-link[aria-current=page]",
              "Home"
            )
 
-    assert has_element?(view, "#daily-heading[phx-hook=DailyOrientation][phx-update=ignore]")
     assert has_element?(view, ".workspace-directory-home #home-readouts > #home-overview")
     assert has_element?(view, "#home-readouts > #calendar-agenda")
 
@@ -126,18 +129,13 @@ defmodule MonolithWeb.HomeOverviewLiveTest do
            )
 
     assert has_element?(view, "#home-count-#{first.id}", "12")
-    assert has_element?(view, "#home-count-#{first.id} .home-unread-recent", "3")
-    refute has_element?(view, "#daily-heading p")
-    refute has_element?(view, ".home-section-heading p, .home-footnote")
+    assert has_element?(view, "#home-count-#{first.id} .home-count-recent", "3")
     assert has_element?(view, "#home-count-#{second.id}", "0")
-    assert has_element?(view, "#home-count-#{second.id} .home-unread-recent", "0")
-    assert has_element?(view, "#home-count-#{orphan.id} .home-unread-number", "—")
-    assert has_element?(view, "#home-count-#{orphan.id} .sr-only", "total unavailable")
-    assert has_element?(view, "#home-count-#{orphan.id} .home-unread-recent", "—")
-    assert has_element?(view, "#home-count-#{orphan.id} .sr-only", "last 24 hours unavailable")
-    refute has_element?(view, "#home-health-#{orphan.id}", "Not checked yet")
-    refute has_element?(view, "#home-overview", "Last checked")
-    assert has_element?(view, "#home-freshness-#{first.id}[data-warnings-only=true]")
+    assert has_element?(view, "#home-count-#{second.id} .home-count-recent", "0")
+    assert has_element?(view, "#home-count-#{orphan.id} .home-count b", "—")
+    assert has_element?(view, "#home-count-#{orphan.id} .sr-only", "Total unavailable")
+    assert has_element?(view, "#home-count-#{orphan.id} .home-count-recent b", "—")
+    assert has_element?(view, "#home-count-#{orphan.id} .sr-only", "Last 24 hours unavailable")
     assert has_element?(view, "#home-account-#{orphan.id}", "Not in a workspace")
 
     assert view
@@ -150,7 +148,7 @@ defmodule MonolithWeb.HomeOverviewLiveTest do
     refute_receive {:home_fetch, _}
   end
 
-  test "Home opens an unattached account inbox without attaching it, and center nav returns Home",
+  test "Home opens an unattached account inbox without attaching it, and navigation returns Home",
        %{conn: conn} do
     account = account("unattached", 7)
     {:ok, view, _html} = live(conn, ~p"/")
@@ -163,9 +161,6 @@ defmodule MonolithWeb.HomeOverviewLiveTest do
     assert has_element?(view, "#mail-search button[type=submit]", "Search")
     refute has_element?(view, "#mail-panel button", "Home")
     refute has_element?(view, "#mail-panel a", "All accounts")
-    refute has_element?(view, "#mail-search .label")
-    refute render(view) =~ "Separate accounts. Nothing sent, changed, or marked as read."
-    refute render(view) =~ "Search this entire Gmail account"
     assert has_element?(view, "#mail-threads", "Your inbox is empty")
     assert Mail.list_workspace_accounts!(actor: @owner) == []
 
@@ -189,11 +184,170 @@ defmodule MonolithWeb.HomeOverviewLiveTest do
 
     Operations.broadcast(first.id)
     assert has_element?(view, "#home-count-#{first.id}", "8")
-    assert has_element?(view, "#home-count-#{first.id} .home-unread-recent", "2")
+    assert has_element?(view, "#home-count-#{first.id} .home-count-recent", "2")
     assert has_element?(view, "#home-health-#{first.id}", "Gmail rate limit")
     assert has_element?(view, "#home-freshness-#{first.id}[data-failed=true]")
     assert has_element?(view, "#home-count-#{second.id}", "19")
-    assert has_element?(view, "#home-count-#{second.id} .home-unread-recent", "5")
+    assert has_element?(view, "#home-count-#{second.id} .home-count-recent", "5")
+    refute_receive {:home_fetch, _}
+  end
+
+  test "workspace readouts catch up on entry and follow account-scoped poll counts and errors", %{
+    conn: conn
+  } do
+    first = account("workspace-first", 8, 2)
+    second = account("workspace-second", 19, 5)
+    workspace = Workspaces.create_workspace!("Polling", actor: @owner)
+
+    for account <- [first, second] do
+      Mail.attach_account!(%{workspace_id: workspace.id, account_id: account.id}, actor: @owner)
+    end
+
+    {:ok, view, _html} = live(conn, ~p"/")
+    view |> element("#show-settings") |> render_click()
+
+    Application.put_env(:monolith, :home_test_unread, {:ok, %{total: 23, recent: 7}})
+    assert %{error: nil} = poll(first)
+    assert_receive {:home_fetch, token}
+    assert token == "synthetic-" <> first.id
+
+    render_patch(view, ~p"/workspaces/#{workspace.id}")
+    assert has_element?(view, "#home-count-#{first.id} .sr-only", "23 total")
+    assert has_element?(view, "#home-count-#{first.id} .home-count-recent b", "7")
+
+    Application.put_env(:monolith, :home_test_unread, {:ok, %{total: 31, recent: 9}})
+    assert %{error: nil} = poll(first)
+    assert_receive {:home_fetch, ^token}
+    assert has_element?(view, "#home-count-#{first.id} .sr-only", "31 total")
+    assert has_element?(view, "#home-count-#{first.id} .home-count-recent b", "9")
+    assert has_element?(view, "#home-freshness-#{first.id}[data-failed=false]")
+    assert has_element?(view, "#home-count-#{second.id} .sr-only", "19 total")
+    assert has_element?(view, "#home-count-#{second.id} .home-count-recent b", "5")
+
+    observed_at =
+      first.id |> Mail.get_account!(actor: @owner) |> Map.fetch!(:inbox_unread_at)
+
+    Application.put_env(:monolith, :home_test_unread, {:error, :timeout})
+    assert %{error: :unavailable} = poll(first)
+    assert_receive {:home_fetch, ^token}
+    assert has_element?(view, "#home-count-#{first.id} .sr-only", "31 total")
+    assert has_element?(view, "#home-count-#{first.id} .home-count-recent b", "9")
+    assert has_element?(view, "#home-health-#{first.id}", "Update failed")
+
+    assert has_element?(
+             view,
+             "#home-freshness-#{first.id}[data-failed=true]" <>
+               "[data-observed-at='#{DateTime.to_iso8601(observed_at)}']"
+           )
+
+    assert has_element?(view, "#home-freshness-#{second.id}[data-failed=false]")
+    refute has_element?(view, "#home-health-#{second.id}", "Update failed")
+
+    Application.put_env(:monolith, :home_test_unread, {:ok, %{total: 0, recent: 0}})
+    assert %{error: nil} = poll(first)
+    assert_receive {:home_fetch, ^token}
+    assert has_element?(view, "#home-count-#{first.id} .sr-only", "0 total")
+    assert has_element?(view, "#home-count-#{first.id} .home-count-recent b", "0")
+    assert has_element?(view, "#home-freshness-#{first.id}[data-failed=false]")
+    refute has_element?(view, "#home-health-#{first.id}", "Update failed")
+    refute_receive {:home_fetch, _}
+  end
+
+  test "workspace reconnect clears the previous generation's counts, errors and observation", %{
+    conn: conn
+  } do
+    account = account("workspace-reconnect", 41, 6)
+    other = account("workspace-current", 19, 5)
+    workspace = Workspaces.create_workspace!("Reconnect", actor: @owner)
+
+    for account <- [account, other] do
+      Mail.attach_account!(%{workspace_id: workspace.id, account_id: account.id}, actor: @owner)
+    end
+
+    Mail.update_account!(
+      account,
+      %{
+        expected_generation: account.generation,
+        status: :reconnect,
+        last_error: :reconnect,
+        inbox_unread_error: :reconnect
+      },
+      actor: @owner
+    )
+
+    {:ok, view, _html} = live(conn, ~p"/workspaces/#{workspace.id}")
+    assert has_element?(view, "#home-count-#{account.id} .sr-only", "41 total")
+    assert has_element?(view, "#home-count-#{account.id} .home-count-recent b", "6")
+    assert has_element?(view, "#home-freshness-#{account.id}[data-failed=true]")
+    assert has_element?(view, "#home-health-#{account.id}", "Reconnect required")
+
+    reconnected =
+      Mail.save_connection!(
+        %{
+          id: account.id,
+          subject: account.subject,
+          email: account.email,
+          generation: Ash.UUID.generate()
+        },
+        actor: @owner
+      )
+
+    Operations.broadcast(account.id)
+    assert has_element?(view, "#home-count-#{account.id} .sr-only", "Total unavailable")
+
+    assert has_element?(
+             view,
+             "#home-count-#{account.id} .sr-only",
+             "Last 24 hours unavailable"
+           )
+
+    refute has_element?(view, "#home-freshness-#{account.id}")
+    refute has_element?(view, "#home-health-#{account.id}", "Reconnect required")
+    assert has_element?(view, "#home-unknown-#{account.id}", "No unread count observation")
+    assert has_element?(view, "#home-count-#{other.id} .sr-only", "19 total")
+    assert has_element?(view, "#home-count-#{other.id} .home-count-recent b", "5")
+
+    assert %{skipped: true} = poll(account)
+    Operations.broadcast(account.id)
+    assert has_element?(view, "#home-count-#{account.id} .sr-only", "Total unavailable")
+    refute has_element?(view, "#home-freshness-#{account.id}")
+    refute_receive {:home_fetch, _}
+
+    assert %{error: nil} = poll(reconnected)
+    assert_receive {:home_fetch, token}
+    assert token == "synthetic-" <> account.id
+    assert has_element?(view, "#home-count-#{account.id} .sr-only", "0 total")
+    assert has_element?(view, "#home-count-#{account.id} .home-count-recent b", "0")
+    assert has_element?(view, "#home-freshness-#{account.id}[data-failed=false]")
+    refute_receive {:home_fetch, _}
+  end
+
+  test "workspace removal and global disconnect remove their rendered observations", %{conn: conn} do
+    account = account("workspace-removed", 71, 7)
+    workspace = Workspaces.create_workspace!("First", actor: @owner)
+    other = Workspaces.create_workspace!("Second", actor: @owner)
+
+    for workspace <- [workspace, other] do
+      Mail.attach_account!(%{workspace_id: workspace.id, account_id: account.id}, actor: @owner)
+    end
+
+    {:ok, view, _html} = live(conn, ~p"/workspaces/#{workspace.id}")
+    assert has_element?(view, "#home-count-#{account.id} .sr-only", "71 total")
+
+    assert Mail.unlink!(workspace.id, account.id, actor: @owner)
+    refute has_element?(view, "#mail-account-#{account.id}")
+    refute has_element?(view, "#home-count-#{account.id}, #home-health-#{account.id}")
+
+    render_patch(view, ~p"/workspaces/#{other.id}")
+    assert has_element?(view, "#home-count-#{account.id} .sr-only", "71 total")
+
+    Mail.disconnect!(account.id, actor: @owner)
+    refute has_element?(view, "#mail-account-#{account.id}")
+    refute has_element?(view, "#home-count-#{account.id}, #home-health-#{account.id}")
+
+    render_patch(view, ~p"/")
+    assert has_element?(view, "#home-empty")
+    refute has_element?(view, "#home-account-#{account.id}")
     refute_receive {:home_fetch, _}
   end
 
@@ -230,7 +384,7 @@ defmodule MonolithWeb.HomeOverviewLiveTest do
 
     {:ok, view, _html} = live(conn, ~p"/")
     assert has_element?(view, "#home-health-#{account.id}", "Reconnect required")
-    assert has_element?(view, "#home-count-#{account.id} .sr-only", "total unavailable")
+    assert has_element?(view, "#home-count-#{account.id} .sr-only", "Total unavailable")
     assert has_element?(view, "#home-health-#{account.id} .home-recovery", "Connections")
 
     render_click(view, "open_home_account", %{"id" => Ash.UUID.generate()})
@@ -262,7 +416,7 @@ defmodule MonolithWeb.HomeOverviewLiveTest do
     refute has_element?(view, "#home-account-#{account.id}")
   end
 
-  test "empty Home is concise and Connections has no redundant Home button", %{conn: conn} do
+  test "empty Home offers real connection destinations and retains Home navigation", %{conn: conn} do
     {:ok, view, _html} = live(conn, ~p"/")
 
     assert has_element?(
@@ -271,19 +425,15 @@ defmodule MonolithWeb.HomeOverviewLiveTest do
              "Connect Gmail"
            )
 
-    refute has_element?(view, "#daily-heading p, .home-section-heading p, .home-footnote")
-
     assert has_element?(
              view,
              "#calendar-agenda .calendar-empty a[href='/connections/calendar'][data-phx-link=patch]",
              "Set up Calendar"
            )
 
-    refute render(view) =~ "background polling while LOVELACE is running"
-
     view |> element("#show-connections") |> render_click()
     refute has_element?(view, "#back-from-connections")
-    assert has_element?(view, "#center-nav #home-link[aria-label=Home]", "Home")
+    assert has_element?(view, "#product-sidebar #home-link[href='/']", "Home")
     view |> element("#home-link") |> render_click()
     assert has_element?(view, "#home-overview")
   end
@@ -309,7 +459,7 @@ defmodule MonolithWeb.HomeOverviewLiveTest do
     )
 
     {:ok, view, _html} = live(conn, ~p"/")
-    assert has_element?(view, "#home-count-#{account.id} .home-unread-number", "9")
+    assert has_element?(view, "#home-count-#{account.id} .home-count b", "9")
     assert has_element?(view, "#home-freshness-#{account.id}[data-failed=true]")
     assert has_element?(view, "#home-health-#{account.id}", "Reconnect required")
 
@@ -321,6 +471,12 @@ defmodule MonolithWeb.HomeOverviewLiveTest do
 
     refute_receive {:home_fetch, _}
   end
+
+  defp poll(account),
+    do:
+      Mail.poll!(account.id, account.generation,
+        actor: %{role: :mail_service, account_id: account.id}
+      )
 
   defp account(name, count, recent_count \\ nil) do
     account =

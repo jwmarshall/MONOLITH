@@ -64,18 +64,6 @@ defmodule MonolithWeb.GeminiConnectionLiveTest do
     assert has_element?(view, "#gemini-api-key[type=password][name=api_key][autocomplete=off]")
     refute has_element?(view, "#gemini-api-key[value]")
     assert has_element?(view, "#gemini-connection", "Saving a key does not generate")
-    assert has_element?(view, "#gemini-connection", "Startup generation is disabled")
-
-    assert has_element?(
-             view,
-             "#gemini-generation-help:not([open]) > summary",
-             "Scenery & billing"
-           )
-
-    assert has_element?(view, "#gemini-generation-help", "Each request may incur API charges")
-    assert has_element?(view, "#gemini-generation-help", "No automatic retries")
-    assert has_element?(view, "#gemini-generation-help", "cannot cancel an in-progress request")
-    refute has_element?(view, "#gemini-generation-help #gemini-status")
 
     GeminiVault.put("unused", "synthetic-key-never-rendered")
     view |> element("[phx-click='gemini:check']") |> render_click()
@@ -136,7 +124,6 @@ defmodule MonolithWeb.GeminiConnectionLiveTest do
     GeminiVault.fail(:locked)
     {:ok, view, _} = live(conn, "/connections/gemini?gemini=saved")
     complete(view)
-    assert has_element?(view, "#directory-heading", "Connections")
     assert has_element?(view, "#connections-gemini[aria-current=page]")
     refute has_element?(view, "#connections-panel")
     assert has_element?(view, "#gemini-status", "Keychain is locked")

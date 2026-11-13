@@ -36,6 +36,28 @@ defmodule MonolithWeb.HomeGitHub do
 
   def open(socket), do: HomeConnectionDiagnostic.open(socket, :github)
 
+  @doc "Selects an existing workspace owner's read model without requesting provider work."
+  def select_activity(socket, destination) do
+    workspace = socket.assigns.selected
+
+    member? =
+      Enum.any?(socket.assigns.github_memberships, fn member ->
+        member.workspace_id == destination.workspace_id &&
+          member.organization_id == destination.organization_id
+      end)
+
+    owner =
+      Enum.find(socket.assigns.github_organizations, fn organization ->
+        organization.id == destination.organization_id && organization.status == :ready
+      end)
+
+    if workspace && workspace.id == destination.workspace_id && member? && owner do
+      {:ok, assign(socket, page_title: "#{owner.login} · GitHub")}
+    else
+      :error
+    end
+  end
+
   def reload(socket) do
     case Monolith.GitHub.directory(actor: @owner) do
       {:ok, %{organizations: organizations, memberships: memberships, connections: connections}} ->
@@ -161,7 +183,7 @@ defmodule MonolithWeb.HomeGitHub do
        "Client ID, client secret and app URL or slug are all required. Reload Connections and enter all three fields."},
     "locked" =>
       {:error,
-       "LOVELACE locked before the GitHub operation could finish. Unlock it and try again."},
+       "MONOLITH locked before the GitHub operation could finish. Unlock it and try again."},
     "cancelled" => {:info, "GitHub connection attempt cancelled locally."},
     "discovery_queued" =>
       {:info,
@@ -178,13 +200,13 @@ defmodule MonolithWeb.HomeGitHub do
        "Save the GitHub App Client ID, client secret and app slug here, and check its exact callback URL."},
     "keychain_failed" =>
       {:error,
-       "GitHub credential storage failed. The credentials could not be read, saved or removed in the dedicated LOVELACE keychain. Check native helper access; do not reset the vault."},
+       "GitHub credential storage failed. The credentials could not be read, saved or removed in the dedicated MONOLITH keychain. Check native helper access; do not reset the vault."},
     "access_failed" =>
       {:error,
        "This GitHub account needs to be connected again. Check the app's repository access and organization approval, then connect the account again below."},
     "authorization_unlinked" =>
       {:error,
-       "GitHub returned without a LOVELACE connection request. Installing the app or signing in to GitHub does not connect an account here. Start the connection again below to authorize LOVELACE."},
+       "GitHub returned without a MONOLITH connection request. Installing the app or signing in to GitHub does not connect an account here. Start the connection again below to authorize MONOLITH."},
     "authorization_unmatched" =>
       {:error,
        "This GitHub return does not match an active connection request. It may be an older attempt or a different browser session. No new account was connected. Start the connection again from this localhost browser."},
@@ -193,7 +215,7 @@ defmodule MonolithWeb.HomeGitHub do
        "GitHub authorization was cancelled or denied. No new account was connected. You can start the connection again below."},
     "callback_invalid" =>
       {:error,
-       "GitHub returned an unexpected authorization response. No new account was connected. Start the connection again from LOVELACE; do not reuse an old GitHub return URL."},
+       "GitHub returned an unexpected authorization response. No new account was connected. Start the connection again from MONOLITH; do not reuse an old GitHub return URL."},
     "authorization_failed" =>
       {:error,
        "GitHub authorization could not finish. No new account was connected. Check the saved app credentials, callback URL and GitHub connectivity, then try again."},
@@ -207,7 +229,7 @@ defmodule MonolithWeb.HomeGitHub do
        "GitHub connection details are invalid. Reload Connections and choose an available workspace or owner."},
     "unavailable" =>
       {:error,
-       "GitHub could not save the local connection. Reload Connections and try again with LOVELACE unlocked; the connection or local storage may have changed."},
+       "GitHub could not save the local connection. Reload Connections and try again with MONOLITH unlocked; the connection or local storage may have changed."},
     "failed" =>
       {:error,
        "GitHub could not be updated. Check app installation access and dedicated keychain access."}

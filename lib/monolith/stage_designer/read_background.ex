@@ -3,7 +3,7 @@ defmodule Monolith.StageDesigner.ReadBackground do
   use Ash.Resource.Actions.Implementation
 
   alias Monolith.StageDesigner
-  alias Monolith.StageDesigner.{Generation, Image, Scene, Settings, Storage}
+  alias Monolith.StageDesigner.{Generation, Image, Scene, Settings, StartupPreferences, Storage}
 
   @impl true
   def run(_input, _opts, _context) do
@@ -21,11 +21,11 @@ defmodule Monolith.StageDesigner.ReadBackground do
             attempt ->
               Generation.status(attempt)
 
-            settings.enabled or state.status in [:failed, :generating] ->
+            state.status in [:failed, :generating] ->
               public_status(state.status)
 
             true ->
-              :disabled
+              startup_status(state, settings)
           end
 
         {:ok, %{url: url, status: status, attempt: Generation.public(attempt)}}
@@ -38,6 +38,14 @@ defmodule Monolith.StageDesigner.ReadBackground do
     end
   rescue
     _ -> {:ok, %{url: nil, status: :unavailable}}
+  end
+
+  defp startup_status(state, settings) do
+    case StartupPreferences.authorize_startup(settings) do
+      :ok -> public_status(state.status)
+      :disabled -> :disabled
+      :unavailable -> :unavailable
+    end
   end
 
   def public_status(:generating), do: :uncertain

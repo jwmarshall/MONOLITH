@@ -3,6 +3,7 @@ defmodule MonolithWeb.CalendarLiveTest do
   import Phoenix.LiveViewTest
   import Monolith.TestSupport.BackgroundWork, only: [complete: 1]
   alias Ash.Resource.Info
+  alias Ecto.Adapters.SQL
   alias Monolith.{Calendar, Mail, Workspaces}
   alias Monolith.Calendar.State
   alias Monolith.Integrations.Google.ClientCredentials
@@ -108,6 +109,76 @@ defmodule MonolithWeb.CalendarLiveTest do
     }
   end
 
+  test "failed account directory reads remain distinct from confirmed absence", ctx do
+    socket = MonolithWeb.HomeCalendar.init(%Phoenix.LiveView.Socket{})
+    ready = MonolithWeb.HomeCalendar.reload(socket)
+    assert ready.assigns.calendar_accounts_state == :ready
+    assert Enum.any?(ready.assigns.calendar_accounts, &(&1.id == ctx.a.id))
+
+    # Fail the actual capability read inside this test's disposable sandbox.
+    SQL.query!(
+      Monolith.Repo,
+      "ALTER TABLE gmail_accounts RENAME TO calendar_directory_unavailable"
+    )
+
+    failed =
+      try do
+        assert {:error, _} = Mail.list_accounts(actor: @owner)
+        failed = MonolithWeb.HomeCalendar.reload(ready)
+        first_failed = MonolithWeb.HomeCalendar.reload(socket)
+        assert first_failed.assigns.calendar_accounts == []
+        assert first_failed.assigns.calendar_accounts_state == :unavailable
+        assert failed.assigns.calendar_accounts == ready.assigns.calendar_accounts
+        failed
+      after
+        SQL.query!(
+          Monolith.Repo,
+          "ALTER TABLE calendar_directory_unavailable RENAME TO gmail_accounts"
+        )
+      end
+
+    assert failed.assigns.calendar_accounts_state == :unavailable
+    assert_directory_unavailable(failed)
+
+    for account <- [ctx.a, ctx.b, ctx.disabled] do
+      Mail.update_account!(
+        account,
+        %{status: :disconnected, expected_generation: account.generation},
+        actor: @owner
+      )
+    end
+
+    empty = MonolithWeb.HomeCalendar.reload(failed)
+    assert empty.assigns.calendar_accounts == []
+    assert empty.assigns.calendar_accounts_state == :ready
+
+    agenda =
+      render_component(&CalendarComponents.agenda/1,
+        accounts: empty.assigns.calendar_accounts,
+        accounts_state: empty.assigns.calendar_accounts_state
+      )
+
+    connections =
+      render_component(&CalendarComponents.connections/1,
+        accounts: empty.assigns.calendar_accounts,
+        accounts_state: empty.assigns.calendar_accounts_state,
+        workspace_options: [],
+        google_status: :stored
+      )
+
+    agenda = LazyHTML.from_document(agenda)
+    connections = LazyHTML.from_document(connections)
+
+    assert Enum.any?(LazyHTML.query(agenda, ".calendar-empty a[data-phx-link='patch']"))
+
+    assert Enum.any?(
+             LazyHTML.query(connections, "a[href='/connections/gmail'][data-phx-link='patch']")
+           )
+
+    assert Enum.empty?(LazyHTML.query(agenda, "#calendar-agenda-directory-status"))
+    assert Enum.empty?(LazyHTML.query(connections, "#calendar-connections-directory-status"))
+  end
+
   test "day preparation is provider-free, Home stays per-account and events never enter socket assigns",
        ctx do
     {:ok, view, _} = live(ctx.conn, ~p"/")
@@ -122,6 +193,30 @@ defmodule MonolithWeb.CalendarLiveTest do
     assert has_element?(view, "#calendar-agenda-account-#{ctx.a.id}", "synthetic:#{ctx.a.id}")
     refute has_element?(view, "#calendar-agenda-account-#{ctx.a.id}", "synthetic:#{ctx.b.id}")
     assert has_element?(view, "#calendar-agenda-account-#{ctx.b.id}", "synthetic:#{ctx.b.id}")
+
+    assert has_element?(
+             view,
+             "#calendar-agenda-account-#{ctx.a.id} button[data-calendar-event-open]" <>
+               "[data-event-account='#{ctx.a.email}'][aria-controls='calendar-agenda-event-dialog']"
+           )
+
+    refute has_element?(
+             view,
+             "#calendar-agenda-account-#{ctx.a.id} button[data-event-account='#{ctx.b.email}']"
+           )
+
+    assert has_element?(
+             view,
+             "#calendar-agenda-event-dialog[aria-labelledby='calendar-agenda-event-title']"
+           )
+
+    assert has_element?(
+             view,
+             "#calendar-agenda-event-dialog form[method='dialog'] button",
+             "Close event"
+           )
+
+    assert has_element?(view, "#calendar-agenda-event-dialog [data-calendar-dialog-link][hidden]")
     refute has_element?(view, "#calendar-agenda img")
     refute has_element?(view, "#calendar-agenda button[phx-click='calendar:refresh']")
     refute has_element?(view, "#calendar-agenda", "Last checked")
@@ -170,7 +265,9 @@ defmodule MonolithWeb.CalendarLiveTest do
              "#calendar-connections-authorize-#{ctx.disabled.id} input[name=capability][value=calendar]"
            )
 
-    render_submit(view, "calendar:select", %{"account_id" => ctx.a.id, "calendar_ids" => [""]})
+    view
+    |> form("#calendar-connections-select-#{ctx.a.id}", %{"calendar_ids" => [""]})
+    |> render_submit()
 
     assert {:ok, snapshot} =
              Calendar.snapshot(ctx.a.id, ctx.window["from"], ctx.window["to"], ctx.window["date"],
@@ -188,6 +285,46 @@ defmodule MonolithWeb.CalendarLiveTest do
 
     assert has_element?(view, "#connections-panel")
     refute has_element?(view, "#calendar-connections")
+  end
+
+  test "a late displayed Calendar form cannot change a refreshed connection", ctx do
+    {:ok, view, _} = live(ctx.conn, ~p"/connections/calendar")
+    render_hook(view, "calendar:day", ctx.window)
+    poll(ctx.a, ctx.window)
+    complete(view)
+
+    [displayed_generation] =
+      view
+      |> render()
+      |> LazyHTML.from_document()
+      |> LazyHTML.query("#calendar-connections-select-#{ctx.a.id} input[name=generation]")
+      |> LazyHTML.attribute("value")
+
+    assert displayed_generation == ctx.a.generation
+
+    current =
+      Monolith.Google.Access.serial(ctx.a.id, fn ->
+        Mail.update_account!(
+          ctx.a,
+          %{generation: Ash.UUID.generate(), expected_generation: ctx.a.generation},
+          actor: @owner
+        )
+      end)
+
+    poll(current, ctx.window)
+    before = snapshot(current, ctx.window)
+    assert before.selected_ids == ["primary"]
+    assert before.events != []
+
+    for ids <- [["primary"], [""]] do
+      render_submit(view, "calendar:select", %{
+        "account_id" => ctx.a.id,
+        "generation" => displayed_generation,
+        "calendar_ids" => ids
+      })
+
+      assert snapshot(current, ctx.window) == before
+    end
   end
 
   test "unavailable Google settings disable Calendar changes without hiding cached data", ctx do
@@ -230,7 +367,12 @@ defmodule MonolithWeb.CalendarLiveTest do
                  actor: @owner
                )
 
-      render_submit(view, "calendar:select", %{"account_id" => ctx.a.id, "calendar_ids" => [""]})
+      render_submit(view, "calendar:select", %{
+        "account_id" => ctx.a.id,
+        "generation" => ctx.a.generation,
+        "calendar_ids" => [""]
+      })
+
       render_click(view, "calendar:refresh", %{"id" => ctx.a.id})
 
       assert {:ok, ^before} =
@@ -254,7 +396,9 @@ defmodule MonolithWeb.CalendarLiveTest do
                "#calendar-connections-authorize-#{ctx.disabled.id} button[disabled]"
              )
 
-      render_submit(view, "calendar:select", %{"account_id" => ctx.a.id, "calendar_ids" => [""]})
+      view
+      |> form("#calendar-connections-select-#{ctx.a.id}", %{"calendar_ids" => [""]})
+      |> render_submit()
 
       assert {:ok, after_selection} =
                Calendar.snapshot(
@@ -268,7 +412,7 @@ defmodule MonolithWeb.CalendarLiveTest do
       assert after_selection.explicit_selection
       assert after_selection.selected_ids == []
 
-      Calendar.select_calendars(ctx.a.id, ["primary"], actor: @owner)
+      Calendar.select_calendars(ctx.a.id, ctx.a.generation, ["primary"], actor: @owner)
       GenServer.stop(view.pid)
     end
   end
@@ -500,6 +644,35 @@ defmodule MonolithWeb.CalendarLiveTest do
     render_hook(view, "calendar:day", %{ctx.window | "to" => ctx.window["from"]})
     refute_receive {:calendar_provider, _}
     assert :sys.get_state(view.pid).socket.assigns.calendar_window == nil
+  end
+
+  defp assert_directory_unavailable(socket) do
+    for {component, id, extra} <- [
+          {&CalendarComponents.agenda/1, "calendar-agenda", []},
+          {&CalendarComponents.connections/1, "calendar-connections",
+           [workspace_options: [], google_status: :stored]}
+        ] do
+      html =
+        render_component(
+          component,
+          [
+            accounts: socket.assigns.calendar_accounts,
+            accounts_state: socket.assigns.calendar_accounts_state
+          ] ++ extra
+        )
+
+      html = LazyHTML.from_document(html)
+
+      assert Enum.any?(LazyHTML.query(html, "##{id}-directory-status[role='status']"))
+
+      assert Enum.any?(
+               LazyHTML.query(html, "##{id}-directory-status a[href='/connections/calendar']")
+             )
+
+      assert Enum.empty?(LazyHTML.query(html, ".calendar-empty"))
+      assert Enum.empty?(LazyHTML.query(html, ".calendar-account"))
+      assert Enum.empty?(LazyHTML.query(html, "a[href='/connections/gmail']"))
+    end
   end
 
   defp agenda(account, window) do

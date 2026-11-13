@@ -23,11 +23,18 @@ defmodule Monolith.OAuth do
           Process.sleep(25)
           await_result(id, holder, until)
         else
-          {:error, :unavailable}
+          settled_result(id, holder)
         end
 
       result ->
         result
+    end
+  end
+
+  defp settled_result(id, holder) do
+    case holder.result(id) do
+      :pending -> {:error, :unavailable}
+      result -> result
     end
   end
 

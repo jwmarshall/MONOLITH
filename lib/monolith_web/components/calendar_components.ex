@@ -3,6 +3,7 @@ defmodule MonolithWeb.CalendarComponents do
   use MonolithWeb, :html
 
   attr :accounts, :list, required: true
+  attr :accounts_state, :atom, default: :ready
   attr :window, :map, default: nil
   attr :refresh, :integer, default: 0
   attr :id, :string, default: "calendar-agenda"
@@ -10,15 +11,28 @@ defmodule MonolithWeb.CalendarComponents do
 
   def agenda(assigns) do
     # Render-local only: never retain event/provider content in the LiveView socket.
-    assigns = assign(assigns, :readouts, readouts(assigns.accounts, assigns.window))
+    assigns =
+      assign(
+        assigns,
+        :readouts,
+        directory_readouts(assigns.accounts_state, assigns.accounts, assigns.window)
+      )
 
     ~H"""
-    <section id={@id} class="calendar-agenda" aria-labelledby={"#{@id}-heading"}>
-      <header class={if @home, do: "home-section-heading", else: "calendar-heading"}>
-        <h3 id={"#{@id}-heading"} class="home-eyebrow">Today · Calendar</h3>
-        <span class={["calendar-muted", @home && "home-section-meta"]}>{timezone(@window)}</span>
+    <section
+      id={@id}
+      class="calendar-agenda"
+      aria-labelledby={"#{@id}-heading"}
+      phx-hook="CalendarEventDialog"
+    >
+      <header class="home-section-heading">
+        <h2 id={"#{@id}-heading"} class="section-register">
+          {if @home, do: "02 / Calendar", else: "02 / Today's calendar"}
+        </h2>
+        <span class="calendar-muted home-section-meta">{timezone(@window)}</span>
       </header>
-      <div :if={@accounts == []} class="calendar-empty empty-state">
+      <.directory_status :if={@accounts_state != :ready} state={@accounts_state} id={@id} />
+      <div :if={@accounts_state == :ready && @accounts == []} class="calendar-empty empty-state">
         <.icon name="hero-calendar-days" class="empty-state-mark size-6" />
         <div class="empty-state-body">
           <h4 class="empty-state-title">Calendar isn’t connected</h4>
@@ -69,7 +83,7 @@ defmodule MonolithWeb.CalendarComponents do
               </h4>
               <p class="empty-state-copy">
                 {if snapshot.selected_ids == [],
-                  do: "Choose which calendars appear in LOVELACE.",
+                  do: "Choose which calendars appear in MONOLITH.",
                   else: "Your selected calendars have no events today."}
               </p>
               <.link
@@ -80,46 +94,90 @@ defmodule MonolithWeb.CalendarComponents do
             </div>
           </div>
           <ul :if={snapshot.events != []} class="calendar-events">
-            <li
-              :for={{event, index} <- Enum.with_index(snapshot.events)}
-              class="calendar-event"
-            >
-              <div class="calendar-event-content">
-                <p class="calendar-event-title">{present(event.title, "(Untitled event)")}</p>
-                <p class="calendar-muted">{present(event.calendar_name, "Calendar")}</p>
-              </div>
-              <span
-                id={"#{@id}-time-#{account.id}-#{index}"}
-                class="calendar-event-time"
-                phx-hook="CalendarEventTime"
-                data-start={iso(event.start)}
-                data-end={iso(event.end)}
-                data-all-day={to_string(event.all_day == true)}
-              >
+            <%= for event <- snapshot.events do %>
+              <% occurrence = event_identity(account, event) %>
+              <li id={"#{@id}-event-#{occurrence}"} class="calendar-event">
+                <div class="calendar-event-content">
+                  <p class="calendar-event-title">
+                    <button
+                      type="button"
+                      class="calendar-event-button"
+                      aria-haspopup="dialog"
+                      aria-controls={"#{@id}-event-dialog"}
+                      data-calendar-event-open
+                      data-event-title={present(event.title, "(Untitled event)")}
+                      data-event-account={account.email}
+                      data-event-calendar={present(event.calendar_name, "Calendar")}
+                      data-event-url={safe_google_url(event.url)}
+                    >{present(event.title, "(Untitled event)")}</button>
+                  </p>
+                  <p class="calendar-muted">{present(event.calendar_name, "Calendar")}</p>
+                </div>
                 <span
-                  id={"#{@id}-time-text-#{account.id}-#{index}"}
-                  data-calendar-time-text
-                  phx-update="ignore"
-                >{if event.all_day, do: "All day", else: "Local time loading…"}</span>
-              </span>
-              <a
-                :if={safe_google_url(event.url)}
-                href={safe_google_url(event.url)}
-                target="_blank"
-                rel="noopener noreferrer"
-                referrerpolicy="no-referrer"
-                class="calendar-event-link workspace-action-link"
-                aria-label={"Open #{present(event.title, "untitled event")} in Google Calendar (new tab)"}
-              >Google Calendar</a>
-            </li>
+                  id={"#{@id}-time-#{occurrence}"}
+                  class="calendar-event-time"
+                  phx-hook="CalendarEventTime"
+                  data-start={iso(event.start)}
+                  data-end={iso(event.end)}
+                  data-all-day={to_string(event.all_day == true)}
+                >
+                  <span
+                    id={"#{@id}-time-text-#{occurrence}"}
+                    data-calendar-time-text
+                    phx-update="ignore"
+                  >{if event.all_day, do: "All day", else: "Local time loading…"}</span>
+                </span>
+                <a
+                  :if={safe_google_url(event.url)}
+                  href={safe_google_url(event.url)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  referrerpolicy="no-referrer"
+                  class="calendar-event-link workspace-action-link"
+                  aria-label={"Open #{present(event.title, "untitled event")} in Google Calendar (new tab)"}
+                >Google Calendar</a>
+              </li>
+            <% end %>
           </ul>
         </div>
       </section>
+      <dialog
+        id={"#{@id}-event-dialog"}
+        class="monolith-modal calendar-event-dialog"
+        aria-labelledby={"#{@id}-event-title"}
+        data-calendar-dialog
+        phx-update="ignore"
+      >
+        <p class="home-eyebrow">02 / Calendar · read-only</p>
+        <h3 id={"#{@id}-event-title"} class="monolith-modal-title" data-calendar-dialog-title>
+          Calendar event.
+        </h3>
+        <p class="calendar-identity" data-calendar-dialog-account></p>
+        <p class="calendar-muted" data-calendar-dialog-calendar></p>
+        <p data-calendar-dialog-time></p>
+        <p class="calendar-muted">
+          Times use this browser’s local timezone. Changes are made in Google Calendar.
+        </p>
+        <div class="calendar-dialog-actions">
+          <a
+            data-calendar-dialog-link
+            target="_blank"
+            rel="noopener noreferrer"
+            referrerpolicy="no-referrer"
+            class="workspace-action workspace-action-link"
+            hidden
+          >Open in Google Calendar<span class="sr-only"> (opens in a new tab)</span></a>
+          <form method="dialog">
+            <button type="submit" class="workspace-action" autofocus>Close event</button>
+          </form>
+        </div>
+      </dialog>
     </section>
     """
   end
 
   attr :accounts, :list, required: true
+  attr :accounts_state, :atom, default: :ready
   attr :workspace_options, :list, required: true
   attr :google_status, :atom, required: true
   attr :window, :map, default: nil
@@ -127,14 +185,20 @@ defmodule MonolithWeb.CalendarComponents do
   attr :id, :string, default: "calendar-connections"
 
   def connections(assigns) do
-    assigns = assign(assigns, :readouts, readouts(assigns.accounts, assigns.window))
+    assigns =
+      assign(
+        assigns,
+        :readouts,
+        directory_readouts(assigns.accounts_state, assigns.accounts, assigns.window)
+      )
 
     ~H"""
     <section id={@id} class="calendar-connections" aria-labelledby={"#{@id}-heading"}>
-      <header class="calendar-heading">
-        <h3 id={"#{@id}-heading"} class="mail-section-title">Calendar</h3>
-        <p class="calendar-muted">Read-only · Uses your Google connections</p>
+      <header class="card-section-heading">
+        <p class="mail-eyebrow">Google account access</p>
+        <h3 id={"#{@id}-heading"}>Calendar access</h3>
       </header>
+      <p class="calendar-muted">Optional, read-only access · independent of Gmail health</p>
       <p
         :if={@google_status != :stored}
         id={"#{@id}-google-prerequisite"}
@@ -149,7 +213,8 @@ defmodule MonolithWeb.CalendarComponents do
           before connecting Calendar.
         <% end %>
       </p>
-      <div :if={@accounts == []} class="empty-state connection-card empty-state-card">
+      <.directory_status :if={@accounts_state != :ready} state={@accounts_state} id={@id} />
+      <div :if={@accounts_state == :ready && @accounts == []} class="empty-state calendar-empty">
         <.icon name="hero-calendar-days" class="empty-state-mark size-6" />
         <div class="empty-state-body">
           <h4 class="empty-state-title">Start with a Google connection</h4>
@@ -179,10 +244,19 @@ defmodule MonolithWeb.CalendarComponents do
         class="calendar-account"
         aria-labelledby={"#{@id}-identity-#{account.id}"}
       >
-        <h4 id={"#{@id}-identity-#{account.id}"} class="calendar-identity">{account.email}</h4>
-        <p class="calendar-muted">
-          {if snapshot.enabled, do: "Calendar · read-only", else: "Calendar not enabled"}
-        </p>
+        <header class="connection-card-head">
+          <div>
+            <h4 id={"#{@id}-identity-#{account.id}"} class="calendar-identity">{account.email}</h4>
+            <p class="identity calendar-muted">
+              {if snapshot.enabled, do: "Calendar · read-only", else: "Calendar not enabled"}
+            </p>
+          </div>
+          <.status_signal
+            id={"#{@id}-capability-#{account.id}"}
+            state={if snapshot.enabled, do: :ready, else: :unknown}
+            label={if snapshot.enabled, do: "Calendar enabled", else: "Not enabled"}
+          />
+        </header>
         <.authorize
           :if={!snapshot.enabled || snapshot.error == :reconnect}
           account={account}
@@ -199,13 +273,14 @@ defmodule MonolithWeb.CalendarComponents do
             class="calendar-selection"
             phx-mounted={JS.ignore_attributes("open")}
           >
-            <summary>Calendars shown in LOVELACE</summary>
+            <summary>Calendars shown in MONOLITH</summary>
             <.form
               for={to_form(%{}, as: nil)}
               id={"#{@id}-select-#{account.id}"}
               phx-submit="calendar:select"
             >
               <input type="hidden" name="account_id" value={account.id} />
+              <input type="hidden" name="generation" value={account.generation} />
               <%!-- An empty selection still submits a list; the handler discards the sentinel. --%>
               <input type="hidden" name="calendar_ids[]" value="" />
               <fieldset disabled={
@@ -213,7 +288,7 @@ defmodule MonolithWeb.CalendarComponents do
               }>
                 <legend>Choose up to 20 calendars for this account</legend>
                 <p class="calendar-muted">
-                  Google-selected calendars are used by default. Changes here affect only LOVELACE.
+                  Google-selected calendars are used by default. Changes here affect only MONOLITH.
                   Uncheck all to show none.
                 </p>
                 <label :for={calendar <- snapshot.calendars} class="calendar-checkbox">
@@ -227,6 +302,19 @@ defmodule MonolithWeb.CalendarComponents do
                 </label>
                 <button type="submit" class="workspace-action workspace-action-primary">Save calendar selection</button>
               </fieldset>
+              <p
+                :if={snapshot.loading || snapshot.error == :reconnect || @google_status != :stored}
+                class="calendar-muted"
+              >
+                <%= cond do %>
+                  <% snapshot.error == :reconnect -> %>
+                    Authorize Calendar again before changing this selection.
+                  <% @google_status != :stored -> %>
+                    Restore Google client settings before changing this selection.
+                  <% true -> %>
+                    Calendar is updating. Selection changes are unavailable until it finishes.
+                <% end %>
+              </p>
             </.form>
           </details>
           <div :if={snapshot.calendars == [] && successful?(snapshot)} class="calendar-message">
@@ -247,10 +335,13 @@ defmodule MonolithWeb.CalendarComponents do
             phx-value-id={account.id}
             disabled={snapshot.loading || is_nil(@window) || @google_status != :stored}
           >Refresh Calendar</button>
+          <p :if={is_nil(@window)} class="calendar-muted">
+            Waiting for this browser’s local day before refreshing Calendar.
+          </p>
         </div>
       </article>
       <details
-        :if={@accounts != []}
+        :if={@accounts_state == :ready && @accounts != []}
         id={"#{@id}-disconnect-help"}
         class="calendar-muted calendar-disconnect-help connection-help"
         phx-mounted={JS.ignore_attributes("open")}
@@ -315,29 +406,44 @@ defmodule MonolithWeb.CalendarComponents do
 
   defp status(assigns) do
     ~H"""
-    <div id={@id} class="calendar-status" role="status" aria-live="polite">
-      <.status_signal
-        :if={@snapshot.loading}
-        id={"#{@id}-loading"}
-        state={:active}
-        label="Updating Calendar…"
-      />
-      <.status_signal
-        :if={@snapshot.pending && !@snapshot.loading && !@snapshot.error}
-        id={"#{@id}-waiting"}
-        state={:waiting}
-        label="Waiting for today's Calendar update…"
-      />
-      <p :if={@snapshot.error} class="calendar-warning">{error_text(@snapshot.error)}</p>
-      <p :if={@snapshot.truncated} class="calendar-warning">
-        Today's agenda is incomplete. Open Google Calendar for the full day.
-      </p>
-      <p :if={@snapshot.selection_truncated} class="calendar-warning">
-        Not all calendars could be included. Choose up to 20 calendars in Connections.
-      </p>
-      <p :if={@snapshot.stale && !@snapshot.error} class="calendar-warning">
-        Showing a previous local copy; it may no longer match Google Calendar.
-      </p>
+    <div id={@id} class="calendar-status">
+      <div
+        :if={
+          @snapshot.loading || @snapshot.pending || @snapshot.error || @snapshot.truncated ||
+            @snapshot.selection_truncated || @snapshot.stale || !@snapshot.fetched_at
+        }
+        role="status"
+        aria-live="polite"
+      >
+        <.status_signal
+          :if={@snapshot.loading}
+          id={"#{@id}-loading"}
+          state={:active}
+          label="Updating Calendar…"
+        />
+        <.status_signal
+          :if={@snapshot.pending && !@snapshot.loading && !@snapshot.error}
+          id={"#{@id}-waiting"}
+          state={:waiting}
+          label="Waiting for today's Calendar update…"
+        />
+        <p :if={@snapshot.error} class="calendar-warning">{error_text(@snapshot.error)}</p>
+        <p :if={@snapshot.truncated} class="calendar-warning">
+          Today's agenda is incomplete. Open Google Calendar for the full day.
+        </p>
+        <p :if={@snapshot.selection_truncated} class="calendar-warning">
+          Not all calendars could be included. Choose up to 20 calendars in Connections.
+        </p>
+        <p :if={@snapshot.stale && !@snapshot.error} class="calendar-warning">
+          Showing a previous local copy; it may no longer match Google Calendar.
+        </p>
+        <.status_signal
+          :if={!@snapshot.loading && !@snapshot.pending && !@snapshot.error && !@snapshot.fetched_at}
+          id={"#{@id}-unknown"}
+          state={:unknown}
+          label="No successful Calendar update yet."
+        />
+      </div>
       <span
         :if={iso(@snapshot.fetched_at)}
         id={"#{@id}-observed"}
@@ -347,15 +453,44 @@ defmodule MonolithWeb.CalendarComponents do
         data-warnings-only={to_string(@warnings_only)}
         data-failed={to_string(not is_nil(@snapshot.error) || @snapshot.truncated || @snapshot.stale)}
       >{if !@warnings_only, do: "Last checked · #{iso(@snapshot.fetched_at)}"}</span>
-      <.status_signal
-        :if={!@snapshot.loading && !@snapshot.pending && !@snapshot.error && !@snapshot.fetched_at}
-        id={"#{@id}-unknown"}
-        state={:unknown}
-        label="No successful Calendar update yet."
-      />
     </div>
     """
   end
+
+  defp event_identity(account, event) do
+    {account.id, Map.get(account, :generation), event.calendar_id, event.id, event.start}
+    |> :erlang.term_to_binary()
+    |> then(&:crypto.hash(:sha256, &1))
+    |> Base.url_encode64(padding: false)
+  end
+
+  attr :state, :atom, required: true
+  attr :id, :string, required: true
+
+  defp directory_status(assigns) do
+    ~H"""
+    <div id={"#{@id}-directory-status"} class="calendar-message" role="status">
+      <.status_signal
+        id={"#{@id}-directory-signal"}
+        state={:unknown}
+        label={
+          if @state == :unavailable,
+            do: "Calendar connections unavailable",
+            else: "Calendar connections not checked"
+        }
+      />
+      <p class="calendar-muted">
+        Calendar access can’t be confirmed. Reload Connections to check the current accounts.
+      </p>
+      <.link href="/connections/calendar" class="workspace-action workspace-action-link">
+        Reload Calendar connections
+      </.link>
+    </div>
+    """
+  end
+
+  defp directory_readouts(:ready, accounts, window), do: readouts(accounts, window)
+  defp directory_readouts(_, _, _), do: []
 
   defp readouts(accounts, window) do
     Enum.map(accounts, fn account -> {account, snapshot(account, window)} end)

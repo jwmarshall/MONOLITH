@@ -1,303 +1,387 @@
-/* Static setup and guidance keep a centered, left-aligned reading column. */
-.stage-static .onboarding-glass,
-.owner-glass:has(.setup-content) {
-  align-items: flex-start;
-  padding-top: 48px;
+/* Static owner routes share the canonical working plane, without product navigation. */
+.stage-static .owner-glass {
+  min-width: 0;
+  padding: 48px 32px;
+  overflow-y: auto;
 }
 
+.stage-static .owner-content,
+.onboarding-content,
+.setup-content,
+.public-error-content {
+  display: grid;
+  gap: 24px;
+  width: 100%;
+  min-width: 0;
+  margin-inline: auto;
+  color: var(--ink);
+  font-size: 16px;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+  text-shadow: none;
+}
+
+.stage-static .owner-content {
+  max-width: 384px;
+  margin-block: auto;
+}
+
+.public-error-content {
+  max-width: 960px;
+  margin-block: 0;
+  padding: 24px;
+  background: var(--card-surface);
+  border-block: 1px solid var(--line);
+}
+
+/* Orientation and route navigation sit above one compact form plane. */
 .onboarding-content,
 .setup-content {
-  width: 100%;
-  max-width: 60rem;
-  min-width: 0;
-  margin-block: auto;
-  margin-inline: auto;
-  color: var(--color-base-content);
-  font-size: 1rem;
-  line-height: 1.7;
-  overflow-wrap: anywhere;
-  text-shadow: var(--shadow-text);
-}
-
-.onboarding-content {
+  max-width: 620px;
+  gap: 32px;
   margin-block: 0;
 }
 
-.setup-content:has(#setup-pair-form) {
-  max-width: 45rem;
+.onboarding-plane,
+.setup-plane {
+  display: grid;
+  gap: 24px;
+  min-width: 0;
+  padding: 24px;
+  background: var(--card-surface);
+  border-block: 1px solid var(--line);
 }
 
-.onboarding-content > * + *,
-.setup-content > * + * {
-  margin-top: 1.5rem;
+.stage-static .onboarding-glass,
+.stage-static .owner-glass:has(.setup-content) {
+  align-items: flex-start;
 }
 
-.onboarding-content h1,
-.setup-content h1 {
-  margin-bottom: 1rem;
-  font-size: clamp(1.75rem, 5vw, 2.4rem);
-  font-weight: 400;
-  letter-spacing: -0.035em;
-  line-height: 1.2;
+.onboarding-task-heading { display: grid; gap: 12px; min-width: 0; }
+
+.owner-heading {
+  display: grid;
+  gap: 12px;
 }
 
-.onboarding-content h2 {
-  font-size: 1.125rem;
+.owner-heading h1,
+.public-error-content h1 {
+  font-size: clamp(42px, 5.6vw, 82px);
   font-weight: 500;
+  letter-spacing: -.055em;
+  line-height: 1.04;
+}
+
+.owner-heading > p:last-child { max-width: 58ch; }
+
+.onboarding-content h2,
+.setup-content h2 {
+  font-size: 23px;
+  font-weight: 500;
+  letter-spacing: -.03em;
+  line-height: 1.25;
+}
+
+.onboarding-content h3 {
+  font-size: 18px;
+  font-weight: 500;
+  letter-spacing: -.02em;
   line-height: 1.4;
 }
 
 .onboarding-eyebrow {
-  margin-bottom: 1rem;
-  font-size: 0.75rem;
-  letter-spacing: 0.1em;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.6;
+  letter-spacing: .1em;
   text-transform: uppercase;
 }
 
-.onboarding-content a,
-.setup-content a {
-  color: var(--color-primary);
+.owner-threshold .brand-lockup {
+  justify-self: center;
+}
+
+.owner-supporting,
+.onboarding-footer,
+.owner-field > p,
+#google-client-privacy {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.stage-static .owner-content a:not(.workspace-action),
+.onboarding-content a:not(.workspace-action),
+.setup-content a:not(.workspace-action),
+.public-error-content a:not(.workspace-action) {
+  color: inherit;
   text-decoration: underline;
-  text-underline-offset: 0.2em;
+  text-underline-offset: .2em;
 }
 
-.onboarding-content a:focus-visible,
-.onboarding-content button:focus-visible,
-.onboarding-content input:focus-visible,
-.setup-content :focus-visible {
-  outline: 2px solid var(--color-primary);
-  outline-offset: 4px;
+.stage-static .owner-glass :focus-visible,
+.public-error-content :focus-visible {
+  outline: 2px solid var(--attention);
+  outline-offset: 5px;
 }
 
-/* Entrance focus announces the step; only interactive controls need a focus ring. */
-.setup-content h1[tabindex="-1"]:focus {
+/* Programmatic orientation is not an interactive control. */
+.stage-static .owner-glass h1[tabindex="-1"]:focus,
+.stage-static .owner-glass h2[tabindex="-1"]:focus,
+.stage-static .owner-glass h3[tabindex="-1"]:focus {
   outline: none;
 }
 
-.onboarding-steps ol {
+.onboarding-steps,
+.onboarding-google-steps {
+  min-width: 0;
+}
+
+.onboarding-steps ol,
+.onboarding-google-steps ol {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.25rem 1rem;
+  gap: 8px;
+  margin: 0;
   padding: 0;
   list-style: none;
 }
 
-.onboarding-steps a {
+.onboarding-steps a,
+.onboarding-google-steps a {
   display: inline-flex;
   align-items: center;
-  gap: 0.3rem;
+  gap: 8px;
   min-height: 44px;
-  font-size: 1rem;
+  max-width: 100%;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 16px;
 }
 
-.onboarding-steps [aria-current="step"] {
-  color: var(--color-base-content);
-  text-decoration-thickness: 2px;
-  font-weight: 600;
+.onboarding-steps a > span {
+  font-family: var(--font-mono);
+  font-size: 12px;
 }
 
-.onboarding-instructions > * + *,
-.onboarding-note > * + * {
-  margin-top: 1rem;
+.onboarding-content .onboarding-steps a,
+.onboarding-content .onboarding-google-steps a {
+  text-decoration: none;
 }
 
-.onboarding-instructions ol,
-.onboarding-instructions ul {
-  padding-left: 1.4rem;
+.onboarding-google-steps a { font-size: 13px; }
+
+.onboarding-steps [aria-current="step"],
+.onboarding-google-steps [aria-current="step"] {
+  color: var(--ink);
+  border-bottom: 2px solid var(--attention);
+}
+
+.onboarding-instructions,
+.onboarding-note,
+.owner-notice {
+  display: grid;
+  gap: 16px;
+  min-width: 0;
+}
+
+.onboarding-instructions > p,
+.onboarding-instructions > ol,
+.onboarding-note > p { max-width: 76ch; }
+
+.onboarding-instructions > ol,
+.onboarding-instructions > ul {
+  padding-inline-start: 24px;
   list-style: decimal;
 }
 
-.onboarding-instructions ul {
-  list-style: disc;
+.onboarding-instructions > ul { list-style: disc; }
+.onboarding-instructions > ol > li + li,
+.onboarding-instructions > ul > li + li { margin-top: 12px; }
+.onboarding-scopes code { font-size: 13px; overflow-wrap: anywhere; }
+
+/* Joined sections remain transparent; their parent alone owns glass. */
+.onboarding-note,
+.owner-notice,
+.onboarding-error {
+  padding-block: 24px;
+  padding-inline: 0;
+  border: 0;
+  border-block: 1px solid var(--line-interior);
+  background: transparent;
+  box-shadow: none;
+  color: var(--ink);
 }
 
-.onboarding-instructions li + li {
-  margin-top: 0.75rem;
-}
-
-.onboarding-scopes code {
-  font-size: 0.85em;
-  overflow-wrap: anywhere;
-}
-
-.onboarding-note {
-  padding: 1rem;
-  border: 1px solid var(--border-default);
-  background: var(--surface-input);
-  text-shadow: none;
-}
-
-.onboarding-form {
+.onboarding-error {
   display: grid;
-  gap: 0.75rem;
+  gap: 12px;
 }
 
-.onboarding-form input:not([type="hidden"]):not([type="checkbox"]) {
+.onboarding-error > strong { color: var(--error); }
+
+#owner-unlock-error { color: var(--ink); }
+#owner-unlock-error > strong,
+#owner-storage-unavailable > strong { color: var(--error); }
+#owner-migration-instructions > strong,
+#setup-recovery-warning > strong { color: var(--warning); }
+
+.onboarding-saved { color: var(--success); font-size: 13px; }
+.onboarding-account-identity { font-size: 23px; line-height: 1.25; letter-spacing: -.03em; }
+
+.onboarding-form,
+.stage-static .owner-unlock-form {
+  display: grid;
+  gap: 24px;
+  min-width: 0;
+}
+
+.owner-field { display: grid; gap: 8px; min-width: 0; }
+.onboarding-content [data-calendar-progress] { display: grid; gap: 24px; min-width: 0; }
+.onboarding-content [data-calendar-progress] > p + p { margin-top: -8px; }
+.stage-static .owner-unlock-form label { margin: 0; }
+
+.onboarding-form input:not([type="hidden"]):not([type="checkbox"]),
+.stage-static .owner-password {
   width: 100%;
   min-width: 0;
   min-height: 44px;
-  padding: 0.75rem;
-  border: 1px solid var(--border-accent);
-  background: var(--surface-input);
-  color: var(--color-base-content);
+  padding: 12px 16px;
+  border: 1px solid var(--control-line, var(--muted));
+  border-radius: 0;
+  background: var(--inset);
+  color: var(--ink);
+  font: inherit;
 }
 
-.onboarding-form .workspace-action {
-  justify-self: start;
-}
+.onboarding-form .workspace-action { justify-self: start; }
+.stage-static .owner-unlock-form .workspace-action { width: 100%; }
+.onboarding-form fieldset { min-width: 0; }
+.onboarding-form fieldset > * + * { margin-top: 16px; }
 
-.onboarding-form fieldset {
-  min-width: 0;
-}
-
-.onboarding-form fieldset > * + * {
-  margin-top: 0.75rem;
-}
-
-.onboarding-calendar-actions {
-  display: flex;
-  align-items: stretch;
-  gap: 1rem;
-  margin-top: 0.75rem;
-}
-
-.onboarding-calendar-actions > * {
-  flex: 0 1 auto;
-  min-width: 0;
-}
-
-.onboarding-actions {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 1rem;
-  margin-top: 1.5rem;
-}
-
-.onboarding-actions.onboarding-step-actions {
-  flex-direction: row;
-  flex-wrap: nowrap;
-  align-items: flex-start;
-}
-
+.onboarding-calendar-actions,
+.onboarding-actions,
 .onboarding-continue-actions {
   display: flex;
   flex-wrap: wrap;
-  gap: 1rem;
+  align-items: center;
+  gap: 16px;
   min-width: 0;
 }
 
-.onboarding-step-actions > button[value="skip"] {
-  margin-inline-start: auto;
-  flex-shrink: 0;
+/* Continuation and Skip stay one row; long labels may wrap within their target. */
+.onboarding-step-actions { flex-wrap: nowrap; }
+.onboarding-continue-actions { flex: 1 1 0; }
+.onboarding-continue-actions > button { min-width: 44px; flex: 1 1 0; }
+.onboarding-calendar-actions > form { flex: 1 1 160px; }
+
+.onboarding-actions.onboarding-step-actions {
+  padding-top: 24px;
+  border-top: 1px solid var(--line-interior);
 }
 
-.onboarding-actions > a,
+.onboarding-step-actions > button[value="skip"] { margin-inline-start: auto; }
+.onboarding-step-actions > button,
+.onboarding-calendar-actions > button { flex: 1 1 0; }
+
 .onboarding-content button,
-.setup-content button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
+.setup-content button,
+.stage-static .owner-content .workspace-action,
+.public-error-content .workspace-action {
   min-height: 44px;
+  max-width: 100%;
   white-space: normal;
   text-align: start;
 }
 
-.onboarding-error {
-  padding: 1rem;
-  border: 1px solid currentColor;
-  color: var(--color-error);
-}
-
 .onboarding-footer {
-  padding-top: 1rem;
-  border-top: 1px solid var(--border-default);
-  font-size: 0.875rem;
-}
-
-.onboarding-footer > * + * {
-  margin-top: 0.75rem;
+  padding-top: 24px;
+  border-top: 1px solid var(--line-interior);
 }
 
 .setup-acknowledgement {
   display: flex;
   align-items: flex-start;
-  gap: 0.75rem;
+  gap: 12px;
   min-height: 44px;
+  padding-block: 8px;
 }
 
 .setup-acknowledgement input {
   flex: 0 0 auto;
-  width: 1.25rem;
-  height: 1.25rem;
-  margin-top: 0.25rem;
-  accent-color: var(--color-primary);
+  width: 20px;
+  height: 20px;
+  margin-top: 2px;
+  accent-color: var(--attention);
 }
 
-.setup-acknowledgement span {
-  min-width: 0;
+.setup-acknowledgement span { min-width: 0; }
+
+.public-error-page {
+  min-height: 100dvh;
+  padding: 48px 32px;
+  background: var(--surface);
+  color: var(--ink);
 }
 
-/* Long instructions scroll independently at narrow widths. */
-@media (max-width: 900px) {
-  .stage-static .onboarding-glass,
-  .owner-glass:has(.setup-content) {
-    overflow: hidden;
-    padding: 48px 28px 32px;
-  }
+.public-error-content { padding-block: 32px; border-block: 1px solid var(--line); }
+.public-error-content .workspace-action { justify-self: start; }
 
+@media (max-width: 760px) {
+  .stage-static .owner-glass,
+  .public-error-page { padding: 48px 16px; }
+}
+
+@media (max-width: 440px) {
+  .onboarding-plane,
+  .setup-plane { padding: 24px 16px; }
+  .onboarding-steps a { padding-inline: 8px; }
+  .onboarding-step-actions { gap: 8px; }
+  .onboarding-step-actions .workspace-action { padding-inline: 12px; }
+}
+
+/* The shared entrance owns its choreography; forms add no independent motion. */
+@media (prefers-reduced-motion: reduce) {
   .onboarding-content,
-  .setup-content {
-    max-height: 100%;
-    overflow-y: auto;
-    scrollbar-gutter: stable;
-  }
+  .setup-content { scroll-behavior: auto; }
 }
 
-@media (max-width: 480px) {
-  .stage-static .onboarding-glass,
-  .owner-glass:has(.setup-content) {
-    padding: 48px 20px 32px;
-  }
-
-  .onboarding-actions {
-    align-items: stretch;
-    flex-direction: column;
-  }
-
-  .onboarding-actions > a {
-    justify-content: flex-start;
-  }
-}
 
 @media (forced-colors: active) {
+  .stage-static .owner-glass,
+  .public-error-page,
+  .public-error-content,
+  .onboarding-plane,
+  .setup-plane { background: Canvas; color: CanvasText; }
+
+  .stage-static .owner-glass *,
+  .public-error-content * { color: CanvasText; border-color: CanvasText; }
+
+  .stage-static .owner-glass input { background: Field; color: FieldText; border-color: ButtonText; }
+  .stage-static .owner-glass a:not(.workspace-action) { color: LinkText; }
+  .stage-static .owner-glass :focus-visible,
+  .public-error-content :focus-visible { outline-color: Highlight; }
+  .onboarding-steps [aria-current="step"],
+  .onboarding-google-steps [aria-current="step"] { border-bottom-color: Highlight; }
+}
+
+@media print {
+  .stage-static .owner-glass,
+  .public-error-page { position: static; display: block; overflow: visible; padding: 0; background: white; color: black; }
+  .stage-static .owner-glass *,
+  .public-error-content * { color: black; border-color: black; background: transparent; text-shadow: none; }
   .onboarding-content,
-  .setup-content {
-    color: CanvasText;
-    text-shadow: none;
-  }
-
-  .onboarding-content a,
-  .setup-content a {
-    color: LinkText;
-  }
-
-  .onboarding-note,
-  .onboarding-form input:not([type="hidden"]):not([type="checkbox"]),
-  .onboarding-error,
-  .onboarding-footer {
-    background: Canvas;
-    color: CanvasText;
-    border-color: CanvasText;
-  }
-
-  .onboarding-content button,
-  .setup-content button {
-    border: 1px solid ButtonText;
-  }
-
-  .onboarding-content :focus-visible,
-  .setup-content :focus-visible {
-    outline-color: Highlight;
-  }
+  .setup-content,
+  .stage-static .owner-content,
+  .public-error-content { display: grid; max-width: none; }
+  .stage-static .workspace-brand,
+  .stage-static .workspace-skip-link { display: none; }
+  .onboarding-steps a { min-height: 0; }
+  .onboarding-google-steps a { min-height: 0; }
+  .onboarding-plane,
+  .setup-plane { padding: 16px 0; background: white; }
+  .onboarding-steps [aria-current="step"],
+  .onboarding-google-steps [aria-current="step"] { border-bottom-color: black; }
+  .stage-static .owner-glass input { border: 1px solid black; }
 }

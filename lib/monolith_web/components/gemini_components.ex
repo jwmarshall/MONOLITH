@@ -1,85 +1,80 @@
 defmodule MonolithWeb.GeminiComponents do
   @moduledoc "App-wide Gemini credentials, never attached to a mailbox or workspace."
   use MonolithWeb, :html
-  alias Monolith.StageDesigner.Settings
 
   attr :status, :atom, required: true
+  attr :startup_preference, :map, default: nil
 
   def connection(assigns) do
-    assigns = assign(assigns, :enabled, Settings.get().enabled)
+    assigns =
+      assign(
+        assigns,
+        :startup_enabled,
+        assigns.startup_preference && assigns.startup_preference.enabled &&
+          assigns.startup_preference.environment_enabled
+      )
 
     ~H"""
     <section
       id="gemini-connection"
-      class="connection-card gemini-connection empty-state empty-state-card"
+      class="connection-card provider-credential"
       aria-labelledby="gemini-heading"
     >
-      <.icon name="hero-sparkles" class="empty-state-mark size-6" />
-      <div class="empty-state-body">
-        <div class="mail-account-identity">
+      <div class="provider-credential-body">
+        <header class="card-section-heading">
           <p class="mail-eyebrow">Scenery</p>
           <h3 id="gemini-heading" class="empty-state-title">
-            {if @status == :stored, do: "Google Gemini", else: "Set up Gemini"}
+            Gemini API key
           </h3>
-          <p :if={@status != :stored} class="empty-state-copy">
-            Add a Gemini API key for generated scenery. Requests may incur API charges.
-          </p>
           <p id="gemini-status" class="mail-muted" role="status">
             <.status_signal
               id="gemini-credential-signal"
               state={signal_state(@status)}
               label={status_text(@status)}
-              text={@status in [:not_connected, :locked, :invalid, :unavailable]}
             />
           </p>
-        </div>
+        </header>
         <p :if={@status in [:locked, :unavailable]} class="connection-warning">
-          Unlock the dedicated LOVELACE keychain with your LOVELACE password.
+          Unlock the dedicated MONOLITH keychain with your MONOLITH password.
           This does not use the macOS login keychain. Install or update the native helper
           with <code>mix monolith.keychain.build</code>; see <code>docs/GMAIL.md</code>
           before changing an existing helper’s access permissions.
         </p>
         <div class="empty-state-actions gemini-actions">
-          <details
+          <MonolithWeb.ModalComponents.credential_modal
             id="gemini-key-editor"
-            class="gemini-key-editor"
-            phx-mounted={JS.ignore_attributes("open")}
+            title="Gemini API key"
+            trigger={if @status == :stored, do: "Replace API key", else: "Add API key"}
+            primary={@status != :stored}
+            form_id="gemini-key-form"
+            action="/connections/gemini"
+            initial_focus="#gemini-api-key"
+            save="Save API key"
           >
-            <summary class={["workspace-action", @status != :stored && "workspace-action-primary"]}>
-              {if @status == :stored, do: "Replace API key", else: "Add API key"}
-            </summary>
-            <.form
-              for={%{}}
-              id="gemini-key-form"
-              action="/connections/gemini"
-              method="post"
-              class="gemini-key-form"
-            >
-              <input type="hidden" name="operation" value="save" />
-              <label for="gemini-api-key">Gemini API key</label>
-              <input
-                id="gemini-api-key"
-                name="api_key"
-                type="password"
-                class="workspace-name-input"
-                required
-                maxlength="4096"
-                autocomplete="off"
-                spellcheck="false"
-                autocapitalize="none"
-                aria-describedby="gemini-key-hint"
-              />
-              <p id="gemini-key-hint" class="mail-muted">
-                Use a Gemini Developer API key from Google AI Studio. Stored in this device’s macOS Keychain.
-              </p>
-              <button type="submit" class="workspace-action workspace-action-primary">Save API key</button>
-            </.form>
-          </details>
+            <input type="hidden" name="operation" value="save" />
+            <label for="gemini-api-key">Gemini API key</label>
+            <input
+              id="gemini-api-key"
+              name="api_key"
+              type="password"
+              class="workspace-name-input"
+              required
+              maxlength="4096"
+              autocomplete="off"
+              spellcheck="false"
+              autocapitalize="none"
+              aria-describedby="gemini-key-hint"
+            />
+            <p id="gemini-key-hint" class="mail-muted">
+              Enter a Gemini Developer API key. The stored value is never displayed again.
+            </p>
+          </MonolithWeb.ModalComponents.credential_modal>
           <button
             type="button"
             class="workspace-action"
             phx-click="gemini:check"
             disabled={@status in [:loading, :rechecking]}
+            aria-describedby="gemini-status"
           >
             Check Keychain
           </button>
@@ -101,33 +96,28 @@ defmodule MonolithWeb.GeminiComponents do
           </.form>
         </div>
         <p class="empty-state-copy">
-          {if @enabled,
-            do: "Startup generation is enabled. Eligible restarts may incur API charges.",
-            else: "Startup generation is disabled."} Saving a key does not generate an image or verify Google access.
+          <%= cond do %>
+            <% is_nil(@startup_preference) -> %>
+              Startup preference could not be read. Check Settings before relying on automatic generation.
+            <% @startup_enabled -> %>
+              Startup generation is enabled. Eligible restarts may incur API charges.
+            <% !@startup_preference.environment_enabled -> %>
+              Startup generation is blocked by the environment, regardless of the saved preference.
+            <% true -> %>
+              Startup generation is off in your saved preferences.
+          <% end %>
+          Saving a key does not generate an image or verify Google access.
+        </p>
+        <p class="provider-safety">
+          Generation may incur Google API charges. Only generic art direction is sent;
+          no mail is shared. Background requests allow Google to store the interaction.
+          MONOLITH requests deletion after local publication, but failed cleanup or
+          unresolved requests may leave it subject to Google’s retention policy.
+          Removing a key keeps existing scenery and cooldowns and cannot cancel a request
+          already in progress.
         </p>
       </div>
     </section>
-    <details
-      id="gemini-generation-help"
-      class="connection-help gemini-safety mail-muted"
-      phx-mounted={JS.ignore_attributes("open")}
-    >
-      <summary>Scenery &amp; billing</summary>
-      <p>
-        Bundled scenery works without Gemini.
-        Scenery is app-wide. Only generic art direction is sent to Google; no mail is shared.
-        Request images in Scenes with cost confirmation, or opt into startup generation with
-        <code>MONOLITH_STAGE_ENABLED=true</code>
-        in local settings and restart.
-      </p>
-      <p>
-        Each request may incur API charges. Manual requests have no daily cooldown;
-        automatic startup has a persisted 24-hour minimum. No automatic retries.
-      </p>
-      <p>
-        Removing a key keeps scenery and cooldowns, and cannot cancel an in-progress request.
-      </p>
-    </details>
     """
   end
 

@@ -27,7 +27,7 @@ defmodule Monolith.StageDesigner.Diagnostics do
     blocked: "Gemini blocked the prompt or image under its content policy",
     response_too_large: "the provider response exceeded the 16 MiB safety limit",
     invalid_response: "Gemini returned an unexpected response or no single completed image",
-    unexpected_webp: "Gemini returned WebP, but LOVELACE accepts only PNG or JPEG",
+    unexpected_webp: "Gemini returned WebP, but MONOLITH accepts only PNG or JPEG",
     unsupported_image_format:
       "Gemini returned an unsupported image MIME type; PNG or JPEG is required",
     image_mime_mismatch: "the image bytes do not match the declared PNG/JPEG MIME type",

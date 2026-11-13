@@ -59,7 +59,6 @@ defmodule MonolithWeb.WorkspacesLiveTest do
     assert has_element?(view, "#directory-heading", "Studio")
     assert has_element?(view, "#workspace-landing", "Gmail")
     assert has_element?(view, "#workspace > #workspace-background.workspace-background")
-    refute has_element?(view, ".workspace-signature")
 
     refute has_element?(view, "#workspace-list")
 
@@ -81,10 +80,11 @@ defmodule MonolithWeb.WorkspacesLiveTest do
       view |> form("#workspace-form", workspace: %{name: name}) |> render_submit()
       assert has_element?(view, "#workspace-form")
       assert has_element?(view, "#workspace-form-feedback[role=alert]", "couldn’t be saved")
+      assert has_element?(view, "#workspace-form-feedback a[href='#workspace-name']")
 
       assert has_element?(
                view,
-               "#workspace-name[aria-invalid=true][aria-describedby='workspace-name-hint workspace-form-feedback']"
+               "#workspace-name[aria-invalid=true][aria-describedby~='workspace-name-hint'][aria-describedby~='workspace-form-feedback']"
              )
 
       assert Workspaces.list_workspaces!(actor: @owner) == []
@@ -137,7 +137,7 @@ defmodule MonolithWeb.WorkspacesLiveTest do
 
     assert has_element?(
              view,
-             "#workspace-modal[data-return-focus='#workspace-menu-#{workspace.id} summary']"
+             "#workspace-modal[data-return-focus='#rename-current-workspace']"
            )
 
     view |> form("#workspace-form", workspace: %{name: "   "}) |> render_submit()
@@ -196,6 +196,41 @@ defmodule MonolithWeb.WorkspacesLiveTest do
     assert has_element?(view, "#workspace-form-feedback[role=alert]", "couldn’t be saved")
     refute_push_event(view, "workspace:focus-heading", %{})
     assert Workspaces.list_workspaces!(actor: @owner) == []
+  end
+
+  test "Cancel and reopen preserve separate new and rename drafts without saving them", %{
+    conn: conn
+  } do
+    workspace = Workspaces.create_workspace!("Studio", actor: @owner)
+    {:ok, view, _html} = live(conn, ~p"/workspaces")
+
+    view |> element("#new-workspace") |> render_click()
+    view |> form("#workspace-form", workspace: %{name: "New draft"}) |> render_change()
+    view |> element("#workspace-form button[type=button]") |> render_click()
+    refute has_element?(view, "#workspace-modal")
+    assert Workspaces.list_workspaces!(actor: @owner) |> length() == 1
+
+    view |> element("#rename-#{workspace.id}") |> render_click()
+    view |> form("#workspace-form", workspace: %{name: "Rename draft"}) |> render_change()
+    view |> element("#workspace-form button[type=button]") |> render_click()
+    assert has_element?(view, "#open-#{workspace.id}", "Studio")
+
+    view |> element("#new-workspace") |> render_click()
+    assert has_element?(view, "#workspace-name[value='New draft']")
+    view |> form("#workspace-form", workspace: %{name: "New workspace"}) |> render_submit()
+
+    view |> element("#rename-#{workspace.id}") |> render_click()
+    assert has_element?(view, "#workspace-name[value='Rename draft']")
+    view |> form("#workspace-form", workspace: %{name: "Renamed studio"}) |> render_submit()
+    assert has_element?(view, "#open-#{workspace.id}", "Renamed studio")
+
+    view |> element("#new-workspace") |> render_click()
+    refute has_element?(view, "#workspace-name[value='New draft']")
+    view |> element("#workspace-form button[type=button]") |> render_click()
+
+    view |> element("#rename-#{workspace.id}") |> render_click()
+    assert has_element?(view, "#workspace-name[value='Renamed studio']")
+    assert Workspaces.list_workspaces!(actor: @owner) |> length() == 2
   end
 
   test "background updates preserve the current workspace and unsaved form", %{conn: conn} do

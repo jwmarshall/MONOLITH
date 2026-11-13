@@ -64,7 +64,12 @@ defmodule Monolith.Home.Summary do
       github = Map.get(github.workspace_health, workspace.id, %{total: 0, problems: []})
 
       {workspace.id,
-       %{total: mail.total + github.total, problems: mail.problems ++ github.problems}}
+       %{
+         total: mail.total + github.total,
+         google_accounts: mail.total,
+         github_installations: github.total,
+         problems: mail.problems ++ github.problems
+       }}
     end)
   end
 

@@ -4,6 +4,9 @@ defmodule MonolithWeb.HomeNavigation do
   def workspace_path(id), do: "/workspaces/" <> segment(id)
   def account_path(id), do: "/accounts/" <> segment(id) <> "/mail"
 
+  def github_activity_path(workspace_id, organization_id),
+    do: workspace_path(workspace_id) <> "/github/" <> segment(organization_id)
+
   def connections_path(provider \\ :index)
   def connections_path(:index), do: "/connections"
   def connections_path(provider), do: "/connections/#{provider}"
@@ -38,6 +41,9 @@ defmodule MonolithWeb.HomeNavigation do
 
   def path(%{action: :workspace, workspace_id: id}), do: workspace_path(id)
 
+  def path(%{action: :workspace_github, workspace_id: workspace, organization_id: organization}),
+    do: github_activity_path(workspace, organization)
+
   def path(%{action: :integration_add, workspace_id: id}),
     do: workspace_path(id) <> "/integrations"
 
@@ -62,6 +68,7 @@ defmodule MonolithWeb.HomeNavigation do
       home: action == :index,
       settings: action == :settings,
       scenes: action == :scenes,
+      github_activity: action == :workspace_github,
       connections: action in [:connections, :connection],
       connection_view: if(action == :connection, do: destination.provider, else: :index)
     )
@@ -143,7 +150,8 @@ defmodule MonolithWeb.HomeNavigation do
          {:ok, token} <- text(params["page_token"], 2048),
          {:ok, thread} <- thread(params["thread_id"]),
          {:ok, workspace} <- uuid(params["workspace_id"]),
-         {:ok, account} <- uuid(params["account_id"]) do
+         {:ok, account} <- uuid(params["account_id"]),
+         {:ok, organization} <- uuid(params["organization_id"]) do
       {:ok,
        %{
          action: action,
@@ -152,6 +160,7 @@ defmodule MonolithWeb.HomeNavigation do
          attempt_page: attempt_page,
          workspace_id: workspace,
          account_id: account,
+         organization_id: organization,
          query: query,
          page_token: token,
          thread_id: thread
@@ -162,6 +171,7 @@ defmodule MonolithWeb.HomeNavigation do
   defp keys(:connection), do: ["provider"]
   defp keys(:scenes), do: ["page", "attempt_page"]
   defp keys(action) when action in [:workspace, :integration_add], do: ["workspace_id"]
+  defp keys(:workspace_github), do: ["workspace_id", "organization_id"]
   defp keys(:inbox), do: ["account_id", "q", "page_token"]
   defp keys(:thread), do: ["account_id", "thread_id", "q", "page_token"]
   defp keys(:workspace_inbox), do: ["workspace_id", "account_id", "q", "page_token"]

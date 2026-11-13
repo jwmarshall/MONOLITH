@@ -1,10 +1,10 @@
 # MONOLITH development and testing
 
-MONOLITH is the codebase/runtime identity. Browser-visible LOVELACE copy, artwork and
-presentation are intentionally unchanged in phase 1. The OTP app is
+MONOLITH is the application and browser identity. The OTP app is
 `:monolith`, modules use `Monolith`/`MonolithWeb`, and the Tailwind/esbuild profile is `monolith`.
 Sources live in `lib/monolith/` and `lib/monolith_web/`; local databases use `monolith_*.db`.
-The default UI theme is `sea-glass`. See the [visual and interaction contract](UI_CONTRACT.md).
+The single Charcoal presentation follows [MONOLITH_DESIGN_SYSTEM.md](MONOLITH_DESIGN_SYSTEM.md);
+[UI_CONTRACT.md](UI_CONTRACT.md) retains operational and interaction boundaries.
 
 ## Local setup
 
@@ -257,6 +257,11 @@ or approved expiring memory, and bodies only behind view-owned opaque render ref
 Paid/code/rotating-token submissions require durable claims; unknown outcomes never authorize
 replay. See GMAIL, CALENDAR and STAGE_DESIGNER for operation-specific retention/recovery.
 
+OAuth callback observation rereads the protected result holder before declaring a terminal
+or timed-out job unavailable: a settled result may arrive between the initial result read
+and the job-state read. This local observation does not resubmit the exchange; a result
+that remains pending still reports unavailable.
+
 Narrow runtime exceptions (not namespace-wide exemptions):
 
 - Bounded synchronous local Ash reads/calculations/admission, including Scenes gallery,
@@ -329,15 +334,12 @@ metadata, and verifies the upstream bytes and complete embedded notice. No runti
 retrieval or npm installation is introduced. Review Topbar advisories separately;
 `mix audit` is Hex-scoped. Existing GSAP and font checks must remain intact.
 
-Self-hosting and vendoring UI assets are project requirements. GSAP **3.15.0** core
-(including CSSPlugin) is bundled from `assets/vendor/gsap/gsap.js` through the existing
-esbuild pipeline. No npm installation, JavaScript package manager, CDN import, or
-runtime download is needed. Its custom Standard "No Charge" License is **not MIT**;
-preserve the upstream notices and review licensing before changing product scope.
-See the [vendor README](../assets/vendor/gsap/README.md) for provenance, registry
-SHA-512 verification, local SHA-256 pins, license snapshot, and update procedure.
-`mix audit` covers Hex packages, not vendored JavaScript; review GSAP advisories
-separately when updating. ExUnit checks the pinned files and retained license notices.
+The MONOLITH entrance uses the browser's native Web Animations API, matching the
+study's keyframes, cubic-bezier easing and timing without an animation library.
+The previously vendored GSAP **3.15.0** distribution remains pinned with its
+custom Standard "No Charge" License (not MIT), but is not imported or bundled.
+Its [vendor README](../assets/vendor/gsap/README.md) retains provenance and checksums;
+ExUnit still verifies those retained files. No runtime download or CDN is used.
 
 Visual/interaction requirements, decorative DOM ownership, entrance lifecycle and the
 browser verification checklist live in [UI_CONTRACT.md](UI_CONTRACT.md). Implementation
@@ -357,12 +359,15 @@ Gemini keys use Connections and the same
 dedicated vault; `GEMINI_API_KEY` is ignored. Saving/removing a key never generates,
 verifies provider access or changes startup opt-in. Tests/CI must use fake credentials.
 
-Stage settings control an opt-in asynchronous startup generator after the first successful
-ordinary unlock once per application startup (not page loads or subsequent relock/unlock),
-a persisted 24-hour attempt cooldown, and an uncapped published-scene catalog. `Monolith.StageDesigner` is the first production
-Ash domain; provider work never runs in LiveView callbacks. `MONOLITH_WORKSPACE_IDLE_MINUTES`
-controls the client-only screensaver (default three minutes). Scenes exposes the saved
-catalog through bounded 20-image pages, persistent background selection, and confirmed potentially billable manual
+Stage settings permit asynchronous startup generation only with an Ash-persisted owner opt-in
+and enabling environment configuration; an absent preference is off and
+`MONOLITH_STAGE_ENABLED=false` vetoes new automatic work. Saving the Settings choice
+never generates or cancels work. Admission occurs after the first successful ordinary unlock
+once per application startup (not page loads or subsequent relock/unlock), subject to the
+persisted 24-hour attempt cooldown. `Monolith.StageDesigner` owns the Ash capabilities;
+provider work never runs in LiveView callbacks. `MONOLITH_WORKSPACE_IDLE_MINUTES`
+sets the client-only screensaver default (three minutes); browser-local Settings can override it.
+Scenes exposes the saved catalog through bounded 20-image pages, persistent background selection, and confirmed potentially billable manual
 requests without a manual daily cooldown. Automatic startup alone uses the persisted
 24-hour cooldown; manual work refuses another unresolved reservation. A dedicated Gemini Oban queue handles one-shot
 paid submissions, resumable retrieval by provider ID and deletion after successful local publication.
@@ -606,11 +611,10 @@ are trimmed, nonblank, and bounded to 64 characters server-side. There are delib
 no delete/archive actions or projects. Account connection and read-only mail are
 implemented separately in `Monolith.Mail`.
 
-`StatusComponents.status_signal/1`, `assets/css/status.css` and the `StatusSignal` hook
-share custom SVG activity/last-known-health states across Home, workspaces, mail, Calendar,
-Gemini, Scenes and transport recovery. Routine labels use accessible focus/hover details;
-attention/recovery copy stays visible. The hook only positions/dismisses details, including
-hover-only Escape and embedded-link focus; CSS owns preference-aware motion. Provider work,
+`StatusComponents.status_signal/1` and `assets/css/status.css` share canonical SVG
+activity/last-known-health states across Home, workspaces, mail, Calendar, Gemini,
+Scenes and transport recovery. Labels stay visible beside decorative, unfocusable
+artwork; there is no tooltip hook. CSS owns preference-aware motion. Provider work,
 freshness hooks and action feedback remain separate.
 
 `WorkspaceComponents.card/1` and `MailComponents` render directory and integration surfaces;
@@ -637,18 +641,18 @@ covers those lifecycle contracts; LiveView tests cover server search/page/contex
 
 `HomeComponents` supplies the local daily heading, account readout and freshness components.
 `DailyOrientation` and `ObservationTime` hooks own only their ignored readout subtrees and
-clean up timers/resume listeners. Default navigation is Home; the center navigation contains
-Home, Workspaces, Connections, Scenes and Settings. The corner monogram is decorative only, and Escape/idle
+clean up timers/resume listeners. Default navigation is Home; the in-flow sidebar contains
+Home, Workspaces, Connections, Scenes and Settings. Its mark toggles expansion, and Escape/idle
 preserve the current destination. Browser history/reload/deep links restore meaningful views,
 including submitted mail searches/pages, Conversations and Connections providers. Only navigation
 URLs, not drafts/dialogs/scenery focus, enter history. Direct
 Home inbox reads use explicit owner-only account actions, not relaxed workspace membership
 checks.
 
-The live shell keeps `#workspace-content` as the working scroller (including navigation),
-with a sibling `#workspace-controls` rail for stationary Lock and Escape guidance.
-`WorkspaceEntrance` opens both inert gates through sticky LiveView JS; narrow/laptop
-layouts reserve chrome bands so the rail cannot cover scrolling controls.
+The live shell keeps `#workspace-content` as the working scroller, including the sidebar
+and its separated CSRF-protected Lock POST. `WorkspaceEntrance` opens the content's inert
+gate through sticky LiveView JS. Expanded navigation pushes desktop content and flows
+above narrow content; no floating control rail covers working controls.
 
 `Layouts.stage/1` is shared by `Layouts.app/1` and static owner unlock/setup screens.
 Shared shell/focal-plane tokens live in `assets/css/app.css`; workspace card rules live
@@ -784,8 +788,8 @@ plugins disabled. Test builds refuse real transports/vault, and generation is di
 The gate does not reuse a user's server/profile/private data.
 
 `test/browser/ui_contract.mjs` exercises the actual compiled assets and LiveView socket:
-normal entrance/directional exit and gate; corner/Lock computed visibility and focusability;
-static unlock with/without JavaScript; static/live image success/failure; native menus;
+normal entrance/directional exit and gate; sidebar/Lock visibility and focusability;
+static unlock with/without JavaScript; static/live image success/failure; integration menus;
 workspace/integration/Connections navigation; unsaved input, scroll and first-key/click wake;
 reduced-motion changes; forced colors; desktop/narrow layouts; dedicated reader body size,
 reading measure and long-token wrapping; native message/recipient disclosures and Refresh
@@ -799,23 +803,20 @@ or screen-reader suite. Delayed synthetic reads exercise A→B→A navigation on
 durable GitHub discovery retains operation/job correlation across a browser reload.
 See [UI_CONTRACT.md](UI_CONTRACT.md#verification-map) for coverage boundaries.
 
-### UI themes
+### Presentation and preferences
 
-Authenticated `/settings` selects Charcoal, Earth, Sea Glass or Mist without changing scenery.
-`assets/css/themes.css` is the sole home for raw UI palette values. Its `--theme-*` primitives
-feed DaisyUI's existing `--color-*` API and shared semantic border/surface/glass/shadow tokens.
-Keep component CSS on those semantic tokens; picker swatches use the same palette primitives.
-All four themes are dark, and forced colors retains system-color overrides.
+[MONOLITH_DESIGN_SYSTEM.md](MONOLITH_DESIGN_SYSTEM.md) is the single visual authority.
+`assets/css/themes.css` integrates the Charcoal foundation with the application's semantic
+tokens; consumers must not introduce alternate palettes or a second component system.
+There is no theme picker or browser-local palette bootstrap. Canonical decorative status
+signals accompany visible labels rather than hover/focus-only status tooltips.
 
-`assets/js/theme_boot.js` is a small synchronous, self-hosted esbuild entry loaded before CSS.
-It restores only an allowlisted `monolith:theme` value from browser-local storage; Sea Glass is
-the fallback. The native-radio `ThemePicker` hook applies/persists selection and announces
-failed storage without pretending it saved. Preferences do not enter the database, account
-state or provider calls, and already-open tabs do not synchronize live.
-
-`mix check` includes storage/failure/lifecycle regressions. `mix test.ui` exercises all four
-themes across Settings, Home, Workspaces and mail, reload/history persistence, native keyboard
-selection, preserved imagery, protected deep links and narrow/forced-color layouts.
+Settings saves visual inactivity (1–60 minutes) in this browser under
+`monolith:idle-minutes`; this is not Lock, an account preference or provider work.
+Automatic startup scenery is a separate Ash-persisted opt-in, off when absent and
+subject to the environment veto described above. Neither preference save generates scenery.
+Account-letter register codes are omitted; numbered sections retain adjacent full identity.
+Browser and Node coverage remain separate evidence; see the UI contract verification map.
 
 ## Test conventions
 

@@ -14,6 +14,18 @@ defmodule MonolithWeb.ConnectionsLiveTest do
 
   @owner %{role: :local_owner}
 
+  defmodule ObservedGoogleKeychain do
+    @moduledoc false
+
+    def get(account, service) do
+      OnboardingKeychain.record(:client_read)
+      OnboardingKeychain.get(account, service)
+    end
+
+    defdelegate put(account, value, service), to: OnboardingKeychain
+    defdelegate delete(account, service), to: OnboardingKeychain
+  end
+
   defmodule FakeIO do
     @moduledoc false
 
@@ -201,26 +213,272 @@ defmodule MonolithWeb.ConnectionsLiveTest do
     end
   end
 
+  test "Google panel recovers local client failures without changing retained account access",
+       ctx do
+    accounts = account_state()
+    memberships = membership_state(ctx)
+
+    for {failure, expected, signal, label} <- [
+          {:not_found, :not_connected, "offline", "No client settings"},
+          {:locked, :locked, "warning", "locked"},
+          {:unavailable, :unavailable, "warning", "unavailable"},
+          {:invalid, :invalid, "warning", "invalid"}
+        ] do
+      case failure do
+        :not_found ->
+          assert :ok = ClientCredentials.delete()
+
+        :invalid ->
+          Agent.update(OnboardingKeychain, fn state ->
+            %{
+              state
+              | items: Map.new(state.items, fn {key, _} -> {key, "invalid-client-json"} end)
+            }
+          end)
+
+        reason ->
+          OnboardingKeychain.fail(reason)
+      end
+
+      {:ok, view, _} = live(ctx.conn, ~p"/connections/google")
+      html = complete(view)
+      assert {:ok, ^expected} = Monolith.Google.client_status(actor: @owner)
+      assert has_element?(view, "#google-credential-signal[data-state='#{signal}']")
+      assert has_element?(view, "#google-status", label)
+      assert has_element?(view, "#google-client-form button[type=submit]")
+
+      assert has_element?(
+               view,
+               "#google-connection button[phx-click='google:check']:not([disabled])"
+             )
+
+      refute has_element?(view, "#google-connection a[href='/connections/gmail']")
+      refute html =~ "invalid-client-json"
+      assert account_state() == accounts
+      assert membership_state(ctx) == memberships
+
+      OnboardingKeychain.fail(nil)
+
+      if failure in [:not_found, :invalid] do
+        assert {:ok, true} =
+                 Monolith.Google.save_client_credentials(
+                   "synthetic-recovered-client",
+                   "synthetic-recovered-secret",
+                   actor: @owner
+                 )
+      end
+
+      view |> element("#google-connection button[phx-click='google:check']") |> render_click()
+      html = complete(view)
+      assert has_element?(view, "#google-credential-signal[data-state=ready]")
+      assert has_element?(view, "#google-connection a[href='/connections/gmail']")
+
+      for private <- [
+            "synthetic-connection-client",
+            "synthetic-connection-secret",
+            "synthetic-recovered-client",
+            "synthetic-recovered-secret"
+          ] do
+        refute html =~ private
+        refute inspect(socket(view).assigns) =~ private
+      end
+
+      view |> element("#google-connection a[href='/connections/gmail']") |> render_click()
+      complete(view)
+      assert has_element?(view, "#new-gmail-connection:not([disabled])")
+      view |> element("#new-gmail-connection") |> render_click()
+      assert has_element?(view, "#gmail-connection-modal #mail-workspace-new")
+      assert has_element?(view, "#connection-account-#{ctx.reconnect.id}")
+      assert account_state() == accounts
+      assert membership_state(ctx) == memberships
+      assert FakeIO.calls() == []
+    end
+  end
+
+  test "Google saved POST return rechecks credentials instead of trusting its success query",
+       ctx do
+    accounts = account_state()
+    memberships = membership_state(ctx)
+    client = "synthetic-post-client"
+    secret = "synthetic-post-secret"
+
+    response =
+      submit_credentials(ctx.conn, "/connections/google", %{
+        "client_id" => client,
+        "client_secret" => secret
+      })
+
+    target = redirected_to(response, 303)
+    assert target == "/connections/google?google=saved"
+    assert {:ok, %{client_id: ^client, client_secret: ^secret}} = ClientCredentials.read()
+    OnboardingKeychain.fail(:not_found)
+    {:ok, view, _} = live(recycle(response), target)
+    html = complete(view)
+    assert has_element?(view, "#google-credential-signal[data-state=offline]")
+    refute has_element?(view, "#google-connection a[href='/connections/gmail']")
+    view |> element("#connections-gmail") |> render_click()
+    complete(view)
+    assert has_element?(view, "#new-gmail-connection[disabled]")
+    render_click(view, "mail:new_connection")
+    refute has_element?(view, "#gmail-connection-modal")
+
+    for private <- [client, secret] do
+      refute html =~ private
+      refute inspect(socket(view).assigns) =~ private
+      refute inspect(get_session(response)) =~ private
+    end
+
+    OnboardingKeychain.fail(nil)
+    view |> element("#connections-google") |> render_click()
+    complete(view)
+    view |> element("#google-connection button[phx-click='google:check']") |> render_click()
+    complete(view)
+    assert has_element?(view, "#google-credential-signal[data-state=ready]")
+    assert account_state() == accounts
+    assert membership_state(ctx) == memberships
+    assert FakeIO.calls() == []
+  end
+
+  test "failed Google replacement returns to usable stored settings without granting access",
+       ctx do
+    accounts = account_state()
+    memberships = membership_state(ctx)
+    private = "synthetic-invalid-post-secret with spaces"
+
+    response =
+      submit_credentials(ctx.conn, "/connections/google", %{
+        "client_id" => "synthetic-rejected-client",
+        "client_secret" => private
+      })
+
+    target = redirected_to(response, 303)
+    assert target == "/connections/google?google=failed"
+    {:ok, view, _} = live(recycle(response), target)
+    html = complete(view)
+    assert {:ok, :stored} = Monolith.Google.client_status(actor: @owner)
+
+    assert {:ok,
+            %{
+              client_id: "synthetic-connection-client",
+              client_secret: "synthetic-connection-secret"
+            }} = ClientCredentials.read()
+
+    assert OnboardingKeychain.writes() == 1
+    assert has_element?(view, "#google-credential-signal[data-state=ready]")
+    assert has_element?(view, "#google-client-form button[type=submit]")
+    refute has_element?(view, "#google-client-form input[value]:not([type=hidden])")
+    refute html =~ private
+    refute inspect(socket(view).assigns) =~ private
+    view |> element("#google-connection a[href='/connections/gmail']") |> render_click()
+    complete(view)
+    view |> element("#new-gmail-connection") |> render_click()
+    assert has_element?(view, "#gmail-connection-modal #mail-workspace-new")
+    assert account_state() == accounts
+    assert membership_state(ctx) == memberships
+    assert FakeIO.calls() == []
+  end
+
+  test "failed Gemini POST preserves the previous key and admits only a local recovery check",
+       ctx do
+    old_key = "synthetic-retained-gemini-key"
+    new_key = "synthetic-rejected-gemini-key"
+    assert {:ok, true} = Monolith.StageDesigner.save_gemini_key(old_key, actor: @owner)
+    scenes = Monolith.StageDesigner.list_scenes!(%{}, actor: @owner)
+    preference = Monolith.StageDesigner.startup_preference!(actor: @owner)
+    GeminiVault.fail(:unavailable)
+
+    response =
+      submit_credentials(ctx.conn, "/connections/gemini", %{
+        "operation" => "save",
+        "api_key" => new_key
+      })
+
+    target = redirected_to(response, 303)
+    assert target == "/connections/gemini?gemini=failed"
+    {:ok, view, _} = live(recycle(response), target)
+    html = complete(view)
+    assert {:ok, :unavailable} = Monolith.StageDesigner.gemini_connection_status(actor: @owner)
+    assert has_element?(view, "#gemini-credential-signal[data-state=warning]")
+
+    assert has_element?(
+             view,
+             "#gemini-connection button[phx-click='gemini:check']:not([disabled])"
+           )
+
+    refute has_element?(view, "#gemini-remove-form, #scene-generation-modal")
+    refute has_element?(view, "#gemini-api-key[value]")
+
+    for private <- [old_key, new_key] do
+      refute html =~ private
+      refute inspect(socket(view).assigns) =~ private
+      refute inspect(get_session(response)) =~ private
+    end
+
+    GeminiVault.fail(nil)
+    view |> element("#gemini-connection button[phx-click='gemini:check']") |> render_click()
+    complete(view)
+    assert has_element?(view, "#gemini-credential-signal[data-state=ready]")
+    assert has_element?(view, "#gemini-remove-form button[data-confirm]")
+    assert {:ok, ^old_key} = GeminiVault.get("unused")
+    assert Monolith.StageDesigner.list_scenes!(%{}, actor: @owner) == scenes
+    assert Monolith.StageDesigner.startup_preference!(actor: @owner) == preference
+    assert all_enqueued(queue: :gemini) == []
+    assert FakeIO.calls() == []
+  end
+
+  test "out-of-view Google key checks cannot read credentials even with forged payloads", ctx do
+    Application.put_env(:monolith, :google_client_keychain, ObservedGoogleKeychain)
+    {:ok, view, _} = live(ctx.conn, ~p"/")
+    complete(view)
+    before = OnboardingKeychain.calls()
+
+    for path <- ["/", "/workspaces/#{ctx.workspace.id}", "/connections", "/connections/gemini"] do
+      render_patch(view, path)
+      complete(view)
+      reads = OnboardingKeychain.calls()
+
+      for params <- [
+            %{},
+            %{"provider" => "google"},
+            %{"id" => ctx.healthy.id, "provider" => %{"google" => true}}
+          ] do
+        render_click(view, "google:check", params)
+      end
+
+      complete(view)
+      assert OnboardingKeychain.calls() == reads
+      refute has_element?(view, "#google-connection")
+    end
+
+    assert OnboardingKeychain.calls() == before
+
+    render_patch(view, "/connections/google")
+    complete(view)
+    assert has_element?(view, "#google-credential-signal[data-state=ready]")
+    assert :client_read in OnboardingKeychain.calls()
+    assert FakeIO.calls() == []
+  end
+
   test "quiet health distinguishes unknown from last-known success without hiding recovery",
        ctx do
     {:ok, view, _} = live(ctx.conn, ~p"/connections/gmail")
     complete(view)
     signal = "#connection-signal-#{ctx.healthy.id}"
 
-    assert has_element?(view, "#{signal}[data-state=unknown][tabindex='0']")
-    assert has_element?(view, "#{signal} .status-tooltip", "no successful Gmail check yet")
-    refute has_element?(view, "#{signal} .status-label, #{signal} .status-orbit")
+    assert has_element?(
+             view,
+             "#{signal}[data-state=unknown] .status-label",
+             "no successful Gmail check yet"
+           )
 
     status(ctx.healthy, %{last_success_at: ~U[2026-11-01 12:00:00Z]})
     broadcast(ctx.healthy.id)
     assert has_element?(view, "#{signal}[data-state=ready]")
-    assert has_element?(view, "#{signal} .status-tooltip", "2026-11-01 12:00 UTC")
-    refute has_element?(view, "#{signal} .status-orbit")
+    assert has_element?(view, "#{signal} .status-label", "2026-11-01 12:00 UTC")
 
     status(ctx.healthy, %{last_error: :keychain})
     broadcast(ctx.healthy.id)
     assert has_element?(view, "#{signal}[data-state=warning] .status-label", "Keychain")
-    refute has_element?(view, "#{signal}[tabindex], #{signal} .status-tooltip")
 
     assert has_element?(
              view,
@@ -231,7 +489,7 @@ defmodule MonolithWeb.ConnectionsLiveTest do
     assert FakeIO.calls() == []
   end
 
-  test "workspace cards expose only their own problem metadata and separate native menus", ctx do
+  test "workspace cards expose their own problem metadata and a separate visible Rename", ctx do
     {:ok, view, _} = live(ctx.conn, ~p"/")
     view |> element("#show-workspaces") |> render_click()
     alpha = "#workspaces-#{ctx.workspace.id}"
@@ -244,11 +502,10 @@ defmodule MonolithWeb.ConnectionsLiveTest do
 
     assert has_element?(
              view,
-             "#{alpha} > details#workspace-menu-#{ctx.workspace.id} > summary" <>
-               "[aria-label='Manage Alpha workspace']"
+             "#{alpha} button#rename-#{ctx.workspace.id}[aria-label='Rename #{ctx.workspace.name}']",
+             "Rename"
            )
 
-    assert has_element?(view, "#{alpha} > details button#rename-#{ctx.workspace.id}", "Rename")
     refute has_element?(view, "#{alpha} > a details, #{alpha} > a button")
 
     assert has_element?(
@@ -279,12 +536,6 @@ defmodule MonolithWeb.ConnectionsLiveTest do
     status(ctx.reconnect, %{status: :ready, last_error: nil})
     broadcast(ctx.reconnect.id)
 
-    assert has_element?(
-             view,
-             "#workspace-health-#{ctx.workspace.id}",
-             "No reported problems"
-           )
-
     refute has_element?(view, "#workspace-health-#{ctx.workspace.id} .workspace-card-problem")
     refute has_element?(view, "#workspace-list", ctx.reconnect.email)
     assert has_element?(view, "#workspace-health-#{ctx.other.id}", ctx.limited.email)
@@ -304,21 +555,15 @@ defmodule MonolithWeb.ConnectionsLiveTest do
     assert FakeIO.calls() == []
   end
 
-  test "workspace landing has separate integration menus and an explicit add panel", ctx do
+  test "workspace landing separates account management from the explicit add panel", ctx do
     {:ok, view, _} = live(ctx.conn, ~p"/")
     open_workspace(view, ctx.workspace)
 
-    assert has_element?(view, "#mail-heading", "Integrations")
     assert has_element?(view, "#mail-account-#{ctx.healthy.id}", ctx.healthy.email)
     assert has_element?(view, "#mail-account-#{ctx.reconnect.id}", ctx.reconnect.email)
     refute has_element?(view, "#mail-account-#{ctx.limited.id}")
     refute has_element?(view, "#mail-account-#{ctx.available.id}")
     refute has_element?(view, "#integration-add-panel, #mail-search, #mail-threads")
-
-    assert has_element?(
-             view,
-             "#mail-account-#{ctx.healthy.id} > details#integration-menu-#{ctx.healthy.id} > summary"
-           )
 
     refute has_element?(view, ".integration-tile-open details, .integration-tile-open button")
     assert has_element?(view, "#detach-#{ctx.healthy.id}", "Remove from workspace")
@@ -421,7 +666,6 @@ defmodule MonolithWeb.ConnectionsLiveTest do
     refute mail.loading
     assert socket(view).assigns.selected == nil
     assert socket(view).redirected == nil
-    assert has_element?(view, "#directory-heading", "Connections")
     refute has_element?(view, "#workspace-list, #workspace-landing, #mail-search, #mail-threads")
 
     for connection <- [ctx.healthy, ctx.reconnect, ctx.limited, ctx.available] do
@@ -435,7 +679,7 @@ defmodule MonolithWeb.ConnectionsLiveTest do
              )
     end
 
-    refute has_element?(view, ".mail-account-open, [id^='attach-'], [id^='detach-']")
+    refute has_element?(view, ".home-account-open, [id^='attach-'], [id^='detach-']")
 
     for {event, params} <- [
           {"mail:select", %{"id" => ctx.healthy.id}},
@@ -564,7 +808,7 @@ defmodule MonolithWeb.ConnectionsLiveTest do
     refute has_element?(view, "#integration-add-panel")
     assert FakeIO.calls() == []
 
-    view |> element("#mail-account-#{ctx.healthy.id} .mail-account-open") |> render_click()
+    view |> element("#mail-account-#{ctx.healthy.id} .home-account-open") |> render_click()
     assert complete(view) =~ "Synthetic inbox #{ctx.healthy.id}"
     ref = socket(view).assigns.mail.data_ref
     calls = FakeIO.calls()
@@ -586,7 +830,6 @@ defmodule MonolithWeb.ConnectionsLiveTest do
     assert socket(view).assigns.selected == nil
     render_patch(view, "/workspaces/#{ctx.workspace.id}")
     assert has_element?(view, "#directory-heading", ctx.workspace.name)
-    assert has_element?(view, "#mail-heading", "Integrations")
     assert socket(view).assigns.mail.workspace_id == ctx.workspace.id
     assert socket(view).assigns.mail.scope == :workspace
     assert socket(view).assigns.mail.account_id == nil
@@ -620,6 +863,13 @@ defmodule MonolithWeb.ConnectionsLiveTest do
     assert is_binary(operation_id)
     assert FakeIO.calls() == []
     assert has_element?(view, "#mail-notice", "cleanup queued")
+    assert has_element?(view, "#gmail-account-operation", ctx.healthy.email)
+
+    assert has_element?(
+             view,
+             "#connection-account-#{ctx.reconnect.id} button[disabled]" <>
+               "[aria-describedby='gmail-account-operation']"
+           )
 
     assert has_element?(
              view,
@@ -649,6 +899,7 @@ defmodule MonolithWeb.ConnectionsLiveTest do
              Mail.disconnect_status(ctx.healthy.id, actor: @owner)
 
     refute has_element?(view, "#connection-account-#{ctx.healthy.id}")
+    refute has_element?(view, "#gmail-account-operation")
 
     assert FakeIO.calls() == [
              {:get, ctx.healthy.id},
@@ -661,7 +912,7 @@ defmodule MonolithWeb.ConnectionsLiveTest do
        ctx do
     {:ok, view, _} = live(ctx.conn, ~p"/")
     open_workspace(view, ctx.workspace)
-    view |> element("#mail-account-#{ctx.healthy.id} .mail-account-open") |> render_click()
+    view |> element("#mail-account-#{ctx.healthy.id} .home-account-open") |> render_click()
     old_operation = socket(view).assigns.mail.task
     assert is_binary(old_operation)
     assert socket(view).assigns.mail.loading
@@ -675,15 +926,15 @@ defmodule MonolithWeb.ConnectionsLiveTest do
     render_patch(view, "/workspaces/#{ctx.other.id}")
     assert_late_operation_ignored(view, old_operation)
     refute has_element?(view, "#mail-threads")
-    view |> element("#mail-account-#{ctx.limited.id} .mail-account-open") |> render_click()
+    view |> element("#mail-account-#{ctx.limited.id} .home-account-open") |> render_click()
     assert_late_operation_ignored(view, old_operation)
     assert complete(view) =~ "Synthetic inbox #{ctx.limited.id}"
     refute render(view) =~ "Synthetic inbox #{ctx.healthy.id}"
 
-    view |> element("#back-to-workspaces") |> render_click()
+    view |> element("#show-workspaces") |> render_click()
     assert_late_operation_ignored(view, old_operation)
     open_workspace(view, ctx.workspace)
-    view |> element("#mail-account-#{ctx.healthy.id} .mail-account-open") |> render_click()
+    view |> element("#mail-account-#{ctx.healthy.id} .home-account-open") |> render_click()
     refute socket(view).assigns.mail.task == old_operation
     assert_late_operation_ignored(view, old_operation)
     assert complete(view) =~ "Synthetic inbox #{ctx.healthy.id}"
@@ -909,8 +1160,32 @@ defmodule MonolithWeb.ConnectionsLiveTest do
     assert is_binary(pending_read_operation())
 
     for connection <- [ctx.healthy, ctx.reconnect, ctx.limited, ctx.available] do
-      assert has_element?(view, "#check-credentials-#{connection.id}[disabled]")
+      assert has_element?(
+               view,
+               "#check-credentials-#{connection.id}[disabled]" <>
+                 "[aria-describedby='gmail-account-operation']"
+             )
     end
+
+    assert has_element?(view, "#gmail-account-operation", ctx.healthy.email)
+
+    assert has_element?(
+             view,
+             "#mail-connect-#{ctx.reconnect.id} select[disabled]" <>
+               "[aria-describedby='gmail-account-operation']"
+           )
+
+    assert has_element?(
+             view,
+             "#mail-connect-#{ctx.reconnect.id} button[disabled]" <>
+               "[aria-describedby='gmail-account-operation']"
+           )
+
+    assert has_element?(
+             view,
+             "#connection-account-#{ctx.limited.id} button[phx-click='mail:disconnect'][disabled]" <>
+               "[aria-describedby='gmail-account-operation']"
+           )
 
     assert has_element?(view, "#credential-check-#{ctx.healthy.id}[role=status]", "Checking")
     render_click(view, "mail:check_credentials", %{"id" => ctx.limited.id})
@@ -923,6 +1198,8 @@ defmodule MonolithWeb.ConnectionsLiveTest do
     assert socket(view).assigns.mail.credential_checks[ctx.healthy.id].status == :accessible
     assert socket(view).assigns.mail.credential_check == nil
     assert has_element?(view, "#check-credentials-#{ctx.limited.id}:not([disabled])")
+    refute has_element?(view, "#gmail-account-operation")
+    refute has_element?(view, "#check-credentials-#{ctx.limited.id}[aria-describedby]")
     assert FakeIO.calls() == [{:get, ctx.healthy.id}]
   end
 
@@ -1017,6 +1294,36 @@ defmodule MonolithWeb.ConnectionsLiveTest do
     Enum.map(Mail.list_accounts!(actor: @owner), fn account ->
       Map.take(account, Enum.map(Info.attributes(Account), & &1.name))
     end)
+  end
+
+  defp membership_state(ctx) do
+    for workspace <- [ctx.workspace, ctx.other], into: %{} do
+      ids =
+        workspace.id
+        |> Mail.workspace_accounts!(actor: @owner)
+        |> Enum.map(& &1.account_id)
+        |> Enum.sort()
+
+      {workspace.id, ids}
+    end
+  end
+
+  defp submit_credentials(conn, path, params) do
+    page = conn |> put_private(:plug_skip_csrf_protection, false) |> get(path)
+
+    [csrf] =
+      page
+      |> html_response(200)
+      |> LazyHTML.from_document()
+      |> LazyHTML.query("#owner-lock-form input[name=_csrf_token]")
+      |> LazyHTML.attribute("value")
+      |> Enum.uniq()
+
+    page
+    |> recycle()
+    |> put_private(:plug_skip_csrf_protection, false)
+    |> put_req_header("content-type", "application/x-www-form-urlencoded")
+    |> post(path, URI.encode_query(Map.put(params, "_csrf_token", csrf)))
   end
 
   defp reconnect_generation(account) do

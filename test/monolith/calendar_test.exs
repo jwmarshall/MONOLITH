@@ -364,16 +364,68 @@ defmodule Monolith.CalendarTest do
     assert result.fetched_at && not result.pending
     refute Map.has_key?(poll(c.a, first.revision), :events)
     assert snapshot(c, c.b).events == []
-    override = Calendar.select_calendars!(c.a.id, ["shared"], actor: @owner)
+    override = Calendar.select_calendars!(c.a.id, c.a.generation, ["shared"], actor: @owner)
     assert override.revision != first.revision
     assert snapshot(c, c.a).events == []
     poll(c.a, override.revision)
     assert [%{calendar_id: "shared"}] = snapshot(c, c.a).events
-    empty = Calendar.select_calendars!(c.a.id, [], actor: @owner)
+    empty = Calendar.select_calendars!(c.a.id, c.a.generation, [], actor: @owner)
     poll(c.a, empty.revision)
     assert snapshot(c, c.a).events == []
     assert snapshot(c, c.a).explicit_selection
-    assert {:error, _} = Calendar.select_calendars(c.a.id, ["unknown"], actor: @owner)
+
+    assert {:error, _} =
+             Calendar.select_calendars(c.a.id, c.a.generation, ["unknown"], actor: @owner)
+  end
+
+  test "a displayed selection cannot cross a reconnect with overlapping calendar IDs", c do
+    first = prepare(c, c.a)
+    poll(c.a, first.revision)
+    displayed_generation = c.a.generation
+
+    assert {:ok, current} =
+             Access.accept(
+               c.workspace.id,
+               %{subject: c.a.subject, email: c.a.email},
+               "replacement-calendar-token",
+               :calendar,
+               c.a.generation
+             )
+
+    refute current.generation == displayed_generation
+    prepared = prepare(c, current)
+    poll(current, prepared.revision)
+    before = state(current)
+    assert before.generation == current.generation
+    assert before.selected_ids == ["primary"]
+    assert before.events != []
+    jobs = all_enqueued(worker: PollWorker)
+    calls = Monolith.TestMail.calls()
+
+    for ids <- [["shared"], []],
+        generation <- [displayed_generation, Ash.UUID.generate(), nil, "forged-generation"] do
+      assert {:error, _} =
+               Calendar.select_calendars(current.id, generation, ids, actor: @owner)
+
+      assert state(current) == before
+      assert all_enqueued(worker: PollWorker) == jobs
+      assert Monolith.TestMail.calls() == calls
+    end
+
+    assert {:error, _} =
+             Calendar.select_calendars(current.id, current.generation, ["shared"],
+               actor: %{role: :mail_service, account_id: current.id}
+             )
+
+    assert state(current) == before
+    assert all_enqueued(worker: PollWorker) == jobs
+
+    assert {:ok, selected} =
+             Calendar.select_calendars(current.id, current.generation, ["shared"], actor: @owner)
+
+    refute selected.revision == before.revision
+    assert state(current).selected_ids == ["shared"]
+    assert state(current).events == []
   end
 
   test "exact overlap includes ongoing/multiday but excludes cancelled and exclusive ends", c do
@@ -447,7 +499,7 @@ defmodule Monolith.CalendarTest do
     calls = Monolith.TestMail.calls()
     until = state(c.a).cooldown_until
     Calendar.refresh!(c.a.id, actor: @owner)
-    revised = Calendar.select_calendars!(c.a.id, ["shared"], actor: @owner)
+    revised = Calendar.select_calendars!(c.a.id, c.a.generation, ["shared"], actor: @owner)
     assert poll(c.a, revised.revision).skipped
     assert state(c.a).cooldown_until == until
     assert Monolith.TestMail.calls() == calls
@@ -494,7 +546,10 @@ defmodule Monolith.CalendarTest do
     task = Task.async(fn -> poll(c.a, prepared.revision) end)
     Sandbox.allow(Monolith.Repo, self(), task.pid)
     assert_receive {:calendar_waiting, pid}, 2000
-    revision = Calendar.select_calendars!(c.a.id, ["shared"], actor: @owner).revision
+
+    revision =
+      Calendar.select_calendars!(c.a.id, c.a.generation, ["shared"], actor: @owner).revision
+
     send(pid, :continue)
     assert Task.await(task).skipped
     assert state(c.a).revision == revision
@@ -531,7 +586,7 @@ defmodule Monolith.CalendarTest do
     task = Task.async(fn -> poll(c.a, prepared.revision) end)
     Sandbox.allow(Monolith.Repo, self(), task.pid)
     assert_receive {:calendar_waiting, pid}, 2000
-    revised = Calendar.select_calendars!(c.a.id, ["shared"], actor: @owner)
+    revised = Calendar.select_calendars!(c.a.id, c.a.generation, ["shared"], actor: @owner)
     deadline = DateTime.add(DateTime.utc_now(), 600)
     update_state(c.a, %{cooldown_until: deadline, next_poll_at: deadline})
     send(pid, :continue)

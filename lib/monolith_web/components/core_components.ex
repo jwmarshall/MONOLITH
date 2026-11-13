@@ -32,6 +32,14 @@ defmodule MonolithWeb.CoreComponents do
   alias Phoenix.HTML.Form
   alias Phoenix.LiveView.JS
 
+  def lock_control(assigns) do
+    ~H"""
+    <.form for={%{}} action="/lock" method="post" id="owner-lock-form" class="page-header-lock">
+      <button type="submit" class="workspace-action">Lock</button>
+    </.form>
+    """
+  end
+
   @doc """
   Renders flash notices.
 
@@ -62,27 +70,22 @@ defmodule MonolithWeb.CoreComponents do
     <div
       :if={msg = render_slot(@inner_block) || Phoenix.Flash.get(@flash, @kind)}
       id={@id}
-      phx-click={JS.push("lv:clear-flash", value: %{key: @kind}) |> hide("##{@id}")}
       role="alert"
-      class="toast toast-top toast-end z-50"
+      class="monolith-flash"
       {@rest}
     >
-      <div class={[
-        "alert w-80 sm:w-96 max-w-80 sm:max-w-96 text-wrap",
-        @kind == :info && "alert-info",
-        @kind == :error && "alert-error"
-      ]}>
-        <.icon :if={@kind == :info} name="hero-information-circle" class="size-5 shrink-0" />
-        <.icon :if={@kind == :error} name="hero-exclamation-circle" class="size-5 shrink-0" />
-        <div>
-          <p :if={@title} class="font-semibold">{@title}</p>
-          <p>{msg}</p>
-        </div>
-        <div class="flex-1" />
-        <button type="button" class="group self-start cursor-pointer" aria-label={gettext("close")}>
-          <.icon name="hero-x-mark" class="size-5 opacity-40 group-hover:opacity-70" />
-        </button>
+      <div>
+        <p :if={@title} class="font-semibold">{@title}</p>
+        <p>{msg}</p>
       </div>
+      <button
+        type="button"
+        class="workspace-action"
+        phx-click={JS.push("lv:clear-flash", value: %{key: @kind}) |> hide("##{@id}")}
+        aria-label={gettext("Dismiss notification")}
+      >
+        Dismiss
+      </button>
     </div>
     """
   end
@@ -212,6 +215,8 @@ defmodule MonolithWeb.CoreComponents do
         Form.normalize_value("checkbox", assigns[:value])
       end)
 
+    assigns = input_accessibility(assigns)
+
     ~H"""
     <div class="fieldset mb-2">
       <label for={@id}>
@@ -234,12 +239,16 @@ defmodule MonolithWeb.CoreComponents do
           />{@label}
         </span>
       </label>
-      <.error :for={msg <- @errors}>{msg}</.error>
+      <div :if={@errors != []} id={@errors_id}>
+        <.error :for={msg <- @errors}>{msg}</.error>
+      </div>
     </div>
     """
   end
 
   def input(%{type: "select"} = assigns) do
+    assigns = input_accessibility(assigns)
+
     ~H"""
     <div class="fieldset mb-2">
       <label for={@id}>
@@ -255,12 +264,16 @@ defmodule MonolithWeb.CoreComponents do
           {Form.options_for_select(@options, @value)}
         </select>
       </label>
-      <.error :for={msg <- @errors}>{msg}</.error>
+      <div :if={@errors != []} id={@errors_id}>
+        <.error :for={msg <- @errors}>{msg}</.error>
+      </div>
     </div>
     """
   end
 
   def input(%{type: "textarea"} = assigns) do
+    assigns = input_accessibility(assigns)
+
     ~H"""
     <div class="fieldset mb-2">
       <label for={@id}>
@@ -275,13 +288,17 @@ defmodule MonolithWeb.CoreComponents do
           {@rest}
         >{Form.normalize_value("textarea", @value)}</textarea>
       </label>
-      <.error :for={msg <- @errors}>{msg}</.error>
+      <div :if={@errors != []} id={@errors_id}>
+        <.error :for={msg <- @errors}>{msg}</.error>
+      </div>
     </div>
     """
   end
 
   # All other inputs text, datetime-local, url, password, etc. are handled here...
   def input(assigns) do
+    assigns = input_accessibility(assigns)
+
     ~H"""
     <div class="fieldset mb-2">
       <label for={@id}>
@@ -298,9 +315,31 @@ defmodule MonolithWeb.CoreComponents do
           {@rest}
         />
       </label>
-      <.error :for={msg <- @errors}>{msg}</.error>
+      <div :if={@errors != []} id={@errors_id}>
+        <.error :for={msg <- @errors}>{msg}</.error>
+      </div>
     </div>
     """
+  end
+
+  defp input_accessibility(assigns) do
+    errors_id = if assigns.id, do: "#{assigns.id}-errors"
+
+    rest =
+      if assigns.errors != [] do
+        description =
+          [assigns.rest[:"aria-describedby"], errors_id]
+          |> Enum.reject(&is_nil/1)
+          |> Enum.join(" ")
+
+        assigns.rest
+        |> Map.put(:"aria-invalid", "true")
+        |> Map.put(:"aria-describedby", description)
+      else
+        assigns.rest
+      end
+
+    assign(assigns, rest: rest, errors_id: errors_id)
   end
 
   # Helper used by inputs to generate form errors

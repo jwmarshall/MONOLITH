@@ -2,6 +2,7 @@ import assert from "node:assert/strict"
 import test from "node:test"
 import WorkspaceIdle from "../../assets/js/hooks/workspace_idle.js"
 import StageBackground, {observeStageImage} from "../../assets/js/hooks/stage_background.js"
+import IdlePreference, {IDLE_KEY} from "../../assets/js/hooks/idle_preference.js"
 
 class FakeTarget {
   listeners = new Map()
@@ -27,7 +28,7 @@ class FakeTarget {
   get listenerCount() { return [...this.listeners.values()].reduce((n, listeners) => n + listeners.size, 0) }
 }
 
-class FakeClock {
+class FakeClock extends FakeTarget {
   now = 0
   nextId = 0
   timers = new Map()
@@ -57,8 +58,21 @@ class FakeClock {
   }
 }
 
-function workspace(t, minutes = "3") {
+function workspace(t, minutes = "3", {saved = null, storageUnavailable = false} = {}) {
   const clock = new FakeClock()
+  clock.CustomEvent = class { constructor(type, options) { this.type = type; this.detail = options.detail } }
+  clock.dispatchEvent = event => clock.emit(event.type, event)
+  const stored = new Map(saved === null ? [] : [[IDLE_KEY, saved]])
+  clock.localStorage = {
+    getItem: key => {
+      if (storageUnavailable) throw new Error("Storage unavailable")
+      return stored.get(key) ?? null
+    },
+    setItem: (key, value) => {
+      if (storageUnavailable) throw new Error("Storage unavailable")
+      stored.set(key, value)
+    },
+  }
   const document = new FakeTarget()
   document.defaultView = clock
   const control = {blur() { assert.fail("idle must not blur the active control") }}
@@ -76,7 +90,6 @@ function workspace(t, minutes = "3") {
   root.setAttribute("data-workspace-focus", "focus-command")
   root.setAttribute("data-workspace-reset", "reset-command")
   const commands = []
-  const brandEvents = []
   let stickyPressed = "true"
   const hook = Object.assign({}, WorkspaceIdle, {
     el: root,
@@ -85,7 +98,6 @@ function workspace(t, minutes = "3") {
       assert.ok(["focus-command", "reset-command"].includes(command))
       stickyPressed = command === "focus-command" ? "true" : "false"
       pane.setAttribute("aria-pressed", stickyPressed)
-      brandEvents.push(command === "focus-command" ? "monolith:brand-focus" : "monolith:brand-reset")
     }}),
   })
   hook.mounted()
@@ -96,17 +108,36 @@ function workspace(t, minutes = "3") {
     pane.setAttribute("aria-pressed", stickyPressed)
     hook.updated()
   }
-  return {clock, document, control, pane, root, hook, commands, brandEvents, patch}
+  return {clock, document, control, pane, root, hook, commands, patch, stored}
 }
 
-test("three-minute deadline resets both focal plane and brand without blurring controls", t => {
-  const {clock, pane, commands, brandEvents, document, control} = workspace(t)
+function preference(t, document) {
+  const form = new FakeTarget()
+  const input = {value: ""}
+  const status = {textContent: ""}
+  form.ownerDocument = document
+  form.dataset = {defaultMinutes: "3"}
+  form.querySelector = selector => selector === "[name=minutes]" ? input : status
+  form.reportValidity = () => form.valid !== false
+  const hook = {...IdlePreference, el: form}
+  hook.mounted()
+  t.after(() => hook.destroyed())
+  const submit = value => {
+    input.value = value
+    let prevented = false
+    form.emit("submit", {preventDefault: () => { prevented = true }})
+    assert.equal(prevented, true)
+  }
+  return {form, input, status, hook, submit}
+}
+
+test("three-minute deadline enters scenery without blurring controls", t => {
+  const {clock, pane, commands, document, control} = workspace(t)
   clock.advance(179_999)
   assert.equal(pane.getAttribute("aria-pressed"), "true")
   clock.advance(1)
   assert.equal(pane.getAttribute("aria-pressed"), "false")
   assert.deepEqual(commands, ["reset-command"])
-  assert.deepEqual(brandEvents, ["monolith:brand-reset"])
   assert.equal(document.activeElement, control)
 })
 
@@ -139,12 +170,12 @@ test("mouse movement neither renews the deadline nor wakes an idle workspace", t
 test("click and keyboard wake even when controls retained focus, without consuming input", async t => {
   for (const type of ["pointerdown", "click", "keydown", "touchstart"]) {
     await t.test(type, t => {
-      const {clock, document, pane, brandEvents, control} = workspace(t)
+      const {clock, document, pane, commands, control} = workspace(t)
       clock.advance(180_000)
       const event = document.emit(type, {key: "a", target: control})
       assert.equal(event.defaultPrevented, undefined)
       assert.equal(pane.getAttribute("aria-pressed"), "true")
-      assert.deepEqual(brandEvents, ["monolith:brand-reset", "monolith:brand-focus"])
+      assert.deepEqual(commands, ["reset-command", "focus-command"])
       assert.equal(document.activeElement, control)
       clock.advance(180_000)
       assert.equal(pane.getAttribute("aria-pressed"), "false")
@@ -152,7 +183,7 @@ test("click and keyboard wake even when controls retained focus, without consumi
   }
 })
 
-test("duplicate pointer/click input does not replay an active brand", t => {
+test("duplicate pointer/click input does not refocus an already awake workspace", t => {
   const {clock, document, commands} = workspace(t)
   clock.advance(180_000)
   document.emit("pointerdown")
@@ -181,7 +212,7 @@ test("keyboard input restores workspace after the existing Escape command too", 
 })
 
 test("visibility elapsed time counts even when hidden timers were throttled", t => {
-  const {clock, document, pane, brandEvents} = workspace(t)
+  const {clock, document, pane, commands} = workspace(t)
   clock.advance(100_000)
   document.hidden = true
   document.emit("visibilitychange")
@@ -189,7 +220,7 @@ test("visibility elapsed time counts even when hidden timers were throttled", t 
   document.hidden = false
   document.emit("visibilitychange")
   assert.equal(pane.getAttribute("aria-pressed"), "false")
-  assert.deepEqual(brandEvents, ["monolith:brand-reset"])
+  assert.deepEqual(commands, ["reset-command"])
   document.emit("click")
   assert.equal(pane.getAttribute("aria-pressed"), "true")
 })
@@ -205,11 +236,12 @@ test("a short hidden interval preserves the original deadline and never wakes on
   assert.deepEqual(commands, ["reset-command"])
 })
 
-test("first input after sleep resets then replays brand even before a timer callback", t => {
-  const {clock, document, brandEvents} = workspace(t)
+test("first input after sleep wakes immediately before a throttled timer can run", t => {
+  const {clock, document, pane, commands} = workspace(t)
   clock.advance(300_000, false)
   document.emit("keydown", {key: "a"})
-  assert.deepEqual(brandEvents, ["monolith:brand-reset", "monolith:brand-focus"])
+  assert.deepEqual(commands, ["reset-command", "focus-command"])
+  assert.equal(pane.getAttribute("aria-pressed"), "true")
 })
 
 test("patches preserve activity deadline and sticky idle/focus state", t => {
@@ -235,8 +267,83 @@ test("config updates use elapsed time, not a new activity timestamp", t => {
   assert.equal(pane.getAttribute("aria-pressed"), "false")
 })
 
+test("a saved duration wins over server defaults and remains effective through patches", t => {
+  const {clock, pane, root, patch, document} = workspace(t, "2", {saved: "7"})
+  clock.advance(180_000)
+  root.dataset.idleMinutes = "1"
+  patch()
+  assert.equal(pane.getAttribute("aria-pressed"), "true")
+  clock.advance(239_999)
+  assert.equal(pane.getAttribute("aria-pressed"), "true")
+  clock.advance(1)
+  assert.equal(pane.getAttribute("aria-pressed"), "false")
+  document.emit("keydown", {key: "a"})
+  clock.advance(419_999)
+  assert.equal(pane.getAttribute("aria-pressed"), "true")
+  clock.advance(1)
+  assert.equal(pane.getAttribute("aria-pressed"), "false")
+})
+
+test("saving a shorter preference expires elapsed activity without waking or losing the control", t => {
+  const {clock, document, pane, control, commands, stored} = workspace(t, "7")
+  const {submit} = preference(t, document)
+  clock.advance(180_000)
+  submit("2")
+  assert.equal(stored.get(IDLE_KEY), "2")
+  assert.equal(pane.getAttribute("aria-pressed"), "false")
+  assert.equal(document.activeElement, control)
+  assert.deepEqual(commands, ["reset-command"])
+})
+
+test("saving a longer preference extends the existing deadline, not the activity timestamp", t => {
+  const {clock, document, pane, patch} = workspace(t)
+  const {submit} = preference(t, document)
+  clock.advance(120_000)
+  submit("5")
+  patch()
+  clock.advance(179_999)
+  assert.equal(pane.getAttribute("aria-pressed"), "true")
+  clock.advance(1)
+  assert.equal(pane.getAttribute("aria-pressed"), "false")
+})
+
+test("unavailable storage still applies a preference to the current workspace", t => {
+  const {clock, document, pane} = workspace(t, "7", {storageUnavailable: true})
+  const {submit} = preference(t, document)
+  submit("1")
+  clock.advance(59_999)
+  assert.equal(pane.getAttribute("aria-pressed"), "true")
+  clock.advance(1)
+  assert.equal(pane.getAttribute("aria-pressed"), "false")
+})
+
+test("corrupt saved preferences fall back to the server duration", async t => {
+  for (const saved of ["", "0", "-1", "61", "2.5", "NaN", "Infinity", "{minutes: 4}"]) {
+    await t.test(JSON.stringify(saved), t => {
+      const {clock, pane} = workspace(t, "2", {saved})
+      clock.advance(119_999)
+      assert.equal(pane.getAttribute("aria-pressed"), "true")
+      clock.advance(1)
+      assert.equal(pane.getAttribute("aria-pressed"), "false")
+    })
+  }
+})
+
+test("invalid form submission leaves the current idle deadline and stored preference unchanged", t => {
+  const {clock, document, pane, stored} = workspace(t, "3", {saved: "2"})
+  const {form, submit} = preference(t, document)
+  clock.advance(60_000)
+  form.valid = false
+  submit("61")
+  assert.equal(stored.get(IDLE_KEY), "2")
+  clock.advance(59_999)
+  assert.equal(pane.getAttribute("aria-pressed"), "true")
+  clock.advance(1)
+  assert.equal(pane.getAttribute("aria-pressed"), "false")
+})
+
 test("invalid duration safely uses the three-minute default", async t => {
-  for (const value of [undefined, "", "0", "-1", "NaN", "Infinity"]) {
+  for (const value of [undefined, "", "0", "-1", "61", "2.5", "NaN", "Infinity"]) {
     await t.test(String(value), t => {
       const {clock, pane} = workspace(t, value)
       clock.advance(180_000)
@@ -270,6 +377,7 @@ test("destruction removes every listener and timer", t => {
   assert.ok(document.listenerCount > 0)
   hook.destroyed()
   assert.equal(document.listenerCount, 0)
+  assert.equal(clock.listenerCount, 0)
   assert.equal(clock.timers.size, 0)
   clock.advance(300_000)
   document.emit("keydown", {key: "a"})

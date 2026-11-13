@@ -27,15 +27,12 @@ defmodule Monolith.StageDesigner.Startup do
   end
 
   def run(input, opts, _context) do
-    settings = Settings.get()
-
     result =
-      if settings.enabled or opts[:retry_failed?] do
-        now = input.arguments.now
-        Generation.startup(settings, now, Keyword.get(opts, :retry_failed?, false))
-      else
-        :disabled
-      end
+      Generation.startup(
+        Settings.get(),
+        input.arguments.now,
+        Keyword.get(opts, :retry_failed?, false)
+      )
 
     {:ok, result}
   rescue

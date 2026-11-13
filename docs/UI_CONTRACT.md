@@ -1,46 +1,24 @@
-# LOVELACE — visual and interaction contract
+# MONOLITH — operational UI and interaction contract
 
-This records the current, unmigrated owner, workspace and mail presentation.
-The approved full application/codebase identity is MONOLITH under
-[MONOLITH_DESIGN_SYSTEM.md](MONOLITH_DESIGN_SYSTEM.md); old naming and paths here
-are intentionally retained for browser presentation in phase 1, not runtime identifiers.
-Code, commands, environment variables and browser storage/event keys use MONOLITH;
-no visual redesign or visible product-copy migration is included in that phase.
-Selected visual surfaces follow that design target instead of the legacy presentation;
-do not require both visual systems simultaneously. Product/security behavior
-continues unchanged. Update affected requirements and their coverage map when
-the application actually cuts over, not merely when preparing reviewer guidance.
-Keep durable product/safety rules in [AGENTS.md](../AGENTS.md).
-Later approved decisions replace old requirements rather than accumulating a chronology.
-Verify implementation in code; the coverage map below is not evidence that checks passed.
+[MONOLITH_DESIGN_SYSTEM.md](MONOLITH_DESIGN_SYSTEM.md) is the single production
+presentation authority across all routes. This document retains product, operational,
+security, account, route and lifecycle boundaries; it does not define an alternate
+palette, identity or component system. Keep durable product/safety rules in
+[AGENTS.md](../AGENTS.md). Verify consuming code and report actual checks separately:
+the coverage map is not evidence that checks passed.
 
 ## Direction and shared stage
 
-- Warm cinematic minimalism inspired by quiet brutalist architecture, not film branding,
-  neon cyberpunk, a marketing page or a decorative widget wall.
-- One edge-to-edge, nearly transparent glass stage spans unlock/setup, workspace and mail
-  views, including empty/error states. Keep the outer stage borderless; control/card borders
-  and keyboard focus outlines remain. Do not turn the shell into a centered dashboard card.
-- Charcoal, Earth, Sea Glass and Mist offer restrained dark palettes with pale text,
-  strong geometry, fine dividers,
-  deliberate negative space and practical working density. Use a consistent compact gap below
-  navigation across primary views, shallow workspace/integration cards and restrained list spacing;
-  do not fill spare stage space with explanatory copy. Keep health, freshness and actionable warnings
-  visible; occasional setup, billing-policy and disconnect guidance can use native disclosures.
-  Billing confirmation remains explicit before generation. Semantic warnings/errors remain distinct.
-  Sea Glass is the default; Earth uses warm accents, Charcoal neutral accents and Mist cool slate/silver.
-  Scenery colors are independent. `assets/css/themes.css` owns palette literals and shared semantic
-  tokens; components consume those tokens rather than defining their own UI colors.
-- `--color-attention` is a palette-tuned soft violet for items needing the owner's
-  attention, such as review/check/run counts. Keep it separate from primary navigation
-  accents, amber degraded-service warnings, and coral errors/destructive actions.
-  All four palettes define it through `--theme-attention`; components never substitute
-  warning ink. Target at least 4.5:1 text contrast on the three base surfaces and a
-  distinct hue from chromatic primary, warning and error inks. Labels/tooltips still
-  communicate meaning without color; forced colors uses system text.
-- Self-host Space Grotesk with system fallbacks. Keep the name **LOVELACE** uppercase and
-  the original double-cursive-`l` monogram. Wordmark tracking/light weight must not leak
-  into long-form mail typography. Readability and contrast outrank cinematic dimness.
+- Use the canonical MONOLITH identity and single Charcoal working plane defined by
+  the design system. Preserve readable account-separated content over scenery,
+  including empty, loading and error states.
+- All application routes share the same presentation authority, including static
+  setup/unlock, directories, provider pages, mail, Calendar, GitHub and Scenes.
+  Account-letter register codes are deliberately omitted; retain numbered sections
+  and adjacent full account/address or installation identity.
+- Keep health, freshness and actionable warnings visible. Occasional setup,
+  billing-policy and disconnect guidance can use native disclosures, but billing
+  confirmation remains explicit before generation. Semantic warnings/errors stay distinct.
 - Scripts/fonts/imagery are local, with applicable licenses, provenance and checksums for
   vendored assets. No runtime CDN, font service, remote browser imagery, animated scenery
   or parallax. Server-side opted-in Gemini output is validated and served locally;
@@ -53,11 +31,11 @@ Use the same hierarchy on static setup/unlock pages and authenticated views.
 
 | Intent | Treatment | Shared class | Examples |
 | --- | --- | --- | --- |
-| Main next step | Filled theme accent | `workspace-action workspace-action-primary` | New workspace, Connect Google, Save selection, dialog confirmation |
+| Main next step | Filled primary treatment | `workspace-action workspace-action-primary` | New workspace, Connect Google, Save selection, dialog confirmation |
 | Supporting operation | Neutral outline and quiet fill | `workspace-action` | Refresh, Check Keychain, Search, Download, Cancel |
 | Contextual navigation | Underlined accent text, no box | `workspace-action workspace-action-link` | All connections, Back to results, Manage connections, URL pagination, external setup documentation |
 | Destructive operation | Error-colored outline and explicit wording, never an accent fill | `workspace-action workspace-action-danger` | Remove from workspace, Disconnect everywhere, Remove API key |
-| Command inside a management menu | Neutral unboxed row | `workspace-action workspace-action-quiet` | Rename |
+| Contextual management operation | Neutral unboxed row | `workspace-action workspace-action-quiet` | Visible workspace Rename, integration menu commands |
 
 - Use at most one accent-filled action per coherent task group: a page-level creation action,
   an independently editable form, or a modal. Do not make every account-row operation primary.
@@ -70,17 +48,17 @@ Use the same hierarchy on static setup/unlock pages and authenticated views.
 - A primary setup disclosure transfers emphasis when opened: its summary becomes a secondary
   outline and its form's submit becomes primary. Informational disclosures remain quiet,
   unboxed summaries with a disclosure indicator. Opening help is not a destructive action.
-  Provider-wide help and billing/disconnect disclosures sit below the provider's cards and
-  forms, aligned to the content edge, not inside an individual setup card. Keep current
-  credential health, actionable warnings and brief cost/startup notices visible with their
-  controls; moving policy details must not hide consent or billing confirmation.
+  Provider-wide help and billing/disconnect disclosures sit in the provider's right context
+  column, stacked after the main plane on narrow screens, not inside an individual setup card.
+  Keep current credential health, actionable warnings and brief cost/startup notices visible
+  with their controls; moving policy details must not hide consent or billing confirmation.
 - Back/manage/reconnect navigation is a text link; actually submitting authorization is an
   operation. New connection forms use primary submit; repeated existing-account reconnect
   operations stay secondary. Optional onboarding continuation/skip is secondary when a setup
   action is offered; refresh/load is secondary, never another accent-filled CTA.
-- Keep top/provider navigation and large workspace/account/provider link surfaces in their
-  existing navigation grammar, with active indicators or directional cues; do not style them
-  as command buttons. Links embedded in prose stay underlined and inherit readable body sizing.
+- Keep sidebar/provider navigation and large workspace/account/provider destinations
+  as native links with current-state indicators, not command buttons.
+  Links embedded in prose stay underlined and inherit readable body sizing.
   Regular text links have text-only labels: no decorative arrow icons or arrow glyphs.
   Keep accessible new-tab notices, disclosure indicators and functional status/service icons;
   large account/workspace/provider navigation surfaces retain their separate visual grammar.
@@ -96,8 +74,8 @@ Use the same hierarchy on static setup/unlock pages and authenticated views.
 - Shared actions have at least 44×44px targets, wrapping labels and visible keyboard focus.
   Inline prose links are not padded into buttons. Secondary hover stays neutral; accent is
   reserved for primary actions and navigation. Disabled actions do not gain hover emphasis.
-  Use theme tokens in every palette, system ButtonText/ButtonFace for operations and LinkText
-  for navigation in forced colors; do not rely on color alone to explain a destructive action.
+  Use semantic tokens and system colors for operations/navigation in forced colors;
+  do not rely on color alone to explain a destructive action.
   Use `workspace-action-link` without the `workspace-action` base on inline prose links
   and rich content titles that must retain their own typography rather than button padding.
 
@@ -127,12 +105,9 @@ Use the same hierarchy on static setup/unlock pages and authenticated views.
 
 ## Entrance, gate and persistent identity
 
-- First activation traces the centered monogram, then flips the eight LOVELACE letters
-  left-to-right. The completed logo holds briefly, then letters flip upward and out
-  left-to-right while the monogram erases from the opposite end of its entrance trace.
-  Working content becomes interactive only after exit. Current choreography uses a roughly
-  1.35s trace, 250ms hold and 1.8× exit; equivalent restrained choreography may preserve
-  the same contract.
+- Entrance uses the authored MONOLITH mark and eight-letter wordmark choreography
+  defined by M03/M11 of the design system. Decorative motion must not own business
+  controls or change authentication. Working content becomes interactive after handoff.
 - Duplicate activation does not restart an active sequence. Escape interrupts an unfinished
   entrance/exit; fresh activation replays it from the start at normal speed. Once completed,
   Escape/idle wake resumes immediately without replay. Full reload starts a fresh entrance.
@@ -144,23 +119,27 @@ Use the same hierarchy on static setup/unlock pages and authenticated views.
 - Server-owned working content is gated with `inert` until entrance completion. Remove the
   initial activation button permanently after handoff. Transfer initial focus to a meaningful
   heading without stealing focus from a control. Sticky client state survives LiveView patches.
-- Keep GSAP ownership confined to the decorative `phx-update="ignore"` brand subtree;
-  business controls/content stay outside it. Tear down listeners, media-query handlers and
-  GSAP context when hooks are destroyed; patches must not duplicate/restart choreography.
-- Top navigation has no corner monogram or wordmark. Keep the original double-cursive-`l`
-  monogram only in the centered entrance animation. Home remains a visible text link.
-- Give top-navigation links modest `0.08em` letter spacing; keep body and mail typography unchanged.
-- Lock sits top-right. Lock and the bottom-right Escape legend live outside the working-content
-  scroller and stay stationary while content and main navigation scroll. At widths without a spare
-  side gutter, shallow top/bottom bands keep these controls from covering mail or management actions.
-  Both share the sticky entrance gate; scenery mode hides Lock and dims the legend. Lock appears
-  only in an entered, focused live workspace. Center navigation and Lock lose keyboard access
-  in landscape mode.
+  Newer control focus, including assistive-technology focus without pointer/key input,
+  cancels a pending destination-heading handoff.
+- Keep native Web Animations ownership confined to the decorative `phx-update="ignore"`
+  brand subtree; business controls/content stay outside it. Cancel animations and remove
+  listeners/media-query handlers on teardown; patches must not restart choreography.
+- The in-flow collapsible sidebar and its focus/keyboard behavior follow M06.
+  Lock is a real CSRF-protected POST at the top right of each working page header,
+  including inbox, conversation and GitHub activity headers, never scenery mode.
+  Preserve entrance gating and prevent hidden/collapsed controls from receiving focus.
+  Escape prioritizes an open modal, then expanded navigation, before visual scenery.
 - Static unlock/first-run setup pages share the stage, using only a fixed public bundled
   fallback while locked; protected generated imagery and the persisted bundled choice become
   available only after unlock. Unlock stays focused without an entrance or idle timer.
+  Unlock submission fills the password field's width. Rejected passwords retain the styled
+  unlock page, an alert linked to the invalid field, and no echoed password. Omit the redundant
+  visible Locked label while retaining an accessible unlock heading.
+- Successful unlock automatically plays the entrance on the requested protected destination,
+  without a second activation click. Its destination-matched session intent is consumed by
+  the first protected GET; it grants no authorization and does not skip the inert gate.
 - Before the first eligible setup/onboarding visit in a tab's browser session, automatically
-  play the centered LOVELACE entrance/exit before exposing the pairing form, then focus the
+  play the centered MONOLITH entrance/exit before exposing the pairing form, then focus the
   step heading without a decorative focus outline on the static setup heading; keyboard
   focus rings on inputs and buttons remain visible. A session-storage noncredential marker
   prevents replay on subsequent steps, reloads, errors or returns; an old persistent marker
@@ -201,9 +180,10 @@ Use the same hierarchy on static setup/unlock pages and authenticated views.
   **Save calendar selection** and **Refresh calendars** share one action row, including
   at narrow widths; labels may wrap inside their controls. Keep their separate submission
   operations and disable selection saving during Calendar loading or reconnection.
-- Setup and onboarding use one horizontally centered, left-aligned reading column capped
-  at 60rem (960px at the default font size), including headings, step navigation, forms,
-  notices and footer copy. Step links use the 1rem body size and wrap as needed.
+- Setup and onboarding use a horizontally centered, left-aligned column capped at
+  620px. Keep the orientation heading outside the compact form plane. The five
+  navigation groups are Workspace, Google, Gmail, Calendar and Review; preserve all
+  eight real steps and the detailed Desktop OAuth guide within that structure.
   Every onboarding step starts at the same 48px top inset, independent of content height
   or viewport width; shorter steps must not vertically center.
   Narrow screens retain side padding and independently scrolling instructions without horizontal overflow.
@@ -213,8 +193,8 @@ Use the same hierarchy on static setup/unlock pages and authenticated views.
   Use **Continue** for every intermediate primary action, **Use saved client** for the
   saved-credential alternative, and **Finish setup** only on the final review page.
   Omit bottom Back links; the step navigation remains available for revisiting earlier steps.
-  Keep step navigation concise: Client, Gmail and Calendar; explain Desktop OAuth and optional Calendar in the step content.
-  The pairing screen uses a narrower 45rem (720px) maximum, retaining responsive side padding.
+- Step navigation remains available without repeating a second page heading inside
+  the form plane. Pairing uses the same compact reading measure and responsive padding.
 
 ## Home, workspace and integration navigation
 
@@ -229,33 +209,20 @@ Use the same hierarchy on static setup/unlock pages and authenticated views.
   Validated setup failures return to the corresponding guide step for retry or skip.
   Other Gmail consent returns to the receiving workspace; other Calendar consent returns
   to its global provider page for calendar selection.
-- A centered navigation bar contains **Home**, **Workspaces**, **Connections**, **Scenes**, and
-  **Settings**, in that order, wrapping at narrow widths without clipping links. These are native
-  links using LiveView patches, with usable `href` destinations
-  for copying/opening in a new tab; current destinations are identified with `aria-current`.
-  Home is a visible text control. Lock stays separate. Top-nav Connections always opens the global
-  `/connections` overview, including from workspaces and provider pages. No workspace query
-  or workspace-return control is attached; browser Back retraces the actual origin.
-  Gmail inboxes likewise have no redundant Home button.
-- Home opens with a restrained greeting and date in the browser's local time, updated
-  across midnight/resume. Home, Workspaces, Connections, Scenes and Settings use the same content width and
-  alignment from the shared directory container; Home has no narrower inner cap. Reserve
-  symmetric scrollbar gutters so scrolling pages do not shift the content plane. Keep copy
-  functional and minimal: no “Your day” eyebrow, slogans or explanatory footer. Numeric
-  account totals are labeled simply **unread**. No clock, message previews, total across
-  accounts or speculative widgets. The separately approved read-only Calendar agenda
-  below complements Gmail's daily orientation.
-- Home pairs Gmail and today's Calendar agenda in two columns on desktop, aligned at
-  their section headings. Both use quiet per-account cards matching GitHub's inset surface,
-  fine border, 6px corners and 12px gaps. Stack Gmail above Calendar when either column
-  would become cramped; retain the shared directory width, not a narrower dashboard shell.
-  Gmail, Calendar and GitHub share `.home-section-heading` and `.home-eyebrow`.
-  `--home-section-heading-height` (44px) and `--home-section-heading-gap` (12px) on
-  `.home-readouts` own the common row size and inline gap; do not add provider-specific
-  heading padding or margins. Right-align timezone/context in `.home-section-meta`
-  on the same row; long labels may wrap without creating a separate metadata row.
-  Keep the greeting/date on one restrained line where space permits. Home omits routine checked
-  statuses (including “not checked yet”) and Calendar Refresh controls. Keep loading, error and
+- The sidebar contains Home, Workspaces, Connections, Scenes and Settings in numbered
+  order. Lock lives in the page header, outside the sidebar. Destinations are native links using LiveView patches and
+  usable `href`s for copying/new tabs; current destinations use `aria-current`.
+  Connections always opens global `/connections`, without workspace query or return
+  context. Browser Back retraces the origin. Gmail inboxes have no redundant Home button.
+- Home opens with **A day in focus.** and a browser-local date updated across
+  midnight/resume. Primary views share the directory alignment and width.
+  Keep copy functional, without repeated greetings, clocks, message previews,
+  aggregate account totals or speculative widgets. Unread totals are labeled **unread**.
+- Home pairs account-separated Gmail and browser-local Calendar readouts, with
+  GitHub below; responsive composition, numbered headings, joined glass and semantic
+  rhythm follow the design system. Keep timezone/context beside the corresponding
+  heading and full account identity beside observations, wrapping without clipping.
+  Home omits routine successful-check statuses and Calendar Refresh controls. Keep loading, error and
   locally aging stale warnings visible; workspace/Connections timestamps and refresh remain unchanged.
   Unknown unread totals use a dash with an accessible unavailable label, never a fabricated zero.
   Calendar setup is a compact empty state linking directly to Connections → Calendar.
@@ -272,11 +239,9 @@ Use the same hierarchy on static setup/unlock pages and authenticated views.
   marks observations stale after three minutes, independent of unrelated mail-page success.
   Home rendering reads persisted metadata, never provider calls or cached message content.
   Empty/loading/error/reconnect states remain explicit, with recovery through Connections.
-- Missing-content states share a small decorative service icon, a regular-weight heading,
-  one short explanation and a relevant next action. Home readouts and their service empty
-  states use quiet inset cards on the glass; workspace readouts keep fine separators.
-  Provider/Scenes setup uses inset cards too, not large illustrations or a centered welcome
-  dashboard. Keep actions at least 44px high, text wrapping
+- Missing-content states retain a small decorative service icon, regular-weight heading,
+  short explanation and relevant next action on the shared working plane.
+  Keep actions at least 44px high, with wrapping labels
   and system-color fallbacks. Do not repeat the same connection action in both section heading
   and empty content, or show empty content while its setup panel is open.
 - A genuinely empty Workspaces directory offers **New workspace** in its empty state.
@@ -293,7 +258,7 @@ Use the same hierarchy on static setup/unlock pages and authenticated views.
   there are no accounts to manage. Missing GitHub App configuration shows setup instructions,
   not a service-failure warning or an operational sign-in control.
   Gemini puts **Add API key** before secondary Keychain diagnostics; cost and startup behavior
-  remain visible, and expanded credential forms keep their ordinary protected POST boundary.
+  remain visible, and credential modals keep their ordinary protected POST boundary.
   Successful empty agendas distinguish no selection from no events; loading, access failures
   and partial results never become a fabricated “nothing here” success.
 
@@ -312,10 +277,10 @@ Use the same hierarchy on static setup/unlock pages and authenticated views.
 
 - GitHub adds a full-width **GitHub activity** section beneath Gmail/Calendar, grouped by
   personal/organization installation owner, never merged with mail or another owner.
-  Home uses compact per-owner cards, three per row on desktop, two on medium screens
-  and one on narrow screens. Show open PR/issue totals and recent-run snapshot counts.
-  PRs and runs pair the main count with snapshot attention count as `total / attention`,
-  theme accent versus `--color-attention`, with accessible labels and an attention tooltip.
+  Home uses compact per-owner readouts with full installation identity.
+  Show open PR/issue totals and recent-run snapshot counts. PRs and runs pair the
+  main count with snapshot attention count as `total / attention`, using distinct
+  semantic ink and visible accessible labels, not tooltip-only explanations.
   Count each PR needing review or failing checks once. Unknown/unavailable or expired
   counts use a dash, never a fabricated zero. Home omits per-owner status, partial-result
   messages and last-checked timestamps; workspace details retain health, freshness and
@@ -327,19 +292,22 @@ Use the same hierarchy on static setup/unlock pages and authenticated views.
   author, explicit review/check/run state, safe new-tab links and UTC update times.
   No remote images, repository contents, workflow logs or artifacts. Preserve partial,
   stale/error/expired observations; incomplete results never imply an empty success.
-  Connections → GitHub owns the inline registration/permissions/callback guide, native
-  client ID/secret/slug POST form, session-bound OAuth browser sign-in and account disconnect.
+  Connections → GitHub keeps the client settings modal trigger, session-bound OAuth
+  browser sign-in and account disconnect in the main account plane. Its
+  registration/permissions/callback guide belongs in the right context column.
   Saving settings is local-only, never provider verification. Secrets are never prefilled
   or returned. Hide sign-in while settings are missing, checking, locked or unavailable;
   locked/unavailable reads show an actionable keychain warning, never missing-settings setup.
   Failed sign-in remains a usable recovery page. OAuth uses single-use state and PKCE.
-  Do not mount setup/editor disclosures until the local settings check settles: missing
-  settings start open; stored settings start collapsed, preserving later user toggles.
+  Do not mount the setup guide or credential-modal trigger until the local settings check
+  settles. The guide starts collapsed for both missing and stored settings. GitHub's context
+  disclosures use native leading markers and plain, non-underlined summaries, matching
+  Keychain checks and recovery; preserve later toggles. Credentials open only on explicit activation.
   Saved app settings without an authorized account explicitly show that sign-in is still
   required. Ready account cards show Connected from persisted account state across reloads,
   never from the settings-save flash or an expired browser authorization attempt.
   Separate **Choose repositories on GitHub** (installation access) from **Connect GitHub
-  account** (LOVELACE authorization). Rejected returns show a specific, safe inline
+  account** (MONOLITH authorization). Rejected returns show a specific, safe inline
   recovery state across reloads, not stale waiting or a claim that GitHub denied access.
   **Start connection again** replaces the pending request explicitly; state/session
   validation and single-use exchange remain mandatory. Exchanging requests cannot restart.
@@ -353,20 +321,31 @@ Use the same hierarchy on static setup/unlock pages and authenticated views.
   and app settings stay in the dedicated keychain. Failed deletion and retained legacy
   PATs remain reachable for explicit cleanup. See [GitHub setup](DEVELOPMENT.md#github).
 
-- Workspaces represent areas of life. **Quiet sea-glass cards supersede the earlier
-  typographic/no-card directory**. Use generous native link surfaces and separate native
-  management disclosures for rename; opening and management are siblings, never nested controls.
-  Create/rename use native modal dialogs with trapped focus, labelled headings and inline
+- Workspaces represent areas of life. Destination links and always-visible Rename
+  text buttons are siblings, never nested controls. Rename opens its dialog directly,
+  not through a workspace menu. Integration management menus remain separately scoped.
+  Create/rename use native modal dialogs with contained focus, labelled headings and inline
   validation. Cancel/Escape closes only the dialog, restoring focus without entering scenery
   mode. Unrelated patches preserve the draft; invalid submissions keep the dialog open.
   The visual idle timer pauses while a modal is open and resumes on dismissal;
   this is not an authentication or privacy change.
+  Google/Gemini/GitHub credential dialogs reuse the native shell but open and dismiss
+  locally. They retain browser-only unsaved drafts through dismissal and unrelated patches;
+  native protected POSTs never return stored secrets. Inactivity pauses only while open,
+  and removing a closed editor during navigation must not steal destination focus.
+- Workspace cards pair their destination and Rename with truthful integration metadata.
+  Workspace detail exposes **Add integration** and Rename as page actions. The focused
+  integration page has one heading and a named return to its workspace, not a duplicate
+  workspace editor. Account readouts remain independent and follow current observations.
 - `/connections` is a quiet provider overview with Google, Gmail, Calendar, Gemini and GitHub links and
   short purpose labels, not a default Gmail page or combined health dashboard. It mounts
   no provider form and makes no Keychain/provider probe. Opening a provider focuses the
   heading; each provider offers **All connections** back to the overview.
-- Provider pages have a **Google / Gemini / Gmail / Calendar / GitHub** subnav on the same row as the title
-  on desktop (wrapping below on narrow screens), with only the selected provider mounted.
+- Provider pages have a **Google / Gmail / Calendar / Gemini / GitHub** subnav below
+  the title, with only the selected provider mounted. Use glass-owned main content and
+  transparent contextual help in a 1.6:1 split, stacked at narrow widths. GitHub's authorized
+  accounts and joined installation-owner list own separate glass grounds; primary empty/error
+  state copy also has a glass owner rather than reading directly over scenery.
   Native links identify the provider with `aria-current`; switching preserves focus on the
   chosen subnav control. Provider paths are `/connections/google`, `/connections/gmail`,
   `/connections/calendar`, `/connections/gemini` and `/connections/github`. Each supports direct GET, reload and new tabs;
@@ -377,7 +356,7 @@ Use the same hierarchy on static setup/unlock pages and authenticated views.
   Its add/replace disclosure follows the same primary-save/secondary-open-editor action hierarchy
   as other credentials. Ordinary CSRF-protected POSTs are consumed before instrumentation;
   no client values reach LiveView or return in the page. Status means local settings presence,
-  not verified Google access. Setup help sits below the card. Saving makes no provider request.
+  not verified Google access. Setup help sits in the right context column. Saving makes no provider request.
   Gmail and Calendar remain separate explicit account grants.
 - First-run requires a named workspace, not integrations. **Skip Google** skips the
   Google guide and its dependent account steps to review; **Skip Gmail** and **Skip Calendar**
@@ -411,8 +390,11 @@ Use the same hierarchy on static setup/unlock pages and authenticated views.
   select the receiving workspace, preserving identity and membership context.
 - Gmail Connections offers an explicit per-account **Check Keychain**, separate from
   Google reconnect/disconnect. Run it asynchronously, one at a time, with announced
-  safe error categories and an observation timestamp; never expose the token. Explain
-  that an unlocked keychain can still deny item access and a readable token does not
+  safe error categories and an observation timestamp; never expose the token.
+  While a check or disconnect cleanup blocks account actions, show a shared explanation
+  naming the account and operation; associate every affected disabled control with it.
+  Remove that explanation and association once the operation settles.
+  Explain that an unlocked keychain can still deny item access and a readable token does not
   verify Google. Checks do not change permissions, contact Google, refresh mail or
   clear persisted health/freshness. Fence delayed results across connection generations
   and leaving/reentering Connections. Keep recovery guidance in a native disclosure;
@@ -438,6 +420,9 @@ Use the same hierarchy on static setup/unlock pages and authenticated views.
   screens reduce padding rather than shrinking body type below that starting point.
 - Show one conversation heading. Earlier messages use native expandable sender/date
   summaries; the latest message starts expanded and the reader begins at that reply.
+  Focus the latest message summary without hiding it beneath the sticky account/return
+  context. Keep the reader at a comfortable text measure within its own glass plane;
+  search belongs to results, with its query preserved on return.
   Differing subjects remain visible within their messages. Full sender/recipient/raw-date
   metadata has its own disclosure. Preserve quoted history/signatures as escaped text;
   no automatic trimming, HTML rendering, remote content or mailbox writes. Attachment
@@ -445,28 +430,25 @@ Use the same hierarchy on static setup/unlock pages and authenticated views.
   downloads; never render active document types. Fetch bytes only on demand with the 5 MiB
   bound and no persistent attachment cache (see [GMAIL.md](GMAIL.md)). Disclosure choices
   survive ordinary refreshes. Escape/idle preserves reader state.
-- Back to results retains search/page and restores the opened row's focus and scroll
-  position after the async list returns. Client navigation memory is ephemeral, bounded
-  to one result context and reset on account/connection-generation/search/page changes;
-  never persist bodies or queries in browser storage. Routine fetch freshness is compact
+- Back to results and browser Back retain search/page and restore the opened row's focus
+  and scroll position after the async list returns, including after reader Escape/wake.
+  New keyboard, pointer or input intent cancels that pending handoff; a later navigation
+  starts fresh rather than inheriting the cancellation. Client navigation memory is
+  ephemeral, bounded to one result context and reset on account/connection-generation/
+  search/page changes; never persist bodies or queries in browser storage. Routine fetch freshness is compact
   and ages locally, with an exact timestamp disclosure. Loading/errors/stale-copy warnings
   stay explicit and announced; cached content must not imply a new successful fetch.
-- Background activity and last-known integration health share a custom inline SVG signal
-  family, not an icon pack: an orbiting ring for confirmed activity, checked ring for known
-  healthy/local presence, dashed ring for unknown, pause ring for waiting, slashed ring for
-  disconnected and triangle for attention. Never animate unknown/unconfirmed outcomes or imply
-  a live provider check. Routine labels (including Gmail last-success timestamps) move into
-  keyboard-focus/hover details with accessible names; embedded signals reuse their native link's
-  focus instead of adding nested tab stops. Details fit the content/viewport, remain hoverable,
-  and Escape dismisses them without entering scenery. Errors, stale warnings, absent credentials
-  and recovery instructions retain visible text. Home still omits routine healthy observations;
-  Calendar/mail freshness and exact timestamps retain their existing behavior. Key presence or
-  readability never verifies Google access. Action feedback and global navigation Topbar remain separate.
-- Mail loading uses this indeterminate SVG on a transparent, reserved status line on the shared
-  glass, never a filled warning box or invented percentage. Loading completion alone must not
-  shift retained content. Reduced motion (including changes mid-load) and forced colors stop the
-  orbit, preserving its static shape. Keep polite accessible status names and separate unfilled
-  warning edges for actionable errors/stale states.
+- Background activity and last-known health use the six canonical decorative SVG
+  signals with always-visible status labels, as specified in M07. No separate
+  focusable signal or hover/focus-only status tooltip is required.
+  Only loading implies an active read; unknown animation must not imply polling.
+  Errors, stale warnings, absent credentials and recovery instructions remain visible.
+  Home may omit routine healthy observations; Calendar/mail freshness and exact
+  timestamps retain their operational behavior. Key presence/readability never verifies Google.
+- Mail loading uses an indeterminate signal on a transparent reserved status line,
+  never a filled warning panel or invented percentage. Loading completion must not
+  shift retained content. Reduced motion and forced colors retain complete static
+  shapes; keep polite status announcements and separate actionable stale/error text.
 - Scenes shows only the setup information card until the initial local credential check
   confirms a stored Gemini key. Missing, initial/unknown, locked, invalid and unavailable
   states never show the direction editor, generation controls, gallery, attempt history
@@ -480,6 +462,9 @@ Use the same hierarchy on static setup/unlock pages and authenticated views.
   result returns to setup-only. Only a fresh stored-key result restores operational controls;
   it never claims verified Google access. Opening/refreshing Scenes checks only local key
   availability and local scene state; bundled scenery remains usable without Gemini.
+- Confirmed-key Scenes uses balanced direction/generation and current-preview columns,
+  with the gallery below. Setup-only states remain compact rather than reserving an
+  empty preview column.
 - Scenes opens with guided **Scene direction** choices for subject, setting, light and
   palette. Save persists the app-wide default for future manual and already opted-in startup
   generations; it never generates, probes credentials or changes startup opt-in. An expandable
@@ -502,8 +487,14 @@ Use the same hierarchy on static setup/unlock pages and authenticated views.
   or unknown outcomes, and that there are no automatic retries. Cancel/Escape restores trigger focus and
   does not request generation. Confirmed work survives navigation; startup opt-in remains
   independent. Preserve modal idle/focus behavior and gallery selection during scenery wake.
+- Settings saves startup opt-in through Ash; an absent preference is off.
+  Environment configuration must also allow new automatic work:
+  `MONOLITH_STAGE_ENABLED=false` vetoes it without cancelling authorized jobs.
+  Saving never generates, probes credentials or changes cooldowns. Manual generation
+  remains independent and freshly confirmed.
 - Meaningful views have URLs: `/workspaces`, `/workspaces/:workspace_id`, its `/integrations`
-  setup panel, `/accounts/:account_id/mail`, and workspace-scoped
+  setup panel, `/workspaces/:workspace_id/github/:organization_id`,
+  `/accounts/:account_id/mail`, and workspace-scoped
   `/workspaces/:workspace_id/accounts/:account_id/mail`. Readers append `/threads/:thread_id`.
   Submitted searches use `q` and Gmail pagination uses `page_token`; both remain in reader URLs
   for returning to results. Search text is consequently visible in browser history/copied links,
@@ -524,18 +515,11 @@ Use the same hierarchy on static setup/unlock pages and authenticated views.
 
 ## Images, accessibility and preferences
 
-- Authenticated `/settings` offers exactly **Charcoal**, **Earth**, **Sea Glass**, and **Mist**
-  as native radio choices. Use compact cards in one four-option row on desktop (1024px and
-  wider), two columns on tablet and one column at 640px and below. Each card contains only
-  its swatch, name and native radio; retain visible selection and keyboard focus. Changes apply
-  immediately to the entire UI, including mail,
-  dialogs, status signals and static unlock; they never select, recolor or generate scene imagery.
-  Selection stays in this browser's `localStorage` under `monolith:theme`, not an account or database.
-  A synchronous self-hosted bootstrap restores the allowlisted choice before CSS paints; missing or
-  invalid values use Sea Glass. Without JavaScript the default remains usable. If browser storage
-  is denied, apply the choice only to the current document and announce that it could not be saved.
-  Patch navigation, reload and browser history preserve the selected palette; separate already-open
-  tabs do not synchronize live. Forced colors uses system colors instead of the palette.
+- Settings offers a browser-local 1–60 minute visual inactivity preference under
+  `monolith:idle-minutes`, with a three-minute default (or configured default).
+  Storage failure must not claim persistence. This preference neither locks the app
+  nor generates imagery. Startup opt-in is separately persisted through Ash.
+  There is no theme picker, palette bootstrap or account-owned UI palette.
 - Reveal a generated image only after it successfully loads. Failed loads leave the
   installation's local bundled JPEG default, not a broken-image replacement. Three
   owner-approved images ship locally; choose one once per installation, preserving it
@@ -571,17 +555,16 @@ historical results do not certify a new change.
   Escape and pagehide cleanup.
 - `test/js/workspace_entrance_test.mjs`: gate completion, immediate return handoff,
   focus safety, patch continuity and teardown. Brand tests cover both return-hook mount orders.
-- `test/js/theme_picker_test.mjs`: persisted selections, corrupt/prototype-named values, unavailable
-  storage, failed writes/recovery, patch/remount continuity and listener teardown.
+- Preference regressions cover browser-local idle storage, invalid values, denied
+  writes and lifecycle cleanup; startup tests cover owner-only persistence and environment veto.
 - `test/js/ui_browser_runner_test.mjs`: early normal/signal Chrome exit must fail promptly,
   not hang on an already-fired event or report success; no real browser/app is launched.
 - `test/js/workspace_idle_test.mjs`: elapsed-time/activity/wake rules, patches/hidden tabs,
   modal idle suspension/resume, timer cleanup and shared static/live image-load observer.
 - `test/js/native_modal_test.mjs`: opening/focus, sticky open state, Escape isolation,
   server-owned dismissal, listener cleanup and focus restoration (including disabled triggers).
-- `test/monolith_web/components/status_components_test.exs` and `test/js/status_signal_test.mjs`:
-  custom SVG states, accessible names, visible warning text, link focus reuse, detail dismissal,
-  boundary placement, patch transitions and listener teardown.
+- `test/monolith_web/components/status_components_test.exs`: canonical decorative
+  SVG states with visible accessible labels, rather than tooltip interaction.
 - `test/js/calendar_agenda_test.mjs`: browser-local midnight/DST boundaries,
   midnight/resume/reconnect notifications, event local-time/ongoing labels and teardown.
 - `test/js/onboarding_calendar_test.mjs`: actual controller-page initializer with fake
@@ -604,7 +587,7 @@ historical results do not certify a new change.
   `test/monolith_web/controllers/github_credentials_test.exs` covers early client-settings/intent
   POSTs and callbacks, CSRF/revoked sessions and secret scrubbing; transport tests enforce
   fixed destinations and bounded read-only payloads. Synthetic keychain tests cover service isolation.
-- `test/js/home_readouts_test.mjs`: local greeting/date, timestamp aging, patched failure
+- `test/js/home_readouts_test.mjs`: local date, timestamp aging, patched failure
   metadata, resume updates and timer/listener teardown.
 - `test/js/mail_reader_test.mjs`: async reader focus/latest-reply handoff, exact return
   scroll/focus, context fencing and teardown; local date formatting and independently
@@ -647,46 +630,19 @@ historical results do not certify a new change.
 - `test/monolith_web/controllers/owner_controller_test.exs`: static unlock/setup, session
   revocation and real CSRF enforcement on Lock (missing/invalid denial, valid token acceptance).
   Asset tests pin local vendor/font files and retained licenses.
-- `test/browser/ui_contract.mjs`, launched by `test/support/ui_browser.exs`: actual browser
-  entrance/directional exit/gate and focus; already-unlocked OAuth/credential returns
-  without activation, one-use reload behavior and Escape/wake; Home/Lock computed visibility/focusability; static
-  stage with/without JS; static/live image success/failure; wheel-scrolled stationary Lock/Escape
-  rail with independently scrolling navigation at desktop/laptop/narrow widths and forced colors,
-  including reserved-band non-overlap and entrance gating; native menus; workspace/account/
-  Connections navigation; workspace modal focus/inertness, Escape-only cancellation,
-  idle draft preservation, save/cancel focus restoration, first-click activation and scroll preservation;
-  keyboard local credential checks, timestamped unverified-Google results and Keychain
-  help without credential disclosure or horizontal overflow; five compact Gmail rows
-  and the new-connection modal's required workspace choice,
-  Cancel/Escape focus and desktop/narrow/forced-color layout; title-row provider subnav,
-  keyboard switching with focus retained, mutually exclusive provider interfaces, compact primary-view
-  spacing and cards, keyboard-accessible provider help disclosures with visible health, scenery
-  wake preserving selection and credential POSTs returning to Gemini;
-  Gemini's ordinary credential POST to a fake vault, empty return form and truthful key state;
-  compact side-by-side Home readouts at desktop/laptop widths, stacked tablet/narrow readouts,
-  no routine checked statuses or Home Calendar Refresh, retained stale warnings and workspace controls,
-  unknown unread labels, compact empty Home and direct Calendar setup;
-  optional Calendar Home/workspace agendas with safe explicit links, Google-selected and
-  shared-calendar selection, exclusive Calendar Connections and ordinary consent POSTs,
-  desktop/narrow/forced-color Calendar layouts and fixture screenshots;
-  an empty-installation pass with the actual bundled defaults, no generated images,
-  no-JS/static/live parity, decoded JPEGs and unchanged default across reload/navigation/wake;
-  scheduled idle expiration with a shortened disposable DOM timer; mid-reveal reduced motion;
-  forced colors; desktop/narrow inbox/reader layouts; long-token wrapping and body type;
-  native message/metadata disclosures and refresh preservation; reader Escape/wake;
-  async browser-Back row-focus/scroll restoration; real URL Back/Forward, global Connections overview/provider
-  navigation, obsolete-query cleanup and direct Gemini reload, workspace reload and copied conversation/search/page links; real delayed loading transparency, stable status
-  height and ordinary/reduced-motion/forced-color SVG activity behavior, including mid-load preference
-  changes; compact health detail focus/hover, Escape-only dismissal, static health shapes and
-  desktop/narrow/forced-color tooltip screenshots; Scenes guided direction preview/save/discard,
-  draft preservation through refresh and scenery wake, exact confirmation prompt and saved
-  direction reload, desktop/narrow editor screenshots; Scenes keyboard navigation, gallery dates/previews, confirmation Cancel/Escape
-  and focus restoration, read-only refresh, cross-tab selection, reload persistence, narrow
-  and forced-color gallery/dialog layouts; all four keyboard-selected Settings themes on Home,
-  Workspaces and mail, reload/history persistence, unchanged imagery, narrow/forced-color picker
-  layouts and the protected Settings deep link; real GitHub attention counts across all
-  four palettes, AA contrast on base surfaces, semantic hue separation, narrow/forced-color
-  labels and screenshots; off-origin requests, page errors and CSP events.
+- `test/browser/ui_contract.mjs`, launched by `test/support/ui_browser.exs`, is the
+  synthetic real-browser gate for compiled assets and LiveView behavior. Required
+  acceptance includes entrance/gating and return handoffs; sidebar collapse/expansion,
+  keyboard focus and real Lock structure; native modals and draft restoration;
+  first-input wake, idle and scroll preservation; deep links/reload/Back/Forward;
+  account-separated Gmail/Calendar/GitHub routes and delayed identity races; provider
+  setup and credential POST boundaries; safe local image loading; Scenes draft/save/
+  confirmation/gallery lifecycle; idle/startup Settings behavior; canonical visible
+  signals; narrow layouts, reduced motion, forced colors and print.
+  Exercise long/bidi identities, 320px layout, real 200% text and 400% page zoom,
+  keyboard traversal and scenery/glass contrast as required by M12; source assertions
+  or viewport resizing do not substitute for those measurements. Capture actual
+  exercised routes/states and off-origin/page-error/CSP results, not assumed coverage.
 
 The browser gate is separate from `mix check`/hosted CI and requires an installed browser;
 it fails rather than silently skipping when unavailable. See development guidance for its

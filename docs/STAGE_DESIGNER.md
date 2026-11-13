@@ -113,6 +113,34 @@ independent work. The obsolete `generateContent` implementation and transport sh
 removed; actual transport regressions exercise the supported Interactions path.
 
 
+## Saved automatic startup preference
+
+Automatic scenery requires **both** the local owner's saved opt-in and
+`MONOLITH_STAGE_ENABLED=true`. The application-wide Ash startup-preference singleton
+defaults to **off when absent**; reads never initialize it. Unknown/unreadable saved
+state fails closed before reservation, job admission, credentials or provider access.
+Apply the additive `add_startup_scene_preference` migration before using this preference.
+The environment is an independent hard veto: saving opt-in cannot override maintenance
+configuration, including through the internal failed-attempt retry action.
+
+`StageDesigner.startup_preference(actor: owner)` returns
+`{:ok, %{enabled: saved_boolean, environment_enabled: configured_boolean}}`.
+`StageDesigner.save_startup_preference(%{enabled: boolean}, actor: owner)` validates
+the required boolean, upserts the singleton and returns the observed saved/configured
+flags. These public actions require the strict local-owner capability; only the
+service-authorized persistence read is also available to startup admission.
+Read/save errors are errors, not evidence that opt-in succeeded.
+
+Saving never generates, admits a job, probes credentials/providers, changes the
+reservation version or cooldown, or cancels existing work. A save while running is
+not a new startup event. The next eligible first ordinary unlock after an application
+restart still observes the persisted minimum 24-hour cooldown and permanent one-shot
+submission claims. Manual Scenes requests remain independent and require fresh cost
+confirmation. Recovery/retrieval/cleanup and queued submissions of already-authorized
+work remain allowed with either startup gate off; a retry flag never authorizes a new
+attempt through a disabled gate.
+
+
 ## Saved scene direction
 
 Scenes offers guided subject (architecture, landscape, abstract), setting, light and palette
@@ -238,7 +266,7 @@ instant crash-time lock is not guaranteed. There is no password recovery: forget
 the owner password permanently loses access to the encrypted database and credentials.
 
 ```sh
-# Explicit opt-in to paid startup generation:
+# Enable the environment prerequisite; also save owner opt-in in Settings:
 dotenvx set MONOLITH_STAGE_ENABLED true -f .env --no-native --no-armor --no-1password --no-bitwarden
 chmod 600 .env .env.keys
 ```
@@ -255,9 +283,10 @@ dotenvx run --strict -f .env --no-native --no-armor --no-1password --no-bitwarde
 Plain Mix does not load `.env`. Existing shell variables take precedence over dotenvx;
 avoid stale overrides. Do not `source .env`. Configuration changes require restarting
 the application. Startup remains locked. The first ordinary unlock may authorize a new
-startup generation; `MONOLITH_STAGE_ENABLED=false` blocks new automatic generations,
-not already authorized durable jobs once unlocked. Unlock can resume queued submission,
-retrieval or deletion even with startup opt-in disabled. Maintenance requiring no provider
+startup generation only with saved owner opt-in and `MONOLITH_STAGE_ENABLED=true`;
+`MONOLITH_STAGE_ENABLED=false` blocks new automatic/operator attempts regardless of the
+saved flag, not already authorized durable jobs once unlocked. Unlock can resume queued
+submission, retrieval or deletion even with either startup gate disabled. Maintenance requiring no provider
 calls must keep the vault locked, use no-start terminal tooling, or use the explicit
 maintenance unlock mode that does not activate Oban queues. Stopping queues—not merely
 disabling startup generation—is required. Test runtime disables real provider transport,
@@ -278,7 +307,7 @@ argument at save time, never database state, application configuration, or a Liv
 | Variable | Default / constraint |
 | --- | --- |
 | Gemini API key | Connections UI → dedicated MONOLITH file keychain; resolved only at the server HTTP boundary while unlocked. `GEMINI_API_KEY` is ignored |
-| `MONOLITH_STAGE_ENABLED` | `false` by default; exact `true`/`false` |
+| `MONOLITH_STAGE_ENABLED` | `false` by default; exact `true`/`false`; hard veto independent of saved owner opt-in (also off by default) |
 | `MONOLITH_STAGE_MODEL` | `gemini-nano-banana-2.1`; explicit safe model ID |
 | `MONOLITH_STAGE_ASPECT_RATIO` | `16:9`; also `21:9`, `4:3`, `3:2`, `1:1` |
 | `MONOLITH_STAGE_IMAGE_SIZE` | `1K`; also `2K`/`4K`, subject to validation limits/model support |
@@ -397,9 +426,10 @@ of the same ID without submitting another generation. An expired/unavailable int
 becomes an acknowledgeable unknown outcome rather than permanently blocking generation. There is also an **internal operator-only**
 `retry_failed_startup` Ash action for an explicitly authorized single diagnostic attempt;
 it is never called by startup, a timer, or the browser. It only accepts a prior failed
-state, requires the service actor, reserves a fresh timestamp/version before HTTP, and
-leaves the normal cooldown/retry policy intact. It must not be invoked without the user's
-explicit permission for another potentially billable request. It refuses successful or
+state, requires the service actor and both startup gates, reserves a fresh
+timestamp/version before HTTP, and leaves the normal automatic cooldown/retry policy
+intact. It must not be invoked without the user's explicit permission for another
+potentially billable request. It refuses successful or
 still-`generating` attempts, including interrupted ones. A persisted `generating` state after a crash is not
 permission to retry. Legacy public background reads expose a reservation without a tracked attempt as `uncertain`,
 not proof of activity. Explicit acknowledgement preserves a labelled legacy unknown record;

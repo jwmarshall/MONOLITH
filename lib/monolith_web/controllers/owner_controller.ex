@@ -42,6 +42,7 @@ defmodule MonolithWeb.OwnerController do
             |> clear_session()
             |> put_session(:owner_session_token, token)
             |> put_session(:live_socket_id, Actions.topic(Actions.digest(token)))
+            |> put_session(:workspace_unlock, destination)
             |> redirect(to: destination)
 
           _ ->

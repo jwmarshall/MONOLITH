@@ -20,6 +20,8 @@ defmodule Monolith.StageDesigner.CoordinationTest do
        Monolith.Repo.Migrations.AddSceneDirection},
       {20_261_103_210_745, "20261103210745_tracked_gemini_generations.exs",
        Monolith.Repo.Migrations.TrackedGeminiGenerations},
+      {20_261_111_120_000, "20261111120000_add_startup_scene_preference.exs",
+       Monolith.Repo.Migrations.AddStartupScenePreference},
       {20_261_102_060_000, "20261102060000_add_gmail_jobs.exs",
        Monolith.Repo.Migrations.AddGmailJobs}
     ])
@@ -33,6 +35,7 @@ defmodule Monolith.StageDesigner.CoordinationTest do
     Application.put_env(:monolith, :stage_designer, settings)
     Repo.put_dynamic_repo(first)
     StageDesigner.initialize_state!(%{}, actor: @actor)
+    StageDesigner.save_startup_preference!(%{enabled: true}, actor: %{role: :local_owner})
 
     on_exit(fn ->
       Application.put_env(:monolith, :stage_designer, previous)

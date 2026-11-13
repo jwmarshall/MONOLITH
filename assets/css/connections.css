@@ -1,0 +1,62 @@
+/* Provider controls own one glass plane; adjacent guidance stays on the working plane. */
+.provider-layout { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); align-items: start; gap: 32px; }
+.provider-main, .provider-context { min-width: 0; }
+.provider-main { background: var(--card-surface); border-block: 1px solid var(--line); }
+.provider-main > .provider-credential { padding: 24px; border: 0; background: transparent; box-shadow: none; }
+.provider-main .empty-state { background: transparent; border-color: var(--line-interior); }
+.provider-main > .connections-panel > .empty-state:first-child { border-top: 0; }
+.provider-main > .connections-panel > .empty-state:last-child { border-bottom: 0; }
+.provider-credential { display: block; padding: 0; border: 0; border-radius: 0; background: transparent; box-shadow: none; }
+.provider-credential-body { display: grid; gap: 24px; min-width: 0; }
+.card-section-heading { display: grid; grid-template-columns: minmax(0, 1fr) fit-content(48%); gap: 12px 24px; align-items: start; padding: 24px; border-bottom: 1px solid var(--line-interior); }
+.card-section-heading > .mail-eyebrow { grid-column: 1; margin: 0; }
+.card-section-heading > :is(h2,h3) { grid-column: 1; margin: 0; font-size: 23px; font-weight: 400; line-height: 1.25; letter-spacing: -.03em; overflow-wrap: anywhere; }
+.card-section-heading > [role=status], .card-section-heading > .provider-heading-action { grid-column: 2; grid-row: 1 / 3; justify-self: end; min-width: 0; max-width: 100%; margin: 0; font-size: 13px; text-align: end; }
+.provider-credential-body > .card-section-heading { margin: -24px -24px 0; }
+.connection-card-head { display: grid; grid-template-columns: minmax(0, 1fr) fit-content(48%); align-items: start; gap: 16px; margin-bottom: 16px; }
+.connection-card-head > div { min-width: 0; }
+.provider-layout .connection-card-head :is(h2,h3,h4) { margin: 0; font-size: var(--type-account-size); font-weight: 400; line-height: var(--type-account-leading); letter-spacing: var(--type-account-tracking); overflow-wrap: anywhere; }
+.connection-card-head .identity { margin: 6px 0 0; color: var(--muted); }
+.connection-card-head > :not(div) { justify-self: end; align-items: flex-start; text-align: right; min-width: 0; max-width: 100%; }
+.provider-credential .gemini-actions { display: flex; flex-wrap: wrap; align-items: start; gap: 12px; }
+.provider-credential p, .provider-context { overflow-wrap: anywhere; }
+.provider-credential .provider-safety { margin: 0; padding-top: 16px; border-top: 1px solid var(--line-interior); color: var(--ink); font-size: 13px; line-height: 1.55; }
+.provider-context { padding-left: 24px; border-left: 1px solid var(--line); background: transparent; }
+.provider-context > h2 { margin: 0; font-size: 18px; font-weight: 400; line-height: 1.55; }
+.provider-context > p { margin: 12px 0 0; color: var(--muted); font-size: 16px; line-height: 1.55; }
+.provider-context > details { margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--line-interior); }
+.provider-context summary { min-height: 44px; cursor: pointer; font-size: 13px; line-height: 1.55; }
+.provider-context-copy { display: grid; gap: 16px; padding-top: 12px; color: var(--muted); font-size: 13px; line-height: 1.55; }
+.provider-context-copy p { margin: 0; }
+.provider-context a { color: var(--ink); text-decoration: underline; text-underline-offset: 4px; }
+.provider-context-copy > a { display: inline-flex; align-items: center; justify-self: start; min-height: 44px; }
+.provider-context :focus-visible, .provider-credential :focus-visible { outline: 2px solid var(--attention); outline-offset: 3px; }
+@media (max-width: 1080px) {
+  .provider-layout { grid-template-columns: minmax(0, 1fr); }
+  .provider-context { padding: 24px 0 0; border-left: 0; border-top: 1px solid var(--line); }
+}
+@media (max-width: 600px) {
+  .provider-main > .provider-credential { padding: 24px 16px; }
+  .card-section-heading { grid-template-columns: minmax(0, 1fr); padding-inline: 16px; }
+  .card-section-heading > [role=status], .card-section-heading > .provider-heading-action { grid-column: 1; grid-row: 1; text-align: end; }
+  .provider-credential-body > .card-section-heading { margin-inline: -16px; }
+  .connection-card-head { grid-template-columns: minmax(0, 1fr); gap: 12px; }
+  .connection-card-head > div { grid-row: 2; }
+  .connection-card-head > :not(div) { grid-row: 1; }
+}
+@media (forced-colors: active) {
+  .provider-main { background: Canvas; color: CanvasText; border-color: CanvasText; }
+  .provider-main .provider-credential { background: transparent; color: CanvasText; }
+  .provider-credential *, .provider-context *, .provider-context { color: CanvasText; border-color: CanvasText; text-shadow: none; }
+  .provider-context a { color: LinkText; }
+  .provider-credential :focus-visible, .provider-context :focus-visible { outline-color: Highlight; }
+}
+@media print {
+  .provider-layout { display: block; }
+  .provider-main, .provider-main .provider-credential, .provider-context { background: transparent; color: black; border-color: black; box-shadow: none; }
+  .provider-context { padding: 24px 0 0; margin-top: 24px; border-left: 0; border-top: 1px solid black; }
+  .provider-credential *, .provider-context * { color: black; border-color: black; text-shadow: none; }
+  .provider-credential .gemini-actions { display: none; }
+  .provider-context details::details-content { display: block; content-visibility: visible; }
+  .provider-context details > .provider-context-copy { display: grid; }
+}

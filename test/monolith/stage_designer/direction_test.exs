@@ -224,7 +224,9 @@ defmodule Monolith.StageDesigner.DirectionTest do
 
     DisposableStageRepo.migrate!(pools.first, [
       {20_261_103_210_745, "20261103210745_tracked_gemini_generations.exs",
-       Monolith.Repo.Migrations.TrackedGeminiGenerations}
+       Monolith.Repo.Migrations.TrackedGeminiGenerations},
+      {20_261_111_120_000, "20261111120000_add_startup_scene_preference.exs",
+       Monolith.Repo.Migrations.AddStartupScenePreference}
     ])
 
     on_exit(fn ->
@@ -256,6 +258,7 @@ defmodule Monolith.StageDesigner.DirectionTest do
 
   defp enable_startup do
     Application.put_env(:monolith, :stage_designer, %{Settings.get() | enabled: true})
+    StageDesigner.save_startup_preference!(%{enabled: true}, actor: @owner)
   end
 
   defp assert_prompt(request, prompt) do

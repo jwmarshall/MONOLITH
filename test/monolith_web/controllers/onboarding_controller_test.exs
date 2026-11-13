@@ -18,6 +18,34 @@ defmodule MonolithWeb.OnboardingControllerTest do
   @secret "synthetic-onboarding-secret"
   @redirect "http://localhost:4000/oauth/google/callback"
 
+  defmodule RecoveryCalendarProvider do
+    @behaviour Monolith.Calendar.Provider
+
+    @impl true
+    def calendars(_) do
+      Monolith.TestMail.record(:calendar_catalog)
+
+      Agent.get(Monolith.TestMail, fn state ->
+        Map.get(state, :calendar_response, {
+          :ok,
+          %{
+            calendars: [
+              %{id: "primary", name: "Recovery primary", selected: true},
+              %{id: "shared", name: "Recovery shared", selected: false}
+            ],
+            truncated: false
+          }
+        })
+      end)
+    end
+
+    @impl true
+    def events(_, id, _, _) do
+      Monolith.TestMail.record({:calendar_events, id})
+      {:ok, %{events: [], truncated: false}}
+    end
+  end
+
   setup %{conn: conn} = context do
     start_supervised!(OnboardingKeychain)
     {:ok, _} = Monolith.TestMail.start()
@@ -68,7 +96,16 @@ defmodule MonolithWeb.OnboardingControllerTest do
       |> post("/onboarding/workspace", %{operation: "save_workspace", name: "  "})
       |> html_response(422)
 
-    assert invalid =~ "role=\"alert\""
+    document = LazyHTML.from_document(invalid)
+    assert Enum.any?(LazyHTML.query(document, "#onboarding-error[role=alert]"))
+
+    assert Enum.any?(
+             LazyHTML.query(document, "#onboarding-error a[href='#onboarding-workspace-name']")
+           )
+
+    assert LazyHTML.query(document, "#onboarding-workspace-name")
+           |> LazyHTML.attribute("aria-describedby") ==
+             ["onboarding-error onboarding-workspace-hint"]
 
     saved =
       post(conn, "/onboarding/workspace", %{operation: "save_workspace", name: "  Studio  "})
@@ -104,7 +141,29 @@ defmodule MonolithWeb.OnboardingControllerTest do
     assert html_response(get(conn, "/onboarding/audience"), 200) =~ "seven days"
     assert html_response(get(conn, "/onboarding/audience"), 200) =~ "In production"
     assert html_response(get(conn, "/onboarding/audience"), 200) =~ "does not verify"
-    assert response(get(conn, "/onboarding/not-a-step"), 404) == "Setup page not found"
+    missing = get(conn, "/onboarding/not-a-step")
+    page = missing |> html_response(404) |> LazyHTML.from_document()
+    assert Enum.any?(LazyHTML.query(page, "main[aria-labelledby=error-heading] #error-heading"))
+    assert Enum.any?(LazyHTML.query(page, "a[href='/']"))
+    assert get_resp_header(missing, "cache-control") == ["no-store"]
+    assert get_resp_header(missing, "referrer-policy") == ["no-referrer"]
+  end
+
+  test "unavailable setup read models render a sanitized HTML error instead of leaking details",
+       %{conn: conn} do
+    response =
+      conn
+      |> assign(:current_actor, %{role: :synthetic_denied_actor})
+      |> MonolithWeb.OnboardingController.index(%{})
+
+    html = html_response(response, 503)
+    page = LazyHTML.from_document(html)
+    assert Enum.any?(LazyHTML.query(page, "main[aria-labelledby=error-heading] #error-heading"))
+    assert Enum.any?(LazyHTML.query(page, "a[href='/']"))
+    assert Enum.empty?(LazyHTML.query(page, "form, input"))
+    refute html =~ "synthetic_denied_actor"
+    refute html =~ "Forbidden"
+    assert OnboardingKeychain.calls() == []
   end
 
   test "console links explicitly open a safe new tab and credential fields are ordinary private forms",
@@ -136,6 +195,32 @@ defmodule MonolithWeb.OnboardingControllerTest do
       assert LazyHTML.attribute(input, "value") == []
       assert LazyHTML.attribute(input, "phx-change") == []
     end
+  end
+
+  test "client save failures keep private fields empty and provide a route back to the labelled form",
+       %{conn: conn} do
+    page =
+      conn
+      |> get("/onboarding/client?notice=save_failed")
+      |> html_response(200)
+      |> LazyHTML.from_document()
+
+    assert Enum.any?(
+             LazyHTML.query(page, "#onboarding-error[role=alert] a[href='#google-client-id']")
+           )
+
+    for field <- ["google-client-id", "google-client-secret"] do
+      assert Enum.any?(LazyHTML.query(page, "label[for='#{field}']"))
+      input = LazyHTML.query(page, "##{field}")
+
+      assert LazyHTML.attribute(input, "aria-describedby") == [
+               "onboarding-error google-client-privacy"
+             ]
+
+      assert LazyHTML.attribute(input, "value") == []
+    end
+
+    assert OnboardingKeychain.calls() == []
   end
 
   test "credentials are saved without request telemetry, logging, response/session echo or provider calls",
@@ -709,6 +794,265 @@ defmodule MonolithWeb.OnboardingControllerTest do
              "/onboarding/complete"
   end
 
+  test "saved Gmail authorization, failed stale reads and reconnect remain distinct without GET work",
+       %{conn: conn, workspace: workspace} do
+    submit(conn, %{client_id: @id, client_secret: @secret})
+    Application.put_env(:monolith, :gmail_provider, Monolith.TestGoogle)
+
+    {:ok, account} =
+      Access.accept(
+        workspace.id,
+        %{subject: "synthetic-onboarding-subject", email: "synthetic@example.invalid"},
+        "synthetic-refresh"
+      )
+
+    page = recovery_get(conn, "/onboarding/connect", account, workspace)
+    status = LazyHTML.query(page, "#onboarding-connection-status")
+    assert LazyHTML.text(status) =~ "not yet been confirmed"
+    assert Enum.empty?(LazyHTML.query(status, "time"))
+    assert Enum.any?(LazyHTML.query(status, "a[href='/accounts/#{account.id}/mail']"))
+    assert Enum.any?(LazyHTML.query(page, "button[name=operation][value=continue]"))
+
+    observed_at = DateTime.add(DateTime.utc_now(), -86_400, :second)
+
+    Mail.update_account!(
+      account,
+      %{expected_generation: account.generation, last_success_at: observed_at},
+      @owner
+    )
+
+    Monolith.TestMail.response({:error, :provider})
+
+    Mail.poll!(account.id, account.generation,
+      actor: %{role: :mail_service, account_id: account.id}
+    )
+
+    failed = Mail.get_account!(account.id, @owner)
+    assert failed.status == :ready
+    assert failed.last_error == :provider
+    assert failed.last_success_at == observed_at
+
+    stale = recovery_get(conn, "/onboarding/complete", account, workspace)
+    status = LazyHTML.query(stale, "#onboarding-connection-status")
+    assert LazyHTML.text(status) =~ "reported a problem"
+    assert LazyHTML.text(status) =~ "may be stale"
+    refute LazyHTML.text(status) =~ "not yet been confirmed"
+
+    assert LazyHTML.attribute(LazyHTML.query(status, "time"), "datetime") == [
+             DateTime.to_iso8601(observed_at)
+           ]
+
+    Monolith.TestMail.response({:error, :invalid_grant})
+
+    Mail.poll!(account.id, account.generation,
+      actor: %{role: :mail_service, account_id: account.id}
+    )
+
+    assert %{status: :reconnect, last_success_at: ^observed_at} =
+             Mail.get_account!(account.id, @owner)
+
+    reconnect = recovery_get(conn, "/onboarding/connect", account, workspace)
+    status = LazyHTML.query(reconnect, "#onboarding-connection-status")
+    assert LazyHTML.text(status) =~ account.email
+    assert Enum.any?(LazyHTML.query(status, "a[href='/connections/gmail']"))
+    assert Enum.empty?(LazyHTML.query(status, "time, a[href='/accounts/#{account.id}/mail']"))
+    assert Enum.empty?(LazyHTML.query(reconnect, "button[name=operation][value=continue]"))
+    assert Enum.any?(LazyHTML.query(reconnect, "#onboarding-google-connect"))
+
+    calendar = recovery_get(conn, "/onboarding/calendar", account, workspace)
+    assert LazyHTML.text(LazyHTML.query(calendar, "#onboarding-calendar-status")) =~ account.email
+
+    assert Enum.any?(
+             LazyHTML.query(calendar, "#onboarding-calendar-status a[href='/onboarding/connect']")
+           )
+
+    assert Enum.empty?(
+             LazyHTML.query(calendar, "#onboarding-calendar-connect, [data-calendar-load]")
+           )
+
+    before_skip = recovery_snapshot(account, workspace)
+
+    assert redirected_to(post(conn, "/onboarding/connect", %{operation: "skip"})) ==
+             "/onboarding/calendar"
+
+    assert Map.delete(recovery_snapshot(account, workspace), :progress) ==
+             Map.delete(before_skip, :progress)
+  end
+
+  test "Calendar scope loss fences cached selection and retains same-account consent and skip",
+       %{conn: conn, workspace: workspace} do
+    {account, window} = recovery_calendar(conn, workspace)
+    before = calendar_state(account)
+    page = recovery_get(conn, "/onboarding/calendar", account, workspace)
+    refresh = page |> LazyHTML.query("#onboarding-calendar-load") |> form_params()
+
+    Agent.update(Monolith.TestMail, &Map.put(&1, :calendar_response, {:error, :forbidden}))
+
+    assert redirected_to(post(conn, "/onboarding/calendar", Map.merge(refresh, window))) ==
+             "/onboarding/calendar"
+
+    loading = recovery_get(conn, "/onboarding/calendar?status=1", account, workspace)
+    assert Enum.any?(LazyHTML.query(loading, "#onboarding-calendar-selection fieldset[disabled]"))
+    assert Enum.any?(LazyHTML.query(loading, "#onboarding-calendar-save[disabled]"))
+    assert Enum.any?(LazyHTML.query(loading, "#onboarding-calendar-load-button[disabled]"))
+    poll_calendar(account)
+    failed = calendar_state(account)
+    assert failed.error == :reconnect
+    assert failed.catalog_at == before.catalog_at
+    assert failed.selected_ids == before.selected_ids
+    assert Mail.get_account!(account.id, @owner).status == :ready
+
+    reconnect = recovery_get(conn, "/onboarding/calendar", account, workspace)
+    assert Enum.empty?(LazyHTML.query(reconnect, "#onboarding-calendar-selection"))
+    assert Enum.empty?(LazyHTML.query(reconnect, "#onboarding-calendar-save"))
+    assert Enum.any?(LazyHTML.query(reconnect, "#onboarding-calendar-load-button[disabled]"))
+
+    consent = LazyHTML.query(reconnect, "#onboarding-calendar-connect")
+    assert LazyHTML.text(consent) =~ account.email
+    assert form_params(consent)["expected_account_id"] == account.id
+    assert form_params(consent)["workspace_id"] == workspace.id
+    assert form_params(consent)["capability"] == "calendar"
+
+    assert Enum.any?(LazyHTML.query(reconnect, "a[href='/onboarding/calendar?status=1']"))
+
+    Application.put_env(:monolith, :gmail_provider, Google)
+    before_consent = recovery_snapshot(account, workspace)
+    started = post(conn, "/oauth/google/start", form_params(consent))
+
+    assert started |> redirected_to(303) |> URI.parse() |> Map.fetch!(:host) ==
+             "accounts.google.com"
+
+    assert recovery_snapshot(account, workspace) == before_consent
+
+    assert redirected_to(post(conn, "/onboarding/calendar", %{operation: "skip"})) ==
+             "/onboarding/complete"
+
+    assert Map.delete(recovery_snapshot(account, workspace), :progress) ==
+             Map.delete(before_consent, :progress)
+  end
+
+  test "Calendar rate limiting blocks further reads but permits a local cached selection",
+       %{conn: conn, workspace: workspace} do
+    {account, window} = recovery_calendar(conn, workspace)
+    before = calendar_state(account)
+    page = recovery_get(conn, "/onboarding/calendar", account, workspace)
+    refresh = page |> LazyHTML.query("#onboarding-calendar-load") |> form_params()
+    Agent.update(Monolith.TestMail, &Map.put(&1, :calendar_response, {:error, :rate_limited}))
+
+    assert redirected_to(post(conn, "/onboarding/calendar", Map.merge(refresh, window))) ==
+             "/onboarding/calendar"
+
+    poll_calendar(account)
+    limited = calendar_state(account)
+    assert limited.error == :rate_limited
+    assert DateTime.compare(limited.cooldown_until, DateTime.utc_now()) == :gt
+    assert limited.catalog_at == before.catalog_at
+    page = recovery_get(conn, "/onboarding/calendar", account, workspace)
+    assert Enum.any?(LazyHTML.query(page, "#onboarding-calendar-load-button[disabled]"))
+    assert Enum.any?(LazyHTML.query(page, "#onboarding-calendar-disabled"))
+    assert Enum.empty?(LazyHTML.query(page, "#onboarding-calendar-connect"))
+    assert Enum.empty?(LazyHTML.query(page, "#onboarding-calendar-save[disabled]"))
+    assert Enum.empty?(LazyHTML.query(page, "#onboarding-calendar-selection fieldset[disabled]"))
+
+    snapshot = recovery_snapshot(account, workspace)
+    refresh = page |> LazyHTML.query("#onboarding-calendar-load") |> form_params()
+
+    assert redirected_to(post(conn, "/onboarding/calendar", Map.merge(refresh, window))) ==
+             "/onboarding/calendar"
+
+    assert calendar_state(account).loading == false
+    assert recovery_snapshot(account, workspace).jobs == snapshot.jobs
+    assert recovery_snapshot(account, workspace).calls == snapshot.calls
+    assert calendar_state(account).cooldown_until == limited.cooldown_until
+
+    selection =
+      page
+      |> LazyHTML.query("#onboarding-calendar-selection")
+      |> form_params()
+      |> Map.delete("calendar_ids[]")
+      |> Map.put("calendar_ids", ["shared"])
+
+    assert redirected_to(post(conn, "/onboarding/calendar", selection)) ==
+             "/onboarding/calendar?notice=calendars_saved"
+
+    selected = calendar_state(account)
+    assert selected.selected_ids == ["shared"]
+    assert selected.catalog_at == limited.catalog_at
+    assert selected.cooldown_until == limited.cooldown_until
+    refute selected.loading
+    after_selection = recovery_snapshot(account, workspace)
+    assert after_selection.account == snapshot.account
+    assert after_selection.credential == snapshot.credential
+    assert after_selection.jobs == snapshot.jobs
+    assert after_selection.calls == snapshot.calls
+  end
+
+  test "Calendar credential and provider failures retain observations until an explicit retry succeeds",
+       %{conn: conn, workspace: workspace} do
+    {account, window} = recovery_calendar(conn, workspace)
+    before = calendar_state(account)
+    page = recovery_get(conn, "/onboarding/calendar", account, workspace)
+    refresh = page |> LazyHTML.query("#onboarding-calendar-load") |> form_params()
+    calls = Monolith.TestMail.calls()
+    Application.put_env(:monolith, :gmail_vault, Monolith.TestMailReadDenied)
+
+    assert redirected_to(post(conn, "/onboarding/calendar", Map.merge(refresh, window))) ==
+             "/onboarding/calendar"
+
+    poll_calendar(account)
+    assert calendar_state(account).error == :keychain
+    assert Monolith.TestMail.calls() == calls
+    locked = recovery_get(conn, "/onboarding/calendar?status=1", account, workspace)
+    assert LazyHTML.text(LazyHTML.query(locked, "[data-calendar-progress]")) =~ "Unlock"
+    assert Enum.any?(LazyHTML.query(locked, "#onboarding-calendar-save:not([disabled])"))
+    assert Enum.any?(LazyHTML.query(locked, "#onboarding-calendar-load-button:not([disabled])"))
+    assert Enum.empty?(LazyHTML.query(locked, "#onboarding-calendar-connect"))
+
+    Application.put_env(:monolith, :gmail_vault, Monolith.TestMailVault)
+    Agent.update(Monolith.TestMail, &Map.put(&1, :calendar_response, {:error, :provider_error}))
+    refresh = locked |> LazyHTML.query("#onboarding-calendar-load") |> form_params()
+
+    assert redirected_to(post(conn, "/onboarding/calendar", Map.merge(refresh, window))) ==
+             "/onboarding/calendar"
+
+    assert Monolith.TestMail.calls() == calls
+    poll_calendar(account)
+    failed = calendar_state(account)
+    assert failed.error == :provider
+    assert failed.catalog_at == before.catalog_at
+    assert failed.selected_ids == before.selected_ids
+    retry = recovery_get(conn, "/onboarding/calendar", account, workspace)
+
+    assert LazyHTML.text(LazyHTML.query(retry, "[data-calendar-progress]")) =~
+             "could not be updated"
+
+    assert Enum.any?(LazyHTML.query(retry, "#onboarding-calendar-load-button:not([disabled])"))
+    assert Enum.any?(LazyHTML.query(retry, "#onboarding-calendar-save:not([disabled])"))
+
+    assert LazyHTML.attribute(
+             LazyHTML.query(retry, "[data-calendar-progress]"),
+             "data-autoload"
+           ) == ["false"]
+
+    assert LazyHTML.text(LazyHTML.query(retry, "#onboarding-calendar-status")) =~ account.email
+    assert LazyHTML.text(retry) =~ "Recovery primary"
+    Agent.update(Monolith.TestMail, &Map.delete(&1, :calendar_response))
+    refresh = retry |> LazyHTML.query("#onboarding-calendar-load") |> form_params()
+    calls = Monolith.TestMail.calls()
+
+    assert redirected_to(post(conn, "/onboarding/calendar", Map.merge(refresh, window))) ==
+             "/onboarding/calendar"
+
+    assert Monolith.TestMail.calls() == calls
+    poll_calendar(account)
+    recovered = calendar_state(account)
+    assert recovered.error == nil
+    assert DateTime.compare(recovered.catalog_at, before.catalog_at) != :lt
+    assert recovered.selected_ids == before.selected_ids
+    assert Mail.get_account!(account.id, @owner).status == :ready
+    recovery_get(conn, "/onboarding/calendar", account, workspace)
+  end
+
   @tag :fresh_onboarding
   test "first named workspace can skip all Google setup and explicitly finish without integrations",
        %{conn: conn} do
@@ -802,6 +1146,118 @@ defmodule MonolithWeb.OnboardingControllerTest do
     assert id == account.id
     assert OnboardingKeychain.calls() == []
   end
+
+  test "rejected calendar choices remain editable only for the same connection generation",
+       %{conn: conn, workspace: workspace} do
+    calendars = for n <- 1..21, do: %{id: "calendar-#{n}", name: "Calendar #{n}", selected: false}
+
+    Agent.update(Monolith.TestMail, fn state ->
+      Map.put(state, :calendar_response, {:ok, %{calendars: calendars, truncated: false}})
+    end)
+
+    {account, _window} = recovery_calendar(conn, workspace)
+    ids = Enum.map(calendars, & &1.id)
+
+    params = %{
+      operation: "select_calendars",
+      workspace_id: workspace.id,
+      account_id: account.id,
+      generation: account.generation,
+      calendar_ids: ids ++ ["not-in-the-catalog"]
+    }
+
+    page =
+      post(conn, "/onboarding/calendar", params) |> html_response(422) |> LazyHTML.from_document()
+
+    assert LazyHTML.attribute(LazyHTML.query(page, "input[type=checkbox][checked]"), "value") ==
+             ids
+
+    assert calendar_state(account).selected_ids == []
+
+    stale = Map.put(params, :generation, Ash.UUID.generate())
+
+    page =
+      post(conn, "/onboarding/calendar", stale) |> html_response(422) |> LazyHTML.from_document()
+
+    assert LazyHTML.attribute(LazyHTML.query(page, "input[type=checkbox][checked]"), "value") ==
+             []
+
+    assert calendar_state(account).selected_ids == []
+  end
+
+  defp recovery_calendar(conn, workspace) do
+    submit(conn, %{client_id: @id, client_secret: @secret})
+    Application.put_env(:monolith, :gmail_provider, Monolith.TestGoogle)
+    Application.put_env(:monolith, :calendar_provider, RecoveryCalendarProvider)
+
+    {:ok, account} =
+      Access.accept(
+        workspace.id,
+        %{subject: "synthetic-onboarding-subject", email: "synthetic@example.invalid"},
+        "synthetic-refresh",
+        :calendar
+      )
+
+    date = Date.utc_today()
+
+    window = %{
+      "from" => DateTime.new!(date, ~T[00:00:00], "Etc/UTC") |> DateTime.to_iso8601(),
+      "to" => DateTime.new!(Date.add(date, 1), ~T[00:00:00], "Etc/UTC") |> DateTime.to_iso8601(),
+      "date" => Date.to_iso8601(date),
+      "timezone" => "Etc/UTC"
+    }
+
+    page = recovery_get(conn, "/onboarding/calendar", account, workspace)
+    load = page |> LazyHTML.query("#onboarding-calendar-load") |> form_params()
+
+    assert redirected_to(post(conn, "/onboarding/calendar", Map.merge(load, window))) ==
+             "/onboarding/calendar"
+
+    poll_calendar(account)
+    assert calendar_state(account).catalog_at
+    {account, window}
+  end
+
+  defp calendar_state(account) do
+    State
+    |> Ash.Query.for_read(:read, %{account_id: account.id}, @owner)
+    |> Ash.read_one!()
+  end
+
+  defp poll_calendar(account) do
+    state = calendar_state(account)
+    Monolith.Calendar.poll!(account.id, account.generation, state.revision, @owner)
+  end
+
+  defp recovery_get(conn, path, account, workspace) do
+    before = recovery_snapshot(account, workspace)
+    page = get(conn, path) |> html_response(200) |> LazyHTML.from_document()
+    assert recovery_snapshot(account, workspace) == before
+    page
+  end
+
+  defp recovery_snapshot(account, workspace) do
+    {:ok, progress} = Onboarding.progress(@owner)
+
+    %{
+      account: account.id |> Mail.get_account!(@owner) |> resource_attributes(),
+      calendar: account |> calendar_state() |> resource_attributes(),
+      progress: resource_attributes(progress),
+      memberships:
+        workspace.id
+        |> Mail.workspace_accounts!(@owner)
+        |> Enum.map(&resource_attributes/1)
+        |> Enum.sort_by(& &1.id),
+      credential: Monolith.TestMailVault.get(account.id),
+      jobs: Monolith.Repo.all(Oban.Job) |> Enum.sort_by(& &1.id),
+      calls: {Monolith.TestMail.calls(), OnboardingKeychain.calls(), OnboardingKeychain.writes()}
+    }
+  end
+
+  defp resource_attributes(nil), do: nil
+
+  defp resource_attributes(%resource{} = record),
+    do: Map.take(record, Enum.map(Info.attributes(resource), & &1.name))
 
   defp form_params(form) do
     form

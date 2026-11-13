@@ -27,6 +27,7 @@ defmodule Monolith.Calendar.Operation do
 
     action :select_calendars, :map do
       argument :account_id, :uuid, allow_nil?: false
+      argument :generation, :uuid, allow_nil?: false
 
       argument :ids, {:array, :string},
         allow_nil?: false,

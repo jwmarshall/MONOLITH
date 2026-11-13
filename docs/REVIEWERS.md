@@ -89,16 +89,16 @@ divergent native file under the symlink.
 
 The [distilled design contract](MONOLITH_DESIGN_SYSTEM.md) defines rules M01–M12,
 source ownership, explicit legacy-presentation replacements and unchanged behavior.
-Apply visual/experience rules only to caller-selected rebrand surfaces; unmigrated
-surfaces still follow `docs/UI_CONTRACT.md`. Do not demand simultaneous old/new
-palettes, navigation or identity. The authorized whole-application identity target
+The whole production UI is selected for this presentation. `docs/UI_CONTRACT.md`
+retains operational, route, lifecycle, account and security rules, not a competing
+visual system. The authorized whole-application identity target
 is MONOLITH prose/UI, `:monolith` OTP/config, `Monolith`/`MonolithWeb` modules,
 `monolith` project-owned libraries, paths, commands, tooling, keychain/storage
 identifiers and `MONOLITH_*` environment variables; third-party names stay unchanged.
 Current codebase/runtime owners are `lib/monolith/`, `lib/monolith_web/` and
-`bin/monolith`. Phase 1 deliberately preserves browser-visible LOVELACE copy, artwork
-and presentation; no visual surface is selected by this identity cutover. There are no users and existing data is
-replaceable: no rebrand-specific preservation, backward-compatibility, aliases,
+`bin/monolith`. All application routes use MONOLITH presentation; account-letter
+register codes are deliberately omitted in favor of numbered sections and adjacent full identity.
+There are no users and existing data is replaceable: no rebrand-specific preservation, backward-compatibility, aliases,
 credential transfer or data-migration requirement. This does not authorize private
 state reads, storage wipes/resets, provider calls or other side effects during
 preparation; ordinary destructive/external-effect authorization remains required.
@@ -123,10 +123,10 @@ For substantial rebrand work, route both affected design specialties and retain 
 existing LiveView reviewer for behavior, lifecycle, accessibility and asset correctness,
 account-isolation/security for identity/credential surfaces, boundary/background
 specialists for domain/job changes, and cross-file review for interacting changes.
-MONOLITH reviewers own the selected target visual/experience standards. M01–M12
-supersede conflicting legacy presentation criteria only on selected surfaces,
-including identity, palette, navigation and choreography; retain `docs/UI_CONTRACT.md`
-on unmigrated surfaces and preserve existing behavioral/security requirements.
+MONOLITH reviewers own the target visual/experience standards across production routes.
+M01–M12 supersede conflicting legacy identity, palette, navigation and choreography;
+retain `docs/UI_CONTRACT.md` behavioral/security requirements. Source verdicts never
+certify browser acceptance, measured contrast or project checks.
 
 Validate reviewer behavior with synthetic passing and violating target fixtures,
 missing paths, unreadable paths, unresolved material conflicts and an embedded
@@ -204,8 +204,8 @@ Project grounding to embed without frozen capability or version inventories:
   Monolith/MonolithWeb modules, monolith project-owned libraries/paths/commands/tooling/
   keychain/storage identifiers and MONOLITH_* environment variables. Third-party
   names stay unchanged. Current code uses Monolith/MonolithWeb, :monolith,
-  lib/monolith/, lib/monolith_web/ and bin/monolith. Browser-visible LOVELACE copy
-  and artwork remain in phase 1; inspect actual owners and selected visual scope.
+  lib/monolith/, lib/monolith_web/ and bin/monolith. The whole production UI follows
+  the MONOLITH design system; inspect actual consuming owners and affected states.
   No users or data-preservation/backcompat/migration requirement exists for rebranding;
   do not invent aliases, credential transfer or backup/restore gates. Ordinary
   side-effect authorization still applies: no private state reads, wipes/resets,
@@ -213,14 +213,13 @@ Project grounding to embed without frozen capability or version inventories:
   desktop web app; dev/prod listeners stay loopback. Phoenix LiveView, Ash/AshSqlite
   over Ecto/SQLite, Tailwind, Req, local assets. Read current manifests for versions
   and user-owned runtime targets; do not freeze inventories or import BME conventions.
-- Selected rebrand surfaces follow docs/MONOLITH_DESIGN_SYSTEM.md (M01–M12);
-  unmigrated surfaces retain docs/UI_CONTRACT.md. Embed this scoped precedence in
-  every generated reviewer: never demand both old/new palettes, navigation,
-  identity or choreography, or restore blanket LOVELACE UI naming/presentation.
-  Visual/experience reviewers own selected target design standards; the full MONOLITH
-  suite retains behavior, lifecycle, accessibility, asset, security, architecture and
-  testing duties. Identity cutover is authorized across the application, not automatic
-  implementation of every visual surface or a waiver of security/product boundaries.
+- Production surfaces follow docs/MONOLITH_DESIGN_SYSTEM.md (M01–M12);
+  docs/UI_CONTRACT.md retains application interaction and safety contracts. Embed
+  this precedence in every generated reviewer: never restore the retired palette,
+  navigation, identity or choreography. Visual/experience reviewers own target
+  design standards; the full MONOLITH suite retains behavior, lifecycle,
+  accessibility, asset, security, architecture and testing duties. The completed
+  identity cutover is not a waiver of security/product boundaries.
 - Business behavior belongs in Ash domains/resources/actions/policies, UI in the web
   layer. Acquire current lib/monolith/ and lib/monolith_web/ owners.
   No parallel hand-written Ecto contexts.

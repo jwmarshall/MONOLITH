@@ -65,6 +65,7 @@ defmodule MonolithWeb.Router do
       live "/workspaces", HomeLive, :workspaces
       live "/workspaces/:workspace_id", HomeLive, :workspace
       live "/workspaces/:workspace_id/integrations", HomeLive, :integration_add
+      live "/workspaces/:workspace_id/github/:organization_id", HomeLive, :workspace_github
       live "/workspaces/:workspace_id/accounts/:account_id/mail", HomeLive, :workspace_inbox
 
       live "/workspaces/:workspace_id/accounts/:account_id/mail/threads/:thread_id",

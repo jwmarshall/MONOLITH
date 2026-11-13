@@ -141,6 +141,12 @@ defmodule MonolithWeb.SetupControllerTest do
     page = get(recycle(rejected), redirected_to(rejected, 303))
     document = page |> html_response(200) |> LazyHTML.from_fragment()
     assert exists?(document, "#setup-error[role='alert']")
+    assert exists?(document, "#setup-error a[href='#setup-pairing-code']")
+
+    assert LazyHTML.query(document, "#setup-pairing-code")
+           |> LazyHTML.attribute("aria-describedby") ==
+             ["setup-error setup-pairing-hint"]
+
     assert exists?(document, "#setup-pair-form")
 
     paired = submit(recycle(page), "/setup/pair", %{"pairing_code" => code})
@@ -157,6 +163,13 @@ defmodule MonolithWeb.SetupControllerTest do
       document = page |> html_response(200) |> LazyHTML.from_fragment()
       assert exists?(document, "#setup-error[role='alert']")
       assert exists?(document, "#setup-password-form")
+      assert exists?(document, "#setup-error a[href='#setup-password']")
+
+      assert LazyHTML.query(document, "#setup-password") |> LazyHTML.attribute("aria-describedby") ==
+               ["setup-error setup-password-hint setup-recovery-warning"]
+
+      assert exists?(document, "label[for='setup-password-confirmation']")
+      assert exists?(document, "#setup-recovery-warning")
       refute exists?(document, "input[type='password'][value]")
       refute html_response(page, 200) =~ @password
       assert Bootstrap.paired?(get_session(page, :bootstrap_capability))

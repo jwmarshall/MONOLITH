@@ -16,6 +16,7 @@ defmodule Monolith.StageDesigner.ScenesTest do
     previous = Application.get_env(:monolith, :stage_designer)
     Application.put_env(:monolith, :stage_designer, %Settings{storage_dir: directory})
     Phoenix.PubSub.subscribe(Monolith.PubSub, "stage_designer")
+    StageDesigner.save_startup_preference!(%{enabled: true}, actor: @owner)
 
     on_exit(fn ->
       Application.put_env(:monolith, :stage_designer, previous)

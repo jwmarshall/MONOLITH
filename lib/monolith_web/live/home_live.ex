@@ -42,6 +42,7 @@ defmodule MonolithWeb.HomeLive do
       |> assign(
         page_title: "Home",
         enter_on_return: session["workspace_return"] == true,
+        enter_on_unlock: session["workspace_unlock"] == true,
         navigation_ready: false,
         navigation_path: nil,
         home_accounts: [],
@@ -54,6 +55,10 @@ defmodule MonolithWeb.HomeLive do
         directory_subscriptions: [],
         editor: nil,
         form: nil,
+        workspace_draft: %{},
+        startup_preference: nil,
+        startup_error: false,
+        startup_status: "",
         form_failed: false,
         workspaces_error: false,
         loading: not connected?(socket),
@@ -80,13 +85,14 @@ defmodule MonolithWeb.HomeLive do
   end
 
   def handle_info({:mail_changed, id} = message, socket) do
-    socket = HomeCalendar.reload(socket)
+    # Workspace readouts share the provider-free summary with Home, even though
+    # HomeMail owns their account subscriptions after leaving the directory.
+    socket =
+      if id in socket.assigns.directory_subscriptions || id in socket.assigns.mail.subscriptions,
+        do: load_workspaces(socket),
+        else: HomeCalendar.reload(socket)
 
-    if id in socket.assigns.directory_subscriptions do
-      {:noreply, load_workspaces(socket)}
-    else
-      reconcile_mail_navigation(socket, HomeMail.handle_info(message, socket))
-    end
+    reconcile_mail_navigation(socket, HomeMail.handle_info(message, socket))
   end
 
   def handle_info({:calendar_changed, id}, socket) do
@@ -189,8 +195,29 @@ defmodule MonolithWeb.HomeLive do
        form: nil,
        page_title: "Settings"
      )
+     |> load_startup_preference()
      |> focus_heading()}
   end
+
+  defp event("settings:startup", %{"enabled" => enabled}, %{assigns: %{settings: true}} = socket)
+       when enabled in ["true", "false"] do
+    case Monolith.StageDesigner.save_startup_preference(%{enabled: enabled == "true"},
+           actor: @owner
+         ) do
+      {:ok, preference} ->
+        {:noreply,
+         assign(socket,
+           startup_preference: preference,
+           startup_error: false,
+           startup_status: "Startup choice saved. No generation was started."
+         )}
+
+      _ ->
+        {:noreply, assign(socket, startup_error: true, startup_status: "")}
+    end
+  end
+
+  defp event("settings:startup", _, socket), do: {:noreply, socket}
 
   defp event("show_home", _params, socket) do
     {:noreply,
@@ -246,7 +273,7 @@ defmodule MonolithWeb.HomeLive do
          _params,
          %{assigns: %{connections: true, connection_view: :gemini}} = socket
        ),
-       do: {:noreply, HomeGemini.open(socket)}
+       do: {:noreply, socket |> HomeGemini.open() |> load_startup_preference()}
 
   defp event("gemini:check", _params, socket), do: {:noreply, socket}
 
@@ -282,7 +309,7 @@ defmodule MonolithWeb.HomeLive do
       socket =
         case view do
           view when view in [:google, :gmail, :calendar] -> HomeGoogle.open(socket)
-          :gemini -> HomeGemini.open(socket)
+          :gemini -> socket |> HomeGemini.open() |> load_startup_preference()
           :github -> HomeGitHub.open(socket)
         end
 
@@ -322,9 +349,10 @@ defmodule MonolithWeb.HomeLive do
 
   defp event("new_workspace", _params, socket) do
     form =
-      Workspace
-      |> AshPhoenix.Form.for_create(:create, as: "workspace", actor: @owner)
-      |> to_form()
+      Map.get(socket.assigns.workspace_draft, :new) ||
+        Workspace
+        |> AshPhoenix.Form.for_create(:create, as: "workspace", actor: @owner)
+        |> to_form()
 
     {:noreply, assign(socket, editor: :new, form: form, form_failed: false, save_status: "")}
   end
@@ -333,9 +361,10 @@ defmodule MonolithWeb.HomeLive do
     case Workspaces.get_workspace(id, actor: @owner) do
       {:ok, %Workspace{} = workspace} ->
         form =
-          workspace
-          |> AshPhoenix.Form.for_update(:rename, as: "workspace", actor: @owner)
-          |> to_form()
+          Map.get(socket.assigns.workspace_draft, id) ||
+            workspace
+            |> AshPhoenix.Form.for_update(:rename, as: "workspace", actor: @owner)
+            |> to_form()
 
         {:noreply,
          assign(socket, editor: :rename, form: form, form_failed: false, save_status: "")}
@@ -345,8 +374,13 @@ defmodule MonolithWeb.HomeLive do
     end
   end
 
+  defp event("cancel_workspace", _params, %{assigns: %{form: nil}} = socket),
+    do: {:noreply, socket}
+
   defp event("cancel_workspace", _params, socket) do
-    {:noreply, assign(socket, editor: nil, form: nil)}
+    key = if socket.assigns.editor == :new, do: :new, else: socket.assigns.form.source.data.id
+    drafts = Map.put(socket.assigns.workspace_draft, key, socket.assigns.form)
+    {:noreply, assign(socket, editor: nil, form: nil, workspace_draft: drafts)}
   end
 
   defp event("validate_workspace", %{"workspace" => params}, socket) do
@@ -382,6 +416,7 @@ defmodule MonolithWeb.HomeLive do
            page_title: workspace.name
          )
          |> HomeMail.open_workspace(workspace)
+         |> load_workspaces()
          |> focus_heading()}
 
       _ ->
@@ -484,7 +519,13 @@ defmodule MonolithWeb.HomeLive do
   end
 
   defp visit_destination(socket, %{action: action} = destination)
-       when action in [:workspace, :integration_add, :workspace_inbox, :workspace_thread] do
+       when action in [
+              :workspace,
+              :integration_add,
+              :workspace_inbox,
+              :workspace_thread,
+              :workspace_github
+            ] do
     socket = select_workspace(socket, destination.workspace_id)
 
     if socket.assigns.selected && socket.assigns.selected.id == destination.workspace_id do
@@ -518,17 +559,40 @@ defmodule MonolithWeb.HomeLive do
   end
 
   defp visit_workspace(socket, destination) do
+    if destination.action == :workspace_github do
+      case HomeGitHub.select_activity(socket, destination) do
+        {:ok, socket} ->
+          socket |> HomeNavigation.put(destination) |> focus_heading()
+
+        :error ->
+          unavailable_destination(socket, "This GitHub owner is unavailable in this workspace.")
+      end
+    else
+      visit_workspace_mail(socket, destination)
+    end
+  end
+
+  defp visit_workspace_mail(socket, destination) do
+    leaving_activity = socket.assigns.github_activity
+
     socket =
       if socket.assigns.connections ||
            (socket.assigns.mail.account_id && is_nil(destination.account_id)),
          do: transition(socket, "open_workspace", %{"id" => destination.workspace_id}),
          else: socket
 
-    cond do
-      destination.account_id -> visit_mail(socket, destination)
-      destination.action == :integration_add -> transition(socket, "mail:add")
-      socket.assigns.mail.adding -> transition(socket, "mail:close_add")
-      true -> socket
+    if destination.account_id do
+      visit_mail(socket, destination)
+    else
+      socket =
+        cond do
+          destination.action == :integration_add -> transition(socket, "mail:add")
+          socket.assigns.mail.adding -> transition(socket, "mail:close_add")
+          true -> socket
+        end
+
+      socket = HomeNavigation.put(socket, destination)
+      if leaving_activity, do: focus_heading(socket), else: socket
     end
   end
 
@@ -594,6 +658,7 @@ defmodule MonolithWeb.HomeLive do
   defp save_workspace(socket, params) do
     case AshPhoenix.Form.submit(socket.assigns.form, params: params) do
       {:ok, workspace} ->
+        key = if socket.assigns.editor == :new, do: :new, else: workspace.id
         selected = socket.assigns.selected
         selected = if selected && selected.id == workspace.id, do: workspace, else: selected
 
@@ -603,6 +668,7 @@ defmodule MonolithWeb.HomeLive do
            selected: selected,
            editor: nil,
            form: nil,
+           workspace_draft: Map.delete(socket.assigns.workspace_draft, key),
            page_title: if(selected, do: selected.name, else: "Workspaces"),
            save_status: "Workspace saved."
          )
@@ -618,7 +684,28 @@ defmodule MonolithWeb.HomeLive do
 
     directory? = HomeNavigation.directory?(socket.assigns.destination)
 
-    {:noreply, if(directory?, do: load_workspaces(socket), else: socket)}
+    socket = if directory?, do: load_workspaces(socket), else: socket
+
+    socket =
+      if socket.assigns.github_activity do
+        case HomeGitHub.select_activity(socket, socket.assigns.destination) do
+          {:ok, socket} ->
+            socket
+
+          :error ->
+            socket =
+              unavailable_destination(
+                socket,
+                "This GitHub owner is no longer available in this workspace."
+              )
+
+            push_patch(socket, to: HomeNavigation.current(socket), replace: true)
+        end
+      else
+        socket
+      end
+
+    {:noreply, socket}
   end
 
   defp load_workspaces(socket) do
@@ -654,6 +741,7 @@ defmodule MonolithWeb.HomeLive do
           home_accounts: [],
           loading: false
         )
+        |> HomeCalendar.reload()
         |> directory_subscriptions([])
     end
   end
@@ -748,98 +836,384 @@ defmodule MonolithWeb.HomeLive do
 
   defp focus_heading(socket), do: push_event(socket, "workspace:focus-heading", %{})
 
+  defp load_startup_preference(socket) do
+    case Monolith.StageDesigner.startup_preference(actor: @owner) do
+      {:ok, preference} ->
+        assign(socket, startup_preference: preference, startup_error: false, startup_status: "")
+
+      _ ->
+        assign(socket, startup_preference: nil, startup_error: true, startup_status: "")
+    end
+  end
+
+  defp view_heading(%{settings: true}), do: "Settings."
+  defp view_heading(%{scenes: true}), do: "Scenes."
+  defp view_heading(%{connections: true, connection_view: :index}), do: "Connections."
+
+  defp view_heading(%{connections: true, connection_view: provider}) do
+    Map.fetch!(
+      %{
+        google: "Google.",
+        gmail: "Gmail.",
+        calendar: "Calendar.",
+        gemini: "Gemini.",
+        github: "GitHub."
+      },
+      provider
+    )
+  end
+
+  defp view_heading(%{mail: %{adding: true}}), do: "Use a connection again."
+  defp view_heading(%{selected: %{name: name}}), do: name <> "."
+  defp view_heading(%{mail: %{scope: :home}}), do: "Inbox."
+  defp view_heading(_assigns), do: "Workspaces."
+
+  defp view_register(assigns) do
+    cond do
+      assigns.settings ->
+        "05 / Settings"
+
+      assigns.scenes ->
+        "04 / Scenes"
+
+      assigns.connections ->
+        "03 / " <> String.trim_trailing(view_heading(assigns), ".")
+
+      assigns.mail.scope == :home ->
+        "01 / Email"
+
+      assigns.mail.adding ->
+        "02 / Add integration"
+
+      assigns.selected ->
+        "02 / " <> assigns.selected.name
+
+      true ->
+        "02 / Workspaces"
+    end
+  end
+
   @impl true
   def render(assigns) do
     ~H"""
-    <Layouts.app flash={@flash} background={@background} enter_on_return={@enter_on_return}>
-      <h1 id="workspace-title" class="sr-only">LOVELACE</h1>
+    <Layouts.app
+      flash={@flash}
+      background={@background}
+      enter_on_return={@enter_on_return}
+      enter_on_unlock={@enter_on_unlock}
+    >
+      <p id="workspace-title" class="sr-only">MONOLITH</p>
       <Layouts.brand />
 
       <div id="workspace-content" class="workspace-content" inert>
-        <span id="calendar-context" phx-hook="CalendarDay" class="hidden" aria-hidden="true"></span>
-        <p id="workspace-save-status" class="sr-only" role="status">{@save_status}</p>
-        <div class="workspace-topline">
-          <nav id="center-nav" class="center-nav" aria-label="Main navigation">
-            <.link
-              id="home-link"
-              patch="/"
-              class="workspace-nav-link"
-              aria-label="Home"
-              aria-current={if @home, do: "page"}
-              aria-disabled={if @editor, do: "true"}
-            >Home</.link>
-            <.link
-              id="show-workspaces"
-              patch="/workspaces"
-              class="workspace-nav-link"
-              aria-current={
-                if !@home && !@settings && !@connections && !@scenes && @mail.scope != :home,
-                  do: "page"
-              }
-              aria-disabled={if @editor, do: "true"}
-            >Workspaces</.link>
-            <.link
-              id="show-connections"
-              patch="/connections"
-              class="workspace-nav-link"
-              aria-current={if @connections, do: "page"}
-              aria-disabled={if @editor, do: "true"}
-            >Connections</.link>
-            <.link
-              id="show-scenes"
-              patch="/scenes"
-              class="workspace-nav-link"
-              aria-current={if @scenes, do: "page"}
-              aria-disabled={if @editor, do: "true"}
-            >Scenes</.link>
-            <.link
-              id="show-settings"
-              patch="/settings"
-              class="workspace-nav-link"
-              aria-current={if @settings, do: "page"}
-              aria-disabled={if @editor, do: "true"}
-            >Settings</.link>
-          </nav>
-          <SceneComponents.activity background={@background} />
-        </div>
-
-        <section
-          class={["workspace-directory", @home && "workspace-directory-home"]}
-          aria-labelledby="directory-heading"
-        >
-          <.link
-            :if={@selected && !@connections}
-            id="back-to-workspaces"
-            patch="/workspaces"
-            class="workspace-back workspace-action workspace-action-link"
+        <div id="workspace-shell" class="workspace-shell" data-navigation="collapsed">
+          <aside
+            id="product-sidebar"
+            class="product-sidebar"
+            phx-hook="Sidebar"
+            aria-label="Product navigation"
           >
-            All workspaces
-          </.link>
-
-          <.link
-            :if={@connections && @connection_view != :index}
-            id="back-to-connections"
-            patch="/connections"
-            class="workspace-back workspace-action workspace-action-link"
-          >
-            All connections
-          </.link>
-
-          <HomeComponents.daily_heading :if={@home} />
-
-          <div :if={!@home} class="workspace-directory-heading">
-            <div>
-              <h2 id="directory-heading" tabindex="-1" data-workspace-heading>
-                {cond do
-                  @settings -> "Settings"
-                  @scenes -> "Scenes"
-                  @connections -> "Connections"
-                  @selected -> @selected.name
-                  @mail.scope == :home -> "Inbox"
-                  true -> "Workspaces"
-                end}
-              </h2>
+            <div class="sidebar-top">
+              <button
+                id="sidebar-toggle"
+                type="button"
+                class="navigation-toggle"
+                aria-label="Expand sidebar"
+                aria-expanded="false"
+                aria-controls="sidebar-content"
+              >
+                <Layouts.monogram id="sidebar-mark" treatment={:solid} />
+              </button>
+              <span class="brand-wordmark sidebar-wordmark" aria-hidden="true">MONOLITH</span>
             </div>
+            <div id="sidebar-content" class="sidebar-content" hidden>
+              <p class="sidebar-caption">Your workspace</p>
+              <nav id="center-nav" aria-label="Main navigation">
+                <.link
+                  id="home-link"
+                  patch="/"
+                  aria-current={
+                    if @home || (!@selected && @mail.scope == :home && !@connections), do: "page"
+                  }
+                ><span class="nav-index">01</span>Home</.link>
+                <.link
+                  id="show-workspaces"
+                  patch="/workspaces"
+                  aria-current={
+                    if !@home && !@settings && !@connections && !@scenes &&
+                         (@selected || @mail.scope != :home),
+                       do: "page"
+                  }
+                ><span class="nav-index">02</span>Workspaces</.link>
+                <.link
+                  id="show-connections"
+                  patch="/connections"
+                  aria-current={if @connections, do: "page"}
+                ><span class="nav-index">03</span>Connections</.link>
+                <.link id="show-scenes" patch="/scenes" aria-current={if @scenes, do: "page"}><span class="nav-index">04</span>Scenes</.link>
+                <.link id="show-settings" patch="/settings" aria-current={if @settings, do: "page"}><span class="nav-index">05</span>Settings</.link>
+              </nav>
+              <div class="sidebar-foot">
+                <SceneComponents.activity background={@background} />
+              </div>
+            </div>
+          </aside>
+          <span id="calendar-context" phx-hook="CalendarDay" class="hidden" aria-hidden="true"></span>
+          <p id="workspace-save-status" class="sr-only" role="status">{@save_status}</p>
+          <section
+            class={["workspace-directory", @home && "workspace-directory-home"]}
+            aria-label="Current view"
+          >
+            <div
+              :if={!@home && !@github_activity && !@mail.account_id}
+              class="page-register-row page-header-row"
+            >
+              <p class="page-register">{view_register(assigns)}</p>
+              <.link
+                :if={@selected && !@connections}
+                id={if @mail.adding, do: "close-add-integration", else: "back-to-workspaces"}
+                patch={
+                  if @mail.adding,
+                    do: HomeNavigation.workspace_path(@selected.id),
+                    else: "/workspaces"
+                }
+                class="workspace-action workspace-action-link"
+              >{if @mail.adding, do: "Back to #{@selected.name}", else: "All workspaces"}</.link>
+              <.link
+                :if={@connections && @connection_view != :index}
+                id="back-to-connections"
+                patch="/connections"
+                class="workspace-action workspace-action-link"
+              >All connections</.link>
+              <.lock_control />
+            </div>
+            <HomeComponents.daily_heading :if={@home} />
+            <div
+              :if={!@home && !@github_activity && !@mail.account_id}
+              class="workspace-directory-heading"
+            >
+              <h1 id="directory-heading" tabindex="-1" data-workspace-heading>
+                {view_heading(assigns)}
+              </h1>
+              <button
+                :if={
+                  !@selected && !@settings && !@connections && !@scenes && @mail.scope != :home &&
+                    !@editor && @workspace_options != []
+                }
+                id="new-workspace"
+                type="button"
+                class="workspace-action workspace-action-primary"
+                phx-click="new_workspace"
+                disabled={@loading || @workspaces_error}
+              >
+                New workspace
+              </button>
+              <div
+                :if={@selected && !@connections && !@editor && !@mail.adding}
+                class="workspace-heading-actions"
+              >
+                <WorkspaceComponents.rename_button workspace={@selected} current />
+                <.link
+                  id="add-integration"
+                  patch={HomeNavigation.workspace_path(@selected.id) <> "/integrations"}
+                  class="workspace-action workspace-action-primary"
+                >Add integration</.link>
+              </div>
+            </div>
+            <p :if={@onboarding_pending} class="mail-muted">
+              <.link
+                id="finish-onboarding"
+                href="/onboarding"
+                class="workspace-action workspace-action-link"
+              >
+                Continue setup
+              </.link>
+            </p>
+
+            <MonolithWeb.ModalComponents.modal
+              :if={@editor}
+              id="workspace-modal"
+              title={if @editor == :new, do: "New workspace", else: "Rename workspace"}
+              on_cancel="cancel_workspace"
+              initial_focus="#workspace-name"
+              return_focus={
+                if @editor == :new,
+                  do: "#new-workspace",
+                  else:
+                    if(@selected,
+                      do: "#rename-current-workspace",
+                      else: "#rename-#{@form.source.data.id}"
+                    )
+              }
+            >
+              <.form
+                for={@form}
+                id="workspace-form"
+                class="workspace-modal-form"
+                phx-change="validate_workspace"
+                phx-submit="save_workspace"
+              >
+                <div class="workspace-field-group">
+                  <.input
+                    field={@form[:name]}
+                    id="workspace-name"
+                    label="Name"
+                    class="workspace-name-input"
+                    maxlength="64"
+                    required
+                    autocomplete="off"
+                    aria-invalid={if @form[:name].errors != [], do: "true", else: "false"}
+                    aria-describedby="workspace-name-hint workspace-form-feedback"
+                  />
+                  <p id="workspace-name-hint" class="workspace-form-hint">
+                    Use a name of 1–64 characters.
+                  </p>
+                  <p id="workspace-form-feedback" class="workspace-form-feedback" role="alert">
+                    <span :if={@form_failed}>
+                      The workspace couldn’t be saved. <a href="#workspace-name">Check the name</a>
+                      and try again.
+                    </span>
+                  </p>
+                </div>
+                <div class="workspace-editor-actions">
+                  <button
+                    type="submit"
+                    class="workspace-action workspace-action-primary"
+                    phx-disable-with="Saving…"
+                  >
+                    {if @editor == :new, do: "Create workspace", else: "Save name"}
+                  </button>
+                  <button type="button" class="workspace-action" phx-click="cancel_workspace">Cancel</button>
+                </div>
+              </.form>
+            </MonolithWeb.ModalComponents.modal>
+
+            <div
+              :if={
+                !@home && !@settings && !@selected && !@connections && !@scenes &&
+                  @mail.scope != :home
+              }
+              class="workspace-list"
+              id="workspace-list"
+              phx-update="stream"
+            >
+              <WorkspaceComponents.card
+                :for={{dom_id, workspace} <- @streams.workspaces}
+                id={dom_id}
+                workspace={workspace}
+                health={Map.get(@workspace_health, workspace.id)}
+              />
+            </div>
+
+            <div
+              :if={
+                !@home && !@settings && !@selected && !@connections && !@scenes &&
+                  @mail.scope != :home && !@loading && !@workspaces_error && @workspace_options == []
+              }
+              id="workspaces-empty"
+              class="empty-state"
+            >
+              <.icon name="hero-squares-2x2" class="empty-state-mark size-6" />
+              <div class="empty-state-body">
+                <h3 class="empty-state-title">No workspaces yet</h3>
+                <p class="empty-state-copy">
+                  Name a space for an area of life. Add connections whenever you’re ready.
+                </p>
+                <button
+                  id="new-workspace"
+                  type="button"
+                  class="workspace-action workspace-action-primary"
+                  phx-click="new_workspace"
+                >
+                  New workspace
+                </button>
+              </div>
+            </div>
+
+            <div :if={@home} id="home-readouts" class="home-readouts">
+              <HomeComponents.overview
+                accounts={@home_accounts}
+                loading={@loading}
+                error={@home_error}
+              />
+
+              <CalendarComponents.agenda
+                home
+                accounts={Enum.filter(@calendar_accounts, & &1.calendar_enabled)}
+                accounts_state={@calendar_accounts_state}
+                window={@calendar_window}
+                refresh={@calendar_revision}
+              />
+            </div>
+            <div :if={@home} class="github-plane">
+              <GitHubComponents.dashboard
+                organizations={@github_organizations}
+                memberships={@github_memberships}
+                workspace_options={@workspace_options}
+                error={@github_error}
+                now={@github_now}
+              />
+            </div>
+
+            <div
+              :if={!@home && !@connections && @mail.scope == :home}
+              id="home-inbox"
+              class="workspace-landing"
+            >
+              <MailComponents.panel mail={@mail} />
+            </div>
+
+            <p
+              :if={@loading && !@home && !@settings && !@scenes}
+              id="workspaces-loading"
+              class="workspace-notice"
+              role="status"
+            >
+              <.status_signal
+                id="workspaces-loading-signal"
+                state={:active}
+                label="Opening your spaces…"
+              />
+            </p>
+            <div
+              :if={@workspaces_error && !@home && !@settings && !@scenes}
+              id="workspaces-error"
+              class="workspace-notice"
+              role="alert"
+            >
+              <p>Your workspaces couldn’t be loaded. Your saved spaces have not been changed.</p>
+              <button type="button" class="workspace-action" phx-click="retry_workspaces">Try again</button>
+            </div>
+
+            <HomeComponents.settings
+              :if={@settings}
+              startup_preference={@startup_preference}
+              startup_error={@startup_error}
+              startup_status={@startup_status}
+            />
+
+            <SceneComponents.gallery
+              :if={@scenes}
+              gemini_status={@gemini_status}
+              background={@background}
+              data={@scene_data}
+              loading={@scene_loading}
+              error={@scene_error}
+              pending={@scene_request_pending}
+              notice={@scene_notice}
+              confirmation={@scene_confirmation}
+              confirmation_prompt={@scene_confirmation_prompt}
+              direction={@scene_direction}
+              settings={@scene_settings}
+              preparing={@scene_preparing}
+              prepared={@scene_prepared}
+              acknowledgement={@scene_acknowledgement}
+            />
+
+            <MonolithWeb.ConnectionComponents.overview :if={
+              @connections && @connection_view == :index
+            } />
+
             <nav
               :if={@connections && @connection_view != :index}
               id="connections-subnav"
@@ -847,305 +1221,127 @@ defmodule MonolithWeb.HomeLive do
               aria-label="Connection providers"
             >
               <.link
-                id="connections-google"
-                patch={HomeNavigation.connections_path(:google)}
+                :for={
+                  {provider, name} <- [
+                    google: "Google",
+                    gmail: "Gmail",
+                    calendar: "Calendar",
+                    gemini: "Gemini",
+                    github: "GitHub"
+                  ]
+                }
+                id={"connections-#{provider}"}
+                patch={HomeNavigation.connections_path(provider)}
                 class="workspace-nav-link"
-                aria-current={if @connection_view == :google, do: "page"}
-              >Google</.link>
-              <.link
-                id="connections-gemini"
-                patch={HomeNavigation.connections_path(:gemini)}
-                class="workspace-nav-link"
-                aria-current={if @connection_view == :gemini, do: "page"}
-              >Gemini</.link>
-              <.link
-                id="connections-gmail"
-                patch={HomeNavigation.connections_path(:gmail)}
-                class="workspace-nav-link"
-                aria-current={if @connection_view == :gmail, do: "page"}
-              >Gmail</.link>
-              <.link
-                id="connections-calendar"
-                patch={HomeNavigation.connections_path(:calendar)}
-                class="workspace-nav-link"
-                aria-current={if @connection_view == :calendar, do: "page"}
-              >Calendar</.link>
-              <.link
-                id="connections-github"
-                patch={HomeNavigation.connections_path(:github)}
-                class="workspace-nav-link"
-                aria-current={if @connection_view == :github, do: "page"}
-              >GitHub</.link>
+                aria-current={if @connection_view == provider, do: "page"}
+              >{name}</.link>
             </nav>
-            <button
-              :if={
-                !@selected && !@settings && !@connections && !@scenes && @mail.scope != :home &&
-                  !@editor && @workspace_options != []
-              }
-              id="new-workspace"
-              type="button"
-              class="workspace-action workspace-action-primary"
-              phx-click="new_workspace"
-              disabled={@loading || @workspaces_error}
-            >
-              New workspace
-            </button>
-            <WorkspaceComponents.workspace_menu
-              :if={@selected && !@connections && !@editor}
-              workspace={@selected}
-              current
-            />
-          </div>
-          <p :if={@onboarding_pending} class="mail-muted">
-            <.link
-              id="finish-onboarding"
-              href="/onboarding"
-              class="workspace-action workspace-action-link"
-            >
-              Continue setup
-            </.link>
-          </p>
 
-          <MonolithWeb.ModalComponents.modal
-            :if={@editor}
-            id="workspace-modal"
-            title={if @editor == :new, do: "New workspace", else: "Rename workspace"}
-            on_cancel="cancel_workspace"
-            initial_focus="#workspace-name"
-            return_focus={
-              if @editor == :new,
-                do: "#new-workspace",
-                else: "#workspace-menu-#{@form.source.data.id} summary"
-            }
-          >
-            <.form
-              for={@form}
-              id="workspace-form"
-              class="workspace-modal-form"
-              phx-change="validate_workspace"
-              phx-submit="save_workspace"
-            >
-              <.input
-                field={@form[:name]}
-                id="workspace-name"
-                label="Name"
-                class="workspace-name-input"
-                maxlength="64"
-                required
-                autocomplete="off"
-                aria-invalid={if @form[:name].errors != [], do: "true", else: "false"}
-                aria-describedby="workspace-name-hint workspace-form-feedback"
-              />
-              <p id="workspace-name-hint" class="workspace-form-hint">
-                Use a name of 1–64 characters.
-              </p>
-              <p id="workspace-form-feedback" class="workspace-form-feedback" role="alert">
-                {if @form_failed,
-                  do: "The workspace couldn’t be saved. Check the name and try again."}
-              </p>
-              <div class="workspace-editor-actions">
-                <button
-                  type="submit"
-                  class="workspace-action workspace-action-primary"
-                  phx-disable-with="Saving…"
-                >
-                  {if @editor == :new, do: "Create workspace", else: "Save name"}
-                </button>
-                <button type="button" class="workspace-action" phx-click="cancel_workspace">Cancel</button>
+            <div :if={@connections && @connection_view != :index} class="provider-layout">
+              <div class="provider-main">
+                <GoogleComponents.connection
+                  :if={@connection_view == :google}
+                  status={@google_status}
+                />
+
+                <GeminiComponents.connection
+                  :if={@connection_view == :gemini}
+                  status={@gemini_status}
+                  startup_preference={@startup_preference}
+                />
+
+                <MailComponents.connections
+                  :if={@connection_view == :gmail}
+                  mail={@mail}
+                  google_status={@google_status}
+                  workspace_options={@workspace_options}
+                  readouts={@home_accounts}
+                />
+
+                <CalendarComponents.connections
+                  :if={@connection_view == :calendar}
+                  accounts={@calendar_accounts}
+                  accounts_state={@calendar_accounts_state}
+                  google_status={@google_status}
+                  workspace_options={@workspace_options}
+                  window={@calendar_window}
+                  refresh={@calendar_revision}
+                />
+
+                <GitHubComponents.connections
+                  :if={@connection_view == :github}
+                  organizations={@github_organizations}
+                  connections={@github_connections}
+                  auth={@github_auth}
+                  authorization_error={@github_authorization_error}
+                  configured={@github_configured}
+                  installation_url={@github_installation_url}
+                  configuration_status={@github_configuration_status}
+                  memberships={@github_memberships}
+                  workspace_options={@workspace_options}
+                  error={@github_error}
+                  now={@github_now}
+                />
               </div>
-            </.form>
-          </MonolithWeb.ModalComponents.modal>
-
-          <div
-            :if={
-              !@home && !@settings && !@selected && !@connections && !@scenes && @mail.scope != :home
-            }
-            class="workspace-list"
-            id="workspace-list"
-            phx-update="stream"
-          >
-            <WorkspaceComponents.card
-              :for={{dom_id, workspace} <- @streams.workspaces}
-              id={dom_id}
-              workspace={workspace}
-              health={Map.get(@workspace_health, workspace.id)}
-            />
-          </div>
-
-          <div
-            :if={
-              !@home && !@settings && !@selected && !@connections && !@scenes &&
-                @mail.scope != :home && !@loading && !@workspaces_error && @workspace_options == []
-            }
-            id="workspaces-empty"
-            class="empty-state"
-          >
-            <.icon name="hero-squares-2x2" class="empty-state-mark size-6" />
-            <div class="empty-state-body">
-              <h3 class="empty-state-title">No workspaces yet</h3>
-              <p class="empty-state-copy">
-                Name a space for an area of life. Add connections whenever you’re ready.
-              </p>
-              <button
-                id="new-workspace"
-                type="button"
-                class="workspace-action workspace-action-primary"
-                phx-click="new_workspace"
-              >
-                New workspace
-              </button>
+              <MonolithWeb.ConnectionComponents.context provider={@connection_view}>
+                <:github_help>
+                  <GitHubComponents.setup_help
+                    :if={@connection_view == :github}
+                    configuration_status={@github_configuration_status}
+                    callback_url={@github_callback_url}
+                  />
+                </:github_help>
+              </MonolithWeb.ConnectionComponents.context>
             </div>
-          </div>
 
-          <div :if={@home} id="home-readouts" class="home-readouts">
-            <HomeComponents.overview
-              accounts={@home_accounts}
-              loading={@loading}
-              error={@home_error}
-            />
-
-            <CalendarComponents.agenda
-              home
-              accounts={Enum.filter(@calendar_accounts, & &1.calendar_enabled)}
-              window={@calendar_window}
-              refresh={@calendar_revision}
-            />
-            <GitHubComponents.dashboard
+            <div
+              :if={@selected && !@connections && !@editor && !@github_activity}
+              id="workspace-landing"
+              class={[
+                "workspace-landing",
+                !@mail.account_id && !@mail.adding && "workspace-detail-grid",
+                @mail.adding && "workspace-add-plane"
+              ]}
+            >
+              <MailComponents.panel mail={@mail} workspace={@selected} readouts={@home_accounts} />
+              <CalendarComponents.agenda
+                :if={!@mail.account_id && !@mail.adding}
+                accounts={
+                  Enum.filter(
+                    @calendar_accounts,
+                    &(&1.calendar_enabled && &1.id in @mail.memberships)
+                  )
+                }
+                window={@calendar_window}
+                accounts_state={@calendar_accounts_state}
+                refresh={@calendar_revision}
+              />
+            </div>
+            <div
+              :if={@selected && !@connections && !@editor && !@github_activity && !@mail.account_id}
+              class="github-plane"
+            >
+              <GitHubComponents.workspace
+                organizations={@github_organizations}
+                connections={@github_connections}
+                memberships={@github_memberships}
+                workspace={@selected}
+                error={@github_error}
+                adding={@mail.adding}
+                now={@github_now}
+              />
+            </div>
+            <GitHubComponents.activity
+              :if={@github_activity && @selected}
               organizations={@github_organizations}
-              memberships={@github_memberships}
-              workspace_options={@workspace_options}
-              error={@github_error}
-              now={@github_now}
-            />
-          </div>
-
-          <div
-            :if={!@home && !@connections && @mail.scope == :home}
-            id="home-inbox"
-            class="workspace-landing"
-          >
-            <MailComponents.panel mail={@mail} />
-          </div>
-
-          <p
-            :if={@loading && !@home && !@settings && !@scenes}
-            id="workspaces-loading"
-            class="workspace-notice"
-            role="status"
-          >
-            <.status_signal
-              id="workspaces-loading-signal"
-              state={:active}
-              label="Opening your spaces…"
-            />
-          </p>
-          <div
-            :if={@workspaces_error && !@home && !@settings && !@scenes}
-            id="workspaces-error"
-            class="workspace-notice"
-            role="alert"
-          >
-            <p>Your workspaces couldn’t be loaded. Your saved spaces have not been changed.</p>
-            <button type="button" class="workspace-action" phx-click="retry_workspaces">Try again</button>
-          </div>
-
-          <HomeComponents.settings :if={@settings} />
-
-          <SceneComponents.gallery
-            :if={@scenes}
-            gemini_status={@gemini_status}
-            data={@scene_data}
-            loading={@scene_loading}
-            error={@scene_error}
-            pending={@scene_request_pending}
-            notice={@scene_notice}
-            confirmation={@scene_confirmation}
-            confirmation_prompt={@scene_confirmation_prompt}
-            direction={@scene_direction}
-            settings={@scene_settings}
-            preparing={@scene_preparing}
-            prepared={@scene_prepared}
-            acknowledgement={@scene_acknowledgement}
-          />
-
-          <MonolithWeb.ConnectionComponents.overview :if={@connections && @connection_view == :index} />
-
-          <GoogleComponents.connection
-            :if={@connections && @connection_view == :google}
-            status={@google_status}
-          />
-
-          <GeminiComponents.connection
-            :if={@connections && @connection_view == :gemini}
-            status={@gemini_status}
-          />
-
-          <MailComponents.connections
-            :if={@connections && @connection_view == :gmail}
-            mail={@mail}
-            google_status={@google_status}
-            workspace_options={@workspace_options}
-          />
-
-          <CalendarComponents.connections
-            :if={@connections && @connection_view == :calendar}
-            accounts={@calendar_accounts}
-            google_status={@google_status}
-            workspace_options={@workspace_options}
-            window={@calendar_window}
-            refresh={@calendar_revision}
-          />
-
-          <GitHubComponents.connections
-            :if={@connections && @connection_view == :github}
-            organizations={@github_organizations}
-            connections={@github_connections}
-            auth={@github_auth}
-            authorization_error={@github_authorization_error}
-            configured={@github_configured}
-            installation_url={@github_installation_url}
-            callback_url={@github_callback_url}
-            configuration_status={@github_configuration_status}
-            memberships={@github_memberships}
-            workspace_options={@workspace_options}
-            error={@github_error}
-            now={@github_now}
-          />
-
-          <div
-            :if={@selected && !@connections && !@editor}
-            id="workspace-landing"
-            class="workspace-landing"
-          >
-            <MailComponents.panel mail={@mail} workspace={@selected} />
-            <CalendarComponents.agenda
-              :if={!@mail.account_id && !@mail.adding}
-              accounts={
-                Enum.filter(@calendar_accounts, &(&1.calendar_enabled && &1.id in @mail.memberships))
-              }
-              window={@calendar_window}
-              refresh={@calendar_revision}
-            />
-            <GitHubComponents.workspace
-              :if={!@mail.account_id}
-              organizations={@github_organizations}
-              connections={@github_connections}
               memberships={@github_memberships}
               workspace={@selected}
+              organization_id={@destination.organization_id}
               error={@github_error}
-              adding={@mail.adding}
               now={@github_now}
             />
-          </div>
-        </section>
-      </div>
-      <div id="workspace-controls" class="workspace-controls" inert>
-        <.form for={%{}} action="/lock" method="post" id="owner-lock-form">
-          <button type="submit" class="workspace-action">Lock</button>
-        </.form>
-        <footer class="workspace-footer">
-          <span><kbd>esc</kbd> Landscape</span>
-        </footer>
+          </section>
+        </div>
       </div>
     </Layouts.app>
     """

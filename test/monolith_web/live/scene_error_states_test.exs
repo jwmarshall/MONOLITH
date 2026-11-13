@@ -296,6 +296,9 @@ defmodule MonolithWeb.SceneErrorStatesTest do
          conn: conn,
          settings: settings
        } do
+    settings = %{settings | enabled: true}
+    put_env(:stage_designer, settings)
+    StageDesigner.save_startup_preference!(%{enabled: true}, actor: @owner)
     assert :started = Generation.startup(settings, DateTime.utc_now())
     Req.Test.expect(__MODULE__, &SceneGeneration.respond(&1, PNG.image()))
     completed = SceneGeneration.submit(__MODULE__)
@@ -320,6 +323,165 @@ defmodule MonolithWeb.SceneErrorStatesTest do
     assert SceneGeneration.current().digest == completed.digest
     assert {:ok, [_]} = Attempt.page(1)
     assert_background(view, completed.digest)
+  end
+
+  test "failed startup saves preserve the saved choice and allow the same choice to be retried",
+       %{
+         conn: conn,
+         settings: settings
+       } do
+    digest = publish(settings, PNG.image())
+    state = StageDesigner.get_state!(1, actor: @service)
+    {:ok, view, _} = live(conn, "/settings")
+    view |> form("#startup-preference", enabled: "true") |> render_submit()
+
+    for {saved, draft} <- [{true, false}, {false, true}] do
+      choice = form(view, "#startup-preference", enabled: to_string(draft))
+
+      reject_writes("BEFORE INSERT ON stage_designer_startup_preferences", fn ->
+        render_submit(choice)
+        assert has_element?(view, "#settings-panel [role=alert]")
+        assert has_element?(view, "#startup-preference button[type=submit]:not([disabled])")
+        assert_startup_choice(view, saved)
+        assert StageDesigner.get_state!(1, actor: @service) == state
+        assert_background(view, digest)
+        assert_no_attempts()
+      end)
+
+      render_submit(choice)
+      refute has_element?(view, "#settings-panel [role=alert]")
+      assert_startup_choice(view, draft)
+
+      view |> element("#home-link") |> render_click()
+      view |> element("#show-settings") |> render_click()
+      assert_startup_choice(view, draft)
+      {:ok, reloaded, _} = live(conn, "/settings")
+      assert_startup_choice(reloaded, draft)
+      assert StageDesigner.get_state!(1, actor: @service) == state
+      assert_background(reloaded, digest)
+      assert_no_attempts()
+
+      # A later failed save must also clear a preceding success in this view.
+      view |> form("#startup-preference", enabled: to_string(draft)) |> render_submit()
+    end
+  end
+
+  test "an unreadable startup choice blocks the form but not credential management and recovers",
+       %{
+         conn: conn
+       } do
+    StageDesigner.save_startup_preference!(%{enabled: true}, actor: @owner)
+
+    view =
+      without_table("stage_designer_startup_preferences", fn ->
+        {:ok, view, _} = live(conn, "/settings")
+        assert has_element?(view, "#settings-panel [role=alert]")
+        refute has_element?(view, "#startup-preference")
+
+        render_click(view, "settings:startup", %{"enabled" => "false"})
+        assert has_element?(view, "#settings-panel [role=alert]")
+
+        render_patch(view, "/connections/gemini")
+        complete(view)
+        assert has_element?(view, "#gemini-remove-form button[type=submit]:not([disabled])")
+        assert has_element?(view, "#gemini-key-form button[type=submit]:not([disabled])")
+        view |> element("[phx-click='gemini:check']") |> render_click()
+        complete(view)
+        assert has_element?(view, "#gemini-remove-form")
+        view
+      end)
+
+    view |> element("#gemini-generation-help a[href='/settings']") |> render_click()
+    refute has_element?(view, "#settings-panel [role=alert]")
+    assert_startup_choice(view, true)
+    view |> form("#startup-preference", enabled: "false") |> render_submit()
+    assert_startup_choice(view, false)
+    assert {:ok, nil} = StageDesigner.get_state(1, actor: @service)
+    assert_no_attempts()
+  end
+
+  test "Gemini key checks stay available independently of saved startup choice and environment veto",
+       %{conn: conn, settings: settings} do
+    {:ok, view, _} = live(conn, "/settings")
+
+    for {saved, environment} <- [{false, true}, {true, false}, {true, true}] do
+      Application.put_env(:monolith, :stage_designer, %{settings | enabled: environment})
+      render_patch(view, "/settings")
+      view |> form("#startup-preference", enabled: to_string(saved)) |> render_submit()
+      assert_startup_choice(view, saved)
+
+      render_patch(view, "/connections/gemini")
+      complete(view)
+      assert has_element?(view, "#gemini-remove-form")
+
+      # A keychain refresh must observe the current gates without authorizing work.
+      view |> element("[phx-click='gemini:check']") |> render_click()
+      complete(view)
+      assert has_element?(view, "#gemini-remove-form button[type=submit]:not([disabled])")
+
+      assert %{enabled: ^saved, environment_enabled: ^environment} =
+               StageDesigner.startup_preference!(actor: @owner)
+
+      assert %{enabled: ^saved} = StageDesigner.get_startup_preference!(1, actor: @service)
+      assert {:ok, nil} = StageDesigner.get_state(1, actor: @service)
+      assert_no_attempts()
+
+      view |> element("#gemini-generation-help a[href='/settings']") |> render_click()
+      assert_startup_choice(view, saved)
+    end
+
+    GeminiVault.fail(:locked)
+    render_patch(view, "/connections/gemini")
+    complete(view)
+    refute has_element?(view, "#gemini-remove-form")
+    assert has_element?(view, "#gemini-key-form button[type=submit]:not([disabled])")
+    view |> element("#gemini-generation-help a[href='/settings']") |> render_click()
+    assert_startup_choice(view, true)
+    assert_no_attempts()
+  end
+
+  test "malformed and out-of-view startup events cannot overwrite either saved choice", %{
+    conn: conn
+  } do
+    for saved <- [false, true] do
+      StageDesigner.save_startup_preference!(%{enabled: saved}, actor: @owner)
+      {:ok, view, _} = live(conn, "/settings")
+
+      for params <- [
+            %{},
+            %{"enabled" => nil},
+            %{"enabled" => !saved},
+            %{"enabled" => "sometimes"},
+            %{"enabled" => ["true", "false"]},
+            %{"enabled" => %{"value" => to_string(!saved)}}
+          ] do
+        render_click(view, "settings:startup", params)
+        assert_startup_choice(view, saved)
+        refute has_element?(view, "#settings-panel [role=alert]")
+      end
+
+      for path <- ["/", "/connections", "/connections/gemini", "/scenes"] do
+        render_patch(view, path)
+        complete(view)
+        render_click(view, "settings:startup", %{"enabled" => to_string(!saved)})
+        assert %{enabled: ^saved} = StageDesigner.get_startup_preference!(1, actor: @service)
+        assert_no_attempts()
+      end
+
+      render_patch(view, "/settings")
+      assert_startup_choice(view, saved)
+      assert {:ok, nil} = StageDesigner.get_state(1, actor: @service)
+    end
+  end
+
+  defp assert_startup_choice(view, enabled) do
+    assert %{enabled: ^enabled} = StageDesigner.get_startup_preference!(1, actor: @service)
+
+    selector = "#startup-preference input[type=checkbox][checked]"
+
+    if enabled,
+      do: assert(has_element?(view, selector)),
+      else: refute(has_element?(view, selector))
   end
 
   defp assert_background(view, digest) do

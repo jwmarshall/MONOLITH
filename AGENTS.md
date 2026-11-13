@@ -5,8 +5,8 @@ The full rebrand includes `:monolith` for the OTP application/configuration,
 `Monolith`/`MonolithWeb` modules, `monolith` project-owned libraries, paths,
 commands, database/keychain identifiers and tooling, and `MONOLITH_*` environment
 variables. Third-party dependencies retain their upstream names.
-Phase 1 uses the MONOLITH codebase/runtime identity. Browser-visible LOVELACE
-copy, artwork and presentation remain unchanged until the separately authorized UI phase.
+The production UI follows the MONOLITH presentation across all application routes;
+docs/MONOLITH_DESIGN_SYSTEM.md is its single visual and experience authority.
 There are no users and existing local data is replaceable: this pre-user rebrand
 requires no data migration, preservation, backward compatibility or legacy aliases.
 The identity cutover does not authorize accessing, resetting or deleting private local state.
@@ -97,8 +97,10 @@ Stack: Phoenix LiveView, Ash/AshSqlite over Ecto/SQLite, and Tailwind.
 - No external telemetry exporter. Stock Bandit's in-process conn metadata is an explicit
   user-accepted local exception; never add payload logging/export without privacy review.
 - Scenery is app-wide, not account-owned. Gemini generation is opt-in and potentially billable;
-  allow opted-in startup or explicitly confirmed Scenes requests. The persisted 24-hour
-  cooldown applies to automatic startup only; manual requests need fresh cost confirmation
+  allow opted-in startup or explicitly confirmed Scenes requests. The saved Ash startup
+  opt-in defaults off when absent; environment configuration can veto it. Saving the
+  preference neither generates nor cancels work. The persisted 24-hour cooldown applies
+  to automatic startup only; manual requests need fresh cost confirmation
   and refuse overlapping/unconfirmed attempts. Paid submissions are one-shot, fenced by durable
   claims even under Oban rescue. Google background interactions explicitly allow provider storage;
   resume only retrieval of known IDs, and delete remote results after committed local publication.
@@ -115,13 +117,15 @@ Stack: Phoenix LiveView, Ash/AshSqlite over Ecto/SQLite, and Tailwind.
 
 ## Experience
 
-- Explicitly selected rebrand surfaces follow docs/MONOLITH_DESIGN_SYSTEM.md;
-  unmigrated surfaces retain docs/UI_CONTRACT.md. Do not require both presentation
-  systems on the same surface. MONOLITH reviewers own the target visual/experience
-  standards; existing specialists retain application correctness and safety.
+- All application surfaces follow docs/MONOLITH_DESIGN_SYSTEM.md; docs/UI_CONTRACT.md
+  retains operational, route, lifecycle and security requirements, not a competing
+  presentation system. MONOLITH reviewers own visual/experience standards;
+  existing specialists retain application correctness and safety.
+- Omit account-letter register codes. Keep numbered sections and adjacent full account
+  or installation identity; never derive identity labels from filtered array positions.
 - Preserve the scenery/working-content focal-plane model. Escape/idle is visual,
   **not Lock**. Keyboard access, readable mail, contrast, reduced motion and forced
-  colors outrank atmosphere in either presentation.
+  colors outrank atmosphere.
 
 ## Verification
 

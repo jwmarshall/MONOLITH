@@ -12,12 +12,15 @@ Workspaces group separate accounts and GitHub personal/organization installation
 - Startup is locked. Explicit Lock stops protected background work; visual idle/Escape does not.
 - No password recovery. Existing plaintext data requires an explicit, stopped migration.
 
-Phase 1 uses MONOLITH for code, commands, configuration and storage identifiers.
-The browser still shows the existing LOVELACE copy, artwork and presentation; the UI rebrand is separate.
-No existing private data is moved, reset or migrated by this identity cutover.
+The application and production interface use MONOLITH throughout. The
+[design system](docs/MONOLITH_DESIGN_SYSTEM.md) governs presentation;
+[UI contracts](docs/UI_CONTRACT.md) preserve operational and security behavior.
+The identity cutover does not move, reset or migrate private data.
 
 A glass interface keeps your work in front of the scenery.
 [Optional generated scenery](docs/STAGE_DESIGNER.md) is opt-in and may incur API costs.
+Automatic startup also requires a saved opt-in (absent means off) and enabling terminal
+configuration. Saving the choice never generates; manual requests require fresh cost confirmation.
 
 ## Try it locally
 
@@ -72,12 +75,12 @@ system serif/monospace fallbacks. The whole `design-concepts` folder can be copi
 
 ### MONOLITH designer study
 
-The [expanded MONOLITH study](design-concepts/monolith-study/index.html) defines the committed
-**redesign and rebrand of LOVELACE as MONOLITH**. The application uses the MONOLITH
-codebase/runtime identity; the study's visual design has not been applied to the running UI.
+The [expanded MONOLITH study](design-concepts/monolith-study/index.html) supplies the
+approved visual reference for the production MONOLITH interface. It remains a fictional,
+standalone specimen, not a production router or persistence implementation.
 All ten original demos remain unchanged. Serve it with the command above,
-then visit <http://127.0.0.1:8176/monolith-study/>. Charcoal is the study’s only interface
-theme; Settings contains focus and scenery preferences, not a palette selector.
+then visit <http://127.0.0.1:8176/monolith-study/>. Charcoal is the only interface
+foundation; production Settings contains focus and startup preferences, not a palette selector.
 Scene-direction palettes and light/dark identity proofs do not change the interface palette.
 
 - **Identity:** the MONOLITH mark has no separate name; Outline and Solid describe its treatments.
@@ -154,13 +157,13 @@ Scene-direction palettes and light/dark identity proofs do not change the interf
   stay beside their layout rules, not in unusable breakpoint custom properties.
   The on-page design contract specifies ownership, composition, responsive behavior,
   contrast, focus, state semantics, reduced motion, forced colors and print.
-  It describes the static rebrand target; `docs/UI_CONTRACT.md` still governs the running app.
+  Production presentation authority is [MONOLITH_DESIGN_SYSTEM.md](docs/MONOLITH_DESIGN_SYSTEM.md).
 - **Voice:** naming, tone, action labels, recovery messages and contextual state copy.
 - **Proof:** view/state links, interaction paths, review notes and a checklist.
   **Study limits** consolidates frozen sample times, in-memory changes, local-only search,
   credential specimens and simulated scene requests. Shared subview-header placement belongs
   in **Components → Navigation and identity context**, alongside workspace-card controls.
-  Product requirements remain in `docs/UI_CONTRACT.md`; token usage comments remain in `tokens.css`.
+  Operational/security requirements remain in `docs/UI_CONTRACT.md`; study token usage comments remain in `tokens.css`.
   Print the current review to paper or PDF using the browser print dialog.
 
 The composition returns to the original demo’s oversized date, editorial grid, joined glass,
@@ -185,19 +188,19 @@ treatment reveals the silhouette bottom-up while negative-space creases descend:
 Both use the same choreography: a completed-mark pause precedes the letter flips;
 the lockup holds, lifts and dissolves. Each replay lasts about 5.2 seconds. Completed geometry
 matches the static artwork. No shading, moving faces, autoplay or looping.
-This study commits the design direction, not an already-completed production cutover.
-The approved rebrand covers the full application and UI, project-owned libraries,
-modules, OTP/configuration namespaces, paths, commands, tooling and storage/keychain
-names: **MONOLITH**, `Monolith`/`MonolithWeb`, `:monolith` and `monolith`.
-Third-party package names remain unchanged. There are no users and local data is
-replaceable; no preservation migration, compatibility layer or legacy alias is required.
+The study is a design reference, not evidence that production acceptance checks passed.
+The application identity is **MONOLITH**, `Monolith`/`MonolithWeb`, `:monolith` and
+`monolith` across project-owned modules, configuration, paths, commands and storage names.
+Third-party package names remain unchanged. No preservation migration, compatibility
+layer or legacy alias is required; this does not authorize private-state operations.
 
 For implementation, use the [distilled MONOLITH design rules](docs/MONOLITH_DESIGN_SYSTEM.md)
 and [reviewer/skill routing](docs/REVIEWERS.md#monolith-rebrand-routing). The project-local
 MONOLITH Scopewright reviewers and Skillwright workflows enforce that target while
 retaining real product/security behavior, not importing the study simulator.
-The source uses MONOLITH identifiers. The unmigrated UI contract governs existing
-presentation until a separately authorized visual cutover; the study remains a reference, not runtime UI.
+The production UI uses that presentation authority across all routes; the study remains
+a reference, not runtime UI. Account-letter codes are omitted in production: numbered
+sections and adjacent full account/installation identities remain.
 
 Open **View / state** for authored scenarios, or follow product navigation.
 Hash URLs preserve destinations and mail context. Ordinary product-route reloads replay

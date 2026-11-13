@@ -1,160 +1,93 @@
-/* Quiet glass entry surfaces. Opening and management are sibling controls. */
-.workspace-list, .integration-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 270px), 1fr));
-  gap: 16px;
-  align-items: start;
-}
-.workspace-card, .integration-tile, .connection-card, .integration-add-panel {
-  position: relative;
-  min-width: 0;
-  border: 1px solid var(--border-default);
-  border-radius: 6px;
-  background: var(--surface-card);
-}
-.workspace-card:focus-within, .integration-tile:focus-within { border-color: var(--color-primary); }
-.workspace-card-open, .integration-tile-open {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  width: 100%;
-  min-width: 0;
-  min-height: 144px;
-  padding: 20px;
-  gap: 8px;
-  border-radius: 6px;
-  text-align: left;
-  cursor: pointer;
-  transition: background 160ms;
-}
-.workspace-card-open:hover, .integration-tile-open:hover { background: var(--surface-hover); }
-.workspace-card-name { padding-right: 44px; font-size: 23px; font-weight: 400; letter-spacing: -0.025em; overflow-wrap: anywhere; }
-.workspace-card-health { display: flex; flex-direction: column; gap: 8px; margin-top: auto; padding: 8px 28px 0 0; color: var(--color-secondary); font-size: 12px; line-height: 1.6; }
-.workspace-card-problem { overflow-wrap: anywhere; }
-.workspace-card-arrow { position: absolute; bottom: 20px; right: 20px; color: var(--color-primary); }
-.connection-warning { color: var(--color-warning); }
-.workspace-menu { position: absolute; top: 12px; right: 12px; z-index: 1; }
-.workspace-menu[open] { z-index: 2; }
-.workspace-menu summary { display: flex; align-items: center; justify-content: center; width: 44px; height: 44px; border: 1px solid transparent; border-radius: 4px; cursor: pointer; list-style: none; }
-.workspace-menu summary::-webkit-details-marker { display: none; }
-.workspace-menu summary:hover, .workspace-menu[open] summary { background: var(--surface-hover-strong); border-color: var(--border-default); }
-.workspace-menu-actions { position: absolute; top: 48px; right: 0; min-width: 180px; padding: 6px; background: var(--color-base-100); border: 1px solid var(--color-base-300); border-radius: 4px; box-shadow: var(--shadow-menu); }
-.workspace-menu-actions .workspace-action { justify-content: flex-start; width: 100%; white-space: normal; text-align: left; }
-.workspace-directory-heading > .workspace-menu { position: relative; top: auto; right: auto; flex-shrink: 0; }
-.workspace-directory-heading { align-items: center; }
-.workspace-topline { gap: 12px; visibility: hidden; }
-.glass-workspace:has(#workspace-pane[aria-pressed="true"]) .workspace-glass[data-entered="true"] .workspace-topline { visibility: visible; }
-.workspace-landing { border-top: 0; padding-top: 0; }
-.workspace-landing > .mail-panel { border-top: 0; padding-top: 0; margin-top: 0; }
-.integration-tile-open { display: grid; grid-template-columns: 24px minmax(0, 1fr); align-content: start; gap: 6px 12px; min-height: 144px; }
-.integration-tile-open > .integration-icon { grid-column: 1; grid-row: 1 / 3; }
-.integration-tile-open > .mail-eyebrow, .integration-tile-open > .integration-name,
-.integration-tile-open > .mail-muted { grid-column: 2; }
-.integration-tile-open > .mail-eyebrow { padding-right: 44px; }
-.integration-tile-open > .integration-name { padding-right: 44px; }
-.integration-icon { color: var(--color-primary); flex-shrink: 0; }
-.integration-name { display: block; padding-right: 12px; font-size: 17px; overflow-wrap: anywhere; }
-.integration-tile-open .mail-muted { padding-right: 22px; }
-.integration-tile-open .mail-eyebrow { margin-bottom: 0; }
+/* One joined directory plane. Workspace Rename is a sibling of its destination. */
+.workspace-list { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 0; align-items: stretch; background: var(--card-surface); border-top: 1px solid var(--line); }
+.workspace-card { min-width: 0; display: flex; flex-direction: column; border-bottom: 1px solid var(--line); }
+.workspace-card:nth-child(odd):not(:last-child) { border-right: 1px solid var(--line-interior); }
+.workspace-card:has(~ .workspace-card:nth-child(2n+1)) { border-bottom-color: var(--line-interior); }
+.workspace-card-head { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 16px 16px 0 28px; }
+.workspace-rename { flex: none; min-width: 44px; min-height: 44px; font-size: 13px; }
+.workspace-card-open { display: flex; flex: 1; flex-direction: column; gap: 16px; min-width: 0; min-height: 140px; padding: 8px 28px 28px; text-decoration: none; }
+.workspace-card-open:hover { background: var(--surface); }
+.workspace-card-name { font-size: 30px; line-height: 1.25; letter-spacing: -.04em; }
+.workspace-card-health { display: flex; flex-direction: column; gap: 8px; color: var(--muted); font-size: 13px; line-height: 1.6; }
+.connection-warning { color: var(--ink); }
+.workspace-landing { min-width: 0; }
+.workspace-landing > .mail-panel { margin-top: 0; padding-top: 0; }
+.workspace-landing > .mail-workspace-panel { padding: 0; }
+.mail-workspace-panel > .mail-notice { margin: 24px; }
+/* Integration actions retain their independent scopes. Unlike workspace Rename,
+   these menus contain multiple choices and remain native disclosures. */
+.integration-grid { display: grid; grid-template-columns: 1fr; gap: 0; }
+.integration-tile { position: relative; min-width: 0; background: transparent; border-bottom: 1px solid var(--line-interior); }
+.integration-tile-open { display: grid; grid-template-columns: 24px minmax(0,1fr); gap: 8px 16px; min-height: 120px; padding: 24px; text-align: left; text-decoration: none; }
+.integration-tile-open:hover { background: var(--surface); }
+.integration-tile-open > .integration-icon { grid-column: 1; grid-row: 1 / 4; }
+.integration-tile-open > .mail-eyebrow, .integration-tile-open > .integration-name, .integration-tile-open > .mail-muted { grid-column: 2; padding-right: 32px; }
+.integration-name { font-size: var(--type-account-size); line-height: var(--type-account-leading); letter-spacing: var(--type-account-tracking); }
+.integration-icon { color: var(--muted); }
 .integration-recovery { padding: 0 24px 24px; }
-.integration-empty { padding: 16px 0; display: flex; flex-direction: column; align-items: flex-start; gap: 10px; color: var(--color-secondary); }
-.integration-add-panel { margin-top: 20px; padding: 20px; }
-.integration-add-panel h4 { font-size: 20px; font-weight: 400; }
+.integration-empty { display: grid; gap: 12px; padding: 24px; color: var(--muted); }
+.integration-add-panel { margin-top: 24px; padding: 24px; border-block: 1px solid var(--line); background: var(--card-surface); }
+.integration-add-panel h4 { font-size: 24px; }
 .integration-add-panel .mail-heading { margin-bottom: 16px; }
-.connection-row { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 20px 0; border-bottom: 1px solid var(--color-base-300); }
-.connections-panel { display: flex; flex-direction: column; gap: 16px; font-size: 14px; line-height: 1.65; }
-.connection-card { padding: 20px; }
-.connection-identity { display: flex; align-items: flex-start; gap: 12px; margin-bottom: 16px; }
-.connection-identity h3 { font-size: 18px; overflow-wrap: anywhere; }
-.connections-subnav { display: flex; flex-wrap: wrap; align-items: center; gap: 0 24px; flex-shrink: 0; max-width: 100%; }
-.connections-overview { display: grid; border-top: 1px solid var(--color-base-300); }
-.connection-provider { display: flex; align-items: center; gap: 20px; min-height: 88px; padding: 16px 0; border-bottom: 1px solid var(--color-base-300); }
-.connection-provider > :first-child, .connection-provider > :last-child { flex-shrink: 0; color: var(--color-primary); }
-.connection-provider-copy { display: flex; flex: 1; min-width: 0; flex-direction: column; gap: 6px; overflow-wrap: anywhere; }
-.connection-provider-name { font-size: 20px; }
-.connection-provider .mail-muted { font-size: 14px; }
-.connection-provider:hover .connection-provider-name { color: var(--color-primary); }
-.connections-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
-.connections-heading .mail-section-title { margin: 0; }
-.gmail-connection-list { display: grid; gap: 8px; }
-.gmail-connection-card { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px 24px; padding: 12px 16px; }
-.gmail-connection-card .connection-identity { align-items: center; gap: 12px; margin: 0; min-width: 0; flex: 1 1 240px; }
-.gmail-connection-card h4 { font-size: 15px; font-weight: 400; overflow-wrap: anywhere; }
+.workspace-menu { position: absolute; top: 12px; right: 12px; z-index: 1; border: 0; padding: 0; }
+.workspace-menu[open] { z-index: 2; }
+.workspace-menu summary { display: grid; place-items: center; width: 44px; height: 44px; border: 1px solid transparent; cursor: pointer; list-style: none; padding: 0; }
+.workspace-menu summary::-webkit-details-marker { display: none; }
+.workspace-menu summary:hover, .workspace-menu[open] summary { background: var(--surface); border-color: var(--line); }
+.workspace-menu-actions { position: absolute; top: 48px; right: 0; min-width: 180px; padding: 8px; background: var(--color-base-100); border: 1px solid var(--line); }
+.workspace-menu-actions .workspace-action { width: 100%; justify-content: start; text-align: left; }
+.connections-panel { display: flex; flex-direction: column; min-width: 0; font-size: 16px; line-height: 1.55; }
+.connection-card { min-width: 0; padding: 24px; border-bottom: 1px solid var(--line-interior); background: transparent; }
+.connection-identity { display: flex; align-items: start; gap: 12px; margin-bottom: 16px; min-width: 0; }
+.connection-identity h3 { font-size: var(--type-account-size); line-height: var(--type-account-leading); letter-spacing: var(--type-account-tracking); }
+.connection-row { display: flex; align-items: center; justify-content: space-between; gap: 24px; padding: 24px 0; border-bottom: 1px solid var(--line-interior); }
+.connections-panel > p, .connections-panel > .mail-notice { margin: 16px 24px; }
+.connections-panel > .connection-help { margin: 16px 24px 24px; }
+.gmail-connection-list { display: grid; gap: 0; }
+.gmail-connection-card { min-width: 0; padding: 24px; }
+.gmail-connection-card + .gmail-connection-card { border-top: 1px solid var(--line-interior); }
 .gmail-connection-card > .mail-actions { gap: 8px 12px; }
-.credential-check { flex-basis: 100%; min-width: 0; overflow-wrap: anywhere; }
-.gmail-connection-card .mail-oauth > div { min-width: min(180px, 100%); }
+.credential-check { flex-basis: 100%; min-width: 0; }
 #gmail-connection-modal .mail-oauth { display: grid; gap: 16px; margin-top: 24px; }
 #gmail-connection-modal .mail-oauth > div { margin: 0; min-width: 0; }
 #gmail-connection-modal .mail-oauth button { justify-self: start; }
 .gmail-connection-cancel { margin-top: 12px; }
-.connection-workspace-select { display: block; width: 100%; min-height: 44px; padding: 10px 14px; background: var(--color-base-100); color: var(--color-base-content); border: 1px solid var(--color-base-300); border-radius: 4px; }
-.connections-panel .mail-oauth { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px; }
-.connections-panel .mail-oauth > div { margin-bottom: 0; min-width: min(220px, 100%); }
-.connections-panel .label { color: var(--color-secondary); font-size: 12px; }
-.gemini-connection { font-size: 14px; line-height: 1.65; }
-.gemini-actions.empty-state-actions { align-items: flex-start; }
-.gemini-key-editor { min-width: 0; }
-.gemini-key-editor > summary { list-style: none; cursor: pointer; }
-.gemini-key-editor > summary::-webkit-details-marker { display: none; }
-.gemini-key-form { display: grid; gap: 12px; margin-top: 16px; max-width: 480px; }
-.gemini-key-form .workspace-name-input { width: 100%; min-width: 0; }
-.gemini-key-form button { justify-self: start; }
+.connection-workspace-select { display: block; width: 100%; min-height: 44px; padding: 10px 12px; background: var(--inset); color: var(--ink); border: 1px solid var(--border-input); border-radius: 0; }
+.connections-panel .mail-oauth { display: flex; flex-wrap: wrap; align-items: end; gap: 12px; }
+.connections-panel .mail-oauth > div { margin: 0; min-width: min(220px,100%); }
+.connections-panel .label { color: var(--muted); font-size: 13px; }
 .connection-help { max-width: 80ch; }
-.connection-help > summary { display: flex; align-items: center; gap: 8px; min-height: 44px; width: fit-content; cursor: pointer; list-style: none; }
-.connection-help > summary:not(.workspace-action) { color: var(--color-secondary); }
+.connection-help > summary { display: flex; align-items: center; gap: 8px; width: fit-content; list-style: none; }
 .connection-help > summary::-webkit-details-marker { display: none; }
 .connection-help > summary::after { content: "⌄"; }
 .connection-help[open] > summary::after { content: "⌃"; }
-.connection-help p { margin-top: 8px; }
+.connection-help p { margin-top: 12px; }
 .gemini-safety { margin-top: 16px; }
-/* Empty content belongs to the working plane, not a placeholder dashboard. */
-.workspace-directory .empty-state {
-  display: grid;
-  grid-template-columns: 28px minmax(0, 1fr);
-  align-items: start;
-  gap: 16px;
-  min-width: 0;
-  padding-block: 24px;
-  border-top: 1px solid var(--border-default);
-  color: var(--color-base-content);
-}
-.empty-state-mark { margin-top: 2px; color: var(--color-primary); }
-.empty-state-body { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; min-width: 0; }
-.workspace-directory .empty-state-title { margin: 0; font-size: 18px; line-height: 1.5; font-weight: 400; letter-spacing: -0.015em; overflow-wrap: anywhere; }
-.workspace-directory .empty-state-copy { margin: 0; max-width: 60ch; font-size: 14px; line-height: 1.75; color: var(--color-secondary); overflow-wrap: anywhere; }
+.empty-state { display: grid; gap: 16px; min-width: 0; padding: 24px; border-block: 1px solid var(--line); background: var(--card-surface); }
+.empty-state-body { display: flex; flex-direction: column; align-items: start; gap: 12px; min-width: 0; }
+.empty-state-title { font-size: 22px; line-height: 1.3; }
+.empty-state-copy { max-width: 58ch; color: var(--muted); font-size: 16px; line-height: 1.55; }
 .empty-state-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
-.empty-state-body > .workspace-action, .empty-state-actions { margin-top: 4px; }
-.empty-state.empty-state-card { padding: clamp(20px, 3vw, 32px); }
 .empty-state-body > .connection-help { width: 100%; }
-.empty-state-body > .mail-account-identity { display: flex; flex-direction: column; gap: 10px; }
-@media (max-width: 640px) {
-  .workspace-directory-heading { flex-direction: row; flex-wrap: wrap; }
-  .workspace-list, .integration-grid { grid-template-columns: 1fr; }
-  .workspace-card-open { min-height: 136px; }
-  .connection-row { flex-direction: column; align-items: flex-start; }
-  .mail-heading { flex-wrap: wrap; }
-  .integration-add-panel, .connection-card { padding: 20px; }
-  .gmail-connection-card { padding: 12px 16px; gap: 8px; }
-  .gmail-connection-card .connection-identity { flex-basis: 100%; }
-  .gmail-connection-card > .mail-actions { width: 100%; }
-  .gmail-connection-card .mail-oauth { width: 100%; }
-  .gmail-connection-card .mail-oauth > div { flex: 1; min-width: 0; }
-  .gmail-connection-card .mail-oauth button { flex-shrink: 0; }
+.empty-state-body > .mail-account-identity { display: flex; flex-direction: column; gap: 12px; }
+.workspace-detail-grid .empty-state { border: 0; background: transparent; }
+@media (max-width:760px) {
+  .workspace-list { grid-template-columns: 1fr; }
+  .workspace-card:nth-child(odd):not(:last-child) { border-right: 0; }
+  .workspace-card:not(:last-child) { border-bottom-color: var(--line-interior); }
+  .workspace-card-head { padding: 12px 12px 0 24px; }
+  .workspace-card-open { padding: 8px 24px 24px; }
+  .connection-row { flex-direction: column; align-items: start; }
+  .connections-panel .mail-oauth > div { flex: 1; min-width: 0; }
 }
-@media (prefers-reduced-motion: reduce) {
-  .workspace-card-open, .integration-tile-open, .workspace-action { transition: none; }
+@media (max-width:440px) {
+  .gmail-connection-card { padding: 16px; }
+  .connections-panel > p, .connections-panel > .mail-notice, .mail-workspace-panel > .mail-notice { margin: 16px; }
+  .connections-panel > .connection-help { margin: 16px; }
 }
-@media (forced-colors: active) {
-  .workspace-directory .empty-state { border-color: CanvasText; }
-  .workspace-directory .empty-state-title, .workspace-directory .empty-state-copy,
-  .workspace-directory .empty-state-mark { color: CanvasText; text-shadow: none; }
-  .connections-overview, .connection-provider { border-color: CanvasText; }
-  .connection-provider * { color: CanvasText; text-shadow: none; }
-  .workspace-card, .integration-tile, .connection-card, .integration-add-panel,
-  .workspace-menu-actions, .workspace-menu summary, .connection-workspace-select { border-color: CanvasText; background: Canvas; box-shadow: none; }
-  .workspace-card *, .integration-tile *, .connections-panel *, .integration-add-panel *, .gemini-connection *,
-  .workspace-action, .workspace-action:hover { color: CanvasText; text-shadow: none; }
-  .workspace-action, .workspace-action:hover { background: ButtonFace; border-color: ButtonText; }
-  .workspace-card-open:hover, .integration-tile-open:hover, .workspace-menu summary:hover { background: Canvas; }
+@media (forced-colors:active) {
+  .workspace-menu-actions { background: Canvas; color: CanvasText; }
+  .workspace-card-open:hover, .integration-tile-open:hover { background: Canvas; }
+  .connection-workspace-select { color: FieldText; background: Field; border-color: FieldText; }
 }
+@media print { .workspace-menu, .workspace-rename { display: none; } .workspace-card { break-inside: avoid; } }

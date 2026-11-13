@@ -17,7 +17,7 @@ defmodule MonolithWeb.OnboardingController do
   def show(conn, %{"step" => value} = params) do
     case Onboarding.parse_step(value) do
       nil ->
-        send_resp(conn, 404, "Setup page not found")
+        render_public_error(conn, 404)
 
       step ->
         render_step(conn, step, 200, notice(params["notice"]), %{
@@ -63,7 +63,15 @@ defmodule MonolithWeb.OnboardingController do
         workspace_id: params["workspace_id"]
       )
 
-    calendar_result(conn, result, "calendars_saved", :calendar_selection)
+    case result do
+      {:ok, _} ->
+        calendar_result(conn, result, "calendars_saved", :calendar_selection)
+
+      _ ->
+        render_step(conn, :calendar, 422, :calendar_selection, %{
+          calendar_selection: Map.put(params, "calendar_ids", ids)
+        })
+    end
   end
 
   defp update_step(conn, :complete, %{"operation" => "finish"}) do
@@ -115,7 +123,10 @@ defmodule MonolithWeb.OnboardingController do
             do: Onboarding.connection(actor: actor),
             else: {:ok, nil}
 
-        calendar = calendar_context(step, connection, workspace, actor)
+        calendar =
+          step
+          |> calendar_context(connection, workspace, actor)
+          |> calendar_draft(Map.get(values, :calendar_selection))
 
         conn
         |> put_status(status)
@@ -135,10 +146,17 @@ defmodule MonolithWeb.OnboardingController do
         )
 
       _ ->
-        conn
-        |> put_status(503)
-        |> text("Local setup progress is unavailable. Please unlock again.")
+        render_public_error(conn, 503)
     end
+  end
+
+  defp render_public_error(conn, status) do
+    conn
+    |> put_status(status)
+    |> put_root_layout(false)
+    |> put_layout(false)
+    |> put_view(html: MonolithWeb.ErrorHTML)
+    |> render("#{status}.html")
   end
 
   defp calendar_context(
@@ -164,6 +182,27 @@ defmodule MonolithWeb.OnboardingController do
     do: {:error, :stale_connection}
 
   defp calendar_context(_step, _connection, _workspace, _actor), do: {:ok, nil}
+
+  defp calendar_draft(
+         {:ok,
+          %{workspace_id: workspace_id, account_id: account_id, generation: generation} = setup},
+         %{
+           "workspace_id" => workspace_id,
+           "account_id" => account_id,
+           "generation" => generation,
+           "calendar_ids" => ids
+         }
+       )
+       when is_list(ids) do
+    choices = MapSet.new(ids)
+
+    selected =
+      for calendar <- setup.calendars, MapSet.member?(choices, calendar.id), do: calendar.id
+
+    {:ok, %{setup | selected_ids: selected}}
+  end
+
+  defp calendar_draft(result, _draft), do: result
 
   defp background do
     case Monolith.StageDesigner.background() do

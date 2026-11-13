@@ -7,7 +7,7 @@ defmodule MonolithWeb.GitHubComponentsTest do
 
   @now ~U[2026-11-05 12:00:00Z]
 
-  test "Home distinguishes owner totals from attention counts in the bounded snapshot" do
+  test "Home separates bounded snapshot row counts from owner-wide totals and attention" do
     document =
       snapshot(%{
         total_count: 42,
@@ -23,13 +23,13 @@ defmodule MonolithWeb.GitHubComponentsTest do
       })
 
     assert LazyHTML.query(document, ".github-home-metric:nth-child(1) .github-home-total")
-           |> LazyHTML.text() == "42"
+           |> LazyHTML.text() == "2"
 
     assert LazyHTML.query(document, ".github-home-metric:nth-child(1) .github-home-attention")
            |> LazyHTML.text() == "1"
 
     assert LazyHTML.query(document, ".github-home-metric:nth-child(2) .github-home-total")
-           |> LazyHTML.text() == "17"
+           |> LazyHTML.text() == "0"
 
     assert LazyHTML.query(document, ".github-home-metric:nth-child(3) .github-home-total")
            |> LazyHTML.text() == "2"
@@ -93,8 +93,8 @@ defmodule MonolithWeb.GitHubComponentsTest do
     links = LazyHTML.query(document, ".github-home-links a")
 
     assert LazyHTML.attribute(links, "href") == [
-             "/workspaces/studio#workspace-github-org-synthetic-owner",
-             "/workspaces/personal#workspace-github-org-synthetic-owner"
+             "/workspaces/studio/github/synthetic-owner",
+             "/workspaces/personal/github/synthetic-owner"
            ]
 
     assert LazyHTML.text(links) =~ "Studio"
@@ -195,7 +195,10 @@ defmodule MonolithWeb.GitHubComponentsTest do
       )
 
     assert Enum.count(LazyHTML.query(document, ".github-pr")) == 3
-    assert Enum.count(LazyHTML.query(document, ".connection-warning")) == 3
+
+    assert LazyHTML.text(document) =~
+             "subset of the bounded owner snapshot, not repository totals"
+
     assert LazyHTML.query(document, ".github-summary") |> LazyHTML.text() =~ "1 shown"
     refute LazyHTML.query(document, ".github-summary") |> LazyHTML.text() =~ "321"
     refute LazyHTML.query(document, ".github-summary") |> LazyHTML.text() =~ "654"
@@ -364,10 +367,7 @@ defmodule MonolithWeb.GitHubComponentsTest do
 
     assert Enum.empty?(LazyHTML.query(document, "#github-sign-in-form, #github-install-app"))
 
-    assert LazyHTML.query(document, "#github-client-secret") |> LazyHTML.attribute("type") ==
-             ["password"]
-
-    assert LazyHTML.query(document, "#github-client-secret") |> LazyHTML.attribute("value") == []
+    assert Enum.empty?(LazyHTML.query(document, "#github-client-editor"))
   end
 
   test "failed authorization offers a fresh attempt without leaving an old browser attempt active" do
@@ -477,14 +477,13 @@ defmodule MonolithWeb.GitHubComponentsTest do
     assert LazyHTML.query(expired, ".github-health .connection-warning") |> LazyHTML.text() =~
              "Cached GitHub activity expired"
 
-    assert Enum.empty?(
-             LazyHTML.query(expired, ".github-pr, .github-summary, .github-related-activity")
-           )
+    assert Enum.empty?(LazyHTML.query(expired, ".github-pr, .github-summary"))
   end
 
   defp workspace_snapshot(overrides, options \\ []) do
     defaults = [
       workspace_id: "studio",
+      activity: true,
       memberships: [
         %{organization_id: "synthetic-owner", workspace_id: "studio", repository_ids: []}
       ]
@@ -500,15 +499,24 @@ defmodule MonolithWeb.GitHubComponentsTest do
       auth: %{status: :idle},
       configured: true,
       configuration_status: :ready,
-      callback_url: "http://localhost:4000/connections/github/callback",
       memberships: [],
       workspace_options: [],
       error: false,
       now: @now
     ]
 
-    render_component(&GitHubComponents.connections/1, Keyword.merge(defaults, options))
-    |> LazyHTML.from_fragment()
+    options = Keyword.merge(defaults, options)
+
+    cards = render_component(&GitHubComponents.connections/1, options)
+
+    help =
+      render_component(
+        &GitHubComponents.setup_help/1,
+        Keyword.take(options, [:configuration_status]) ++
+          [callback_url: "http://localhost:4000/auth/github/callback"]
+      )
+
+    LazyHTML.from_fragment(cards <> help)
   end
 
   defp account(id, overrides) do
@@ -554,6 +562,7 @@ defmodule MonolithWeb.GitHubComponentsTest do
       workspace_options: Keyword.get(options, :workspace_options, []),
       error: false,
       workspace_id: Keyword.get(options, :workspace_id),
+      activity: Keyword.get(options, :activity, false),
       now: @now
     )
     |> LazyHTML.from_fragment()

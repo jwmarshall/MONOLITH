@@ -128,7 +128,7 @@ defmodule MonolithWeb.Plugs.OwnerSetup do
     conn
     |> scrub()
     |> put_resp_header("cache-control", "no-store")
-    |> send_resp(status, "Unable to configure LOVELACE. Return to /setup.")
+    |> send_resp(status, "Unable to configure MONOLITH. Return to /setup.")
     |> halt()
   end
 end

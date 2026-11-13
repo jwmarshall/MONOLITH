@@ -73,11 +73,15 @@ defmodule Monolith.HomeSummaryTest do
 
     assert summary.workspace_health[shared.id] == %{
              total: 2,
+             google_accounts: 2,
+             github_installations: 0,
              problems: [Map.take(reconnect, [:id, :email, :status, :last_error])]
            }
 
     assert summary.workspace_health[personal.id] == %{
              total: 2,
+             google_accounts: 1,
+             github_installations: 1,
              problems: [
                %{
                  id: org.id,
@@ -88,7 +92,12 @@ defmodule Monolith.HomeSummaryTest do
              ]
            }
 
-    assert summary.workspace_health[empty.id] == %{total: 0, problems: []}
+    assert summary.workspace_health[empty.id] == %{
+             total: 0,
+             google_accounts: 0,
+             github_installations: 0,
+             problems: []
+           }
   end
 
   test "Home and Mail summary actions reject missing, provider-service and incorrect owner actors" do

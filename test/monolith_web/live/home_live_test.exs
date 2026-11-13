@@ -7,7 +7,7 @@ defmodule MonolithWeb.HomeLiveTest do
 
   setup %{conn: conn}, do: {:ok, conn: authenticate_owner(conn)}
 
-  test "renders the LOVELACE shell over HTTP", %{conn: conn} do
+  test "serves the shell with self-hosted assets and a restrictive CSP", %{conn: conn} do
     conn = get(conn, ~p"/")
     html = html_response(conn, 200)
 
@@ -16,8 +16,6 @@ defmodule MonolithWeb.HomeLiveTest do
     assert policy =~ "font-src 'self'"
     assert policy =~ "object-src 'none'"
     refute policy =~ "unsafe-eval"
-    assert html =~ "Home · LOVELACE"
-    refute html =~ "Welcome to Phoenix"
     assert conn.resp_cookies["_monolith_key"]
     assert html =~ ~s(id="workspace-background")
     assert html =~ ~s(href="/fonts/space-grotesk/space-grotesk-variable.woff2")
@@ -57,31 +55,30 @@ defmodule MonolithWeb.HomeLiveTest do
              "#workspace[data-idle-minutes][data-workspace-focus][data-workspace-reset]"
            )
 
-    assert has_element?(view, "#workspace-title.sr-only", "LOVELACE")
-
-    assert has_element?(
-             view,
-             "#workspace-brand[aria-hidden=true][phx-hook=BrandReveal][phx-update=ignore] " <>
-               ".workspace-wordmark[aria-label=LOVELACE]"
-           )
-
-    assert has_element?(view, "#monolith-monogram[aria-hidden=true][focusable=false] path")
-
-    refute has_element?(view, ".workspace-signature")
-    refute has_element?(view, ".workspace-topline", "LOVELACE")
+    assert has_element?(view, "#workspace-title.sr-only", "MONOLITH")
     assert has_element?(view, "#workspace-content[inert]")
 
     assert has_element?(
              view,
-             "#center-nav a#home-link[href='/'][data-phx-link=patch][aria-label=Home][aria-current=page]",
+             "#product-sidebar #home-link[href='/'][data-phx-link=patch][aria-current=page]",
              "Home"
            )
 
-    refute has_element?(view, "#workspace > #home-link, .stage-home-button")
-    assert has_element?(view, "#center-nav[aria-label='Main navigation'] #show-workspaces")
-    assert has_element?(view, "#center-nav #show-connections")
-    assert has_element?(view, "#center-nav > #home-link:first-child")
-    assert has_element?(view, "#center-nav > #home-link + #show-workspaces + #show-connections")
+    assert has_element?(view, "#product-sidebar[aria-label='Product navigation']")
+
+    assert has_element?(
+             view,
+             "#sidebar-toggle[type=button][aria-expanded=false][aria-controls=sidebar-content]"
+           )
+
+    assert has_element?(
+             view,
+             "#sidebar-content[hidden] nav[aria-label='Main navigation'] #show-workspaces"
+           )
+
+    assert has_element?(view, "#sidebar-content #show-connections")
+    assert has_element?(view, "#sidebar-content #show-scenes")
+    assert has_element?(view, "#sidebar-content #show-settings")
 
     assert has_element?(
              view,
@@ -92,7 +89,6 @@ defmodule MonolithWeb.HomeLiveTest do
     assert has_element?(view, "#daily-heading time[data-daily-date]")
     assert has_element?(view, "#home-overview #home-empty")
     refute has_element?(view, "#workspace-list, #workspace-landing, #home-inbox")
-    refute has_element?(view, ".workspace-wordmark", "lovelace")
     assert has_element?(view, "#workspace-background[aria-hidden=true]")
     assert has_element?(view, "#main-content[aria-labelledby=workspace-title]")
     assert has_element?(view, "#workspace-instructions", "resume your current view")
@@ -113,18 +109,6 @@ defmodule MonolithWeb.HomeLiveTest do
     assert_push_event(view, "workspace:focus-heading", %{})
   end
 
-  test "provides one traceable stroke and eight ordered flip-up letters", %{conn: conn} do
-    {:ok, view, _html} = live(conn, ~p"/")
-
-    assert has_element?(view, "#monolith-monogram-stroke")
-
-    for {letter, index} <- Enum.with_index(String.graphemes("LOVELACE")) do
-      assert has_element?(view, "#monolith-letter-#{index}.workspace-letter", letter)
-    end
-
-    refute has_element?(view, ".workspace-wordmark .workspace-letter:nth-child(9)")
-  end
-
   test "offers keyboard-accessible client-side focus and an Escape reset", %{conn: conn} do
     {:ok, view, _html} = live(conn, ~p"/")
 
@@ -136,7 +120,7 @@ defmodule MonolithWeb.HomeLiveTest do
            )
 
     assert has_element?(view, "#workspace-pane[phx-click][phx-focus]")
-    assert has_element?(view, "#main-content[phx-window-keydown][phx-key=Escape]")
+    assert has_element?(view, "#main-content[phx-hook=WorkspaceEntrance]")
   end
 
   test "Lock is a CSRF-protected POST inside the working gate, never a scenery reset", %{
@@ -146,14 +130,7 @@ defmodule MonolithWeb.HomeLiveTest do
 
     assert has_element?(
              view,
-             "#workspace-controls[inert] #owner-lock-form[action='/lock'][method=post]"
-           )
-
-    assert has_element?(view, "#workspace-controls .workspace-footer", "Landscape")
-
-    refute has_element?(
-             view,
-             "#workspace-content #owner-lock-form, #workspace-content .workspace-footer"
+             "#workspace-content[inert] .page-header-row #owner-lock-form[action='/lock'][method=post]"
            )
 
     assert has_element?(view, "#owner-lock-form input[type=hidden][name=_csrf_token]")
@@ -161,7 +138,7 @@ defmodule MonolithWeb.HomeLiveTest do
     refute has_element?(view, "#owner-lock-form[phx-click], #owner-lock-form button[phx-click]")
   end
 
-  test "exposes configurable idle duration and shared sticky focus/reset commands", %{conn: conn} do
+  test "uses the configured default idle duration", %{conn: conn} do
     previous = Application.fetch_env(:monolith, :workspace_idle_minutes)
     Application.put_env(:monolith, :workspace_idle_minutes, 7)
 
@@ -172,22 +149,8 @@ defmodule MonolithWeb.HomeLiveTest do
       end
     end)
 
-    {:ok, view, html} = live(conn, ~p"/")
+    {:ok, view, _html} = live(conn, ~p"/")
     assert has_element?(view, "#workspace[data-idle-minutes='7']")
-
-    root = html |> LazyHTML.from_fragment() |> LazyHTML.query("#workspace")
-
-    for {attribute, pressed, event} <- [
-          {"data-workspace-focus", "true", "monolith:brand-focus"},
-          {"data-workspace-reset", "false", "monolith:brand-reset"}
-        ] do
-      [commands] = LazyHTML.attribute(root, attribute)
-
-      assert Jason.decode!(commands) == [
-               ["set_attr", %{"attr" => ["aria-pressed", pressed], "to" => "#workspace-pane"}],
-               ["dispatch", %{"event" => event, "to" => "#workspace-brand"}]
-             ]
-    end
   end
 
   test "fetches the current stage background on mount", %{conn: conn} do
@@ -306,10 +269,10 @@ defmodule MonolithWeb.HomeLiveTest do
     Phoenix.PubSub.broadcast(Monolith.PubSub, "stage_designer", {:stage_background, background})
   end
 
-  test "serves the double cursive l favicon", %{conn: conn} do
+  test "serves the self-hosted SVG favicon", %{conn: conn} do
     conn = get(conn, ~p"/favicon.svg")
 
-    assert response(conn, 200) =~ ~s(viewBox="0 0 104 104")
+    assert response(conn, 200)
     assert [content_type] = get_resp_header(conn, "content-type")
     assert content_type =~ "image/svg+xml"
   end

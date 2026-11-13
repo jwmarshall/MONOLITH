@@ -23,17 +23,30 @@ defmodule MonolithWeb.WorkspaceReturn do
       marker = get_session(conn, @session_key)
       destination = OwnerReturnPath.from_request(conn)
       token = get_session(conn, :owner_session_token)
+      unlock_destination = get_session(conn, :workspace_unlock)
 
       conn
       |> delete_session(@session_key)
+      |> delete_session(:workspace_unlock)
       |> put_private(:workspace_return_consumed, not is_nil(marker))
       |> assign(:workspace_return, matches?(marker, destination, token))
+      |> assign(
+        :workspace_unlock,
+        is_binary(token) and byte_size(token) > 0 and is_binary(unlock_destination) and
+          unlock_destination == destination
+      )
     else
       assign(conn, :workspace_return, false)
     end
   end
 
-  def live_session(conn), do: %{"workspace_return" => conn.assigns[:workspace_return] == true}
+  def live_session(conn) do
+    session = %{"workspace_return" => conn.assigns[:workspace_return] == true}
+
+    if conn.assigns[:workspace_unlock] == true,
+      do: Map.put(session, "workspace_unlock", true),
+      else: session
+  end
 
   defp record(conn, token) do
     if conn.status in [302, 303] do

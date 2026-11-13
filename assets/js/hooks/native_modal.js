@@ -1,5 +1,5 @@
-// Server removal closes the dialog on both save and cancel. Do not ignore the
-// subtree: LiveView still owns validation, errors and the form's draft values.
+// Server-owned dialogs close on removal. Credential dialogs stay mounted and
+// open/close locally; their ordinary POST forms never send secrets over LiveView.
 export default {
   mounted() {
     this.document = this.el.ownerDocument
@@ -9,7 +9,9 @@ export default {
     this.onCancel = event => {
       event.preventDefault()
       event.stopPropagation()
-      if (!this.cancelPending) {
+      if (!this.el.dataset.cancelEvent) {
+        this.onClose()
+      } else if (!this.cancelPending) {
         this.cancelPending = true
         this.pushEvent(this.el.dataset.cancelEvent, {})
       }
@@ -17,23 +19,42 @@ export default {
     this.onKeydown = event => {
       if (event.key === "Escape" && this.el.open) this.onCancel(event)
     }
+    this.onOpen = () => {
+      if (this.el.open) return
+      this.el.showModal()
+      this.js().setAttribute(this.el, "open", "")
+      if (this.el.dataset.openOnMount === "false") this.js().setAttribute(this.el, "data-modal", "")
+      this.el.querySelector(this.el.dataset.initialFocus)?.focus({preventScroll: true})
+    }
+    this.onClose = () => {
+      if (!this.el.open) return
+      this.el.close()
+      this.js().removeAttribute(this.el, "open")
+      this.js().removeAttribute(this.el, "data-modal")
+      this.restoreFocus()
+    }
     // Capture before LiveView's window Escape command can reset the scenery.
     this.window.addEventListener("keydown", this.onKeydown, true)
     this.el.addEventListener("cancel", this.onCancel)
-    this.el.showModal()
-    // Keep the native open attribute sticky across form/background patches;
-    // removing it would silently dismiss the top layer and its inertness.
-    this.js().setAttribute(this.el, "open", "")
-    this.el.querySelector(this.el.dataset.initialFocus)?.focus({preventScroll: true})
+    this.el.addEventListener("monolith:modal-open", this.onOpen)
+    this.el.addEventListener("monolith:modal-close", this.onClose)
+    // Keep native modal state sticky across unrelated LiveView patches.
+    if (this.el.dataset.openOnMount !== "false") this.onOpen()
   },
 
   destroyed() {
     this.window.removeEventListener("keydown", this.onKeydown, true)
     this.el.removeEventListener("cancel", this.onCancel)
-    if (this.el.open) this.el.close()
-    // Wait for the patch to restore triggers hidden while editing (including
-    // streamed cards). Rename returns to its visible management disclosure,
-    // not the Rename button inside the now-collapsed menu.
+    this.el.removeEventListener("monolith:modal-open", this.onOpen)
+    this.el.removeEventListener("monolith:modal-close", this.onClose)
+    if (this.el.open) {
+      this.el.close()
+      this.restoreFocus()
+    }
+  },
+
+  restoreFocus() {
+    // Wait for patches to restore an always-visible opener.
     this.window.requestAnimationFrame(() => {
       this.document.dispatchEvent(new this.window.Event("monolith:modal-closed"))
       if (this.document.querySelector("dialog[open]")) return

@@ -16,7 +16,7 @@ function reader(t) {
   })
   const scroller = {scrollTop: 250}
   const elements = new Map()
-  const listeners = new Map(), documentListeners = new Map()
+  const listeners = new Map(), documentListeners = new Map(), viewListeners = new Map()
   const pane = {focused: true, getAttribute: () => pane.focused ? "true" : "false"}
   const focused = [], scrolled = []
   const element = id => ({
@@ -34,6 +34,10 @@ function reader(t) {
     closest: () => scroller,
     contains: node => node === row,
     ownerDocument: {
+      defaultView: {
+        addEventListener: (name, fn) => viewListeners.set(name, fn),
+        removeEventListener: (name, fn) => { assert.equal(viewListeners.get(name), fn); viewListeners.delete(name) },
+      },
       getElementById: id => id === "workspace-pane" ? pane : id === row.id && elements.has("#mail-threads") ? row : null,
       addEventListener: (name, fn, capture) => { assert.equal(capture, true); documentListeners.set(name, fn) },
       removeEventListener: (name, fn, capture) => { assert.equal(capture, true); assert.equal(documentListeners.get(name), fn); documentListeners.delete(name) },
@@ -54,17 +58,19 @@ function reader(t) {
     elements.delete("#mail-threads")
     update({mailThread: "first", mailLoaded: "false"})
     elements.set("#mail-conversation-heading", element("conversation-heading"))
-    elements.set('[data-mail-latest="true"]', element("latest-message"))
+    const latest = element("latest-message")
+    latest.querySelector = selector => selector === ":scope > summary" ? element("latest-summary") : null
+    elements.set('[data-mail-latest="true"]', latest)
     update({mailLoaded: "true"})
     flush()
   }
-  return {hook, click, update, open, flush, frames, elements, focused, scrolled, scroller, listeners, documentListeners, pane}
+  return {hook, click, update, open, flush, frames, elements, focused, scrolled, scroller, listeners, documentListeners, viewListeners, pane}
 }
 
 test("reader waits for content, opens latest once, and restores exact row and scroll after return", t => {
   const r = reader(t)
   r.open()
-  assert.deepEqual(r.focused, ["conversation-heading"])
+  assert.deepEqual(r.focused, ["latest-summary"])
   assert.deepEqual(r.scrolled, ["latest-message"])
   r.update({mailLoaded: "true"}) // refresh/PubSub patches must not move focus or scroll
   r.flush()
@@ -78,11 +84,12 @@ test("reader waits for content, opens latest once, and restores exact row and sc
   r.elements.set("#mail-threads", {})
   r.update({mailLoaded: "true"})
   r.flush()
-  assert.deepEqual(r.focused, ["conversation-heading", "mail-thread-first"])
+  assert.deepEqual(r.focused, ["latest-summary", "mail-thread-first"])
   assert.equal(r.scroller.scrollTop, 250)
   r.hook.destroyed()
   assert.equal(r.listeners.size, 0)
   assert.equal(r.documentListeners.size, 0)
+  assert.equal(r.viewListeners.size, 0)
 })
 
 test("new account/list intent fences a queued reader handoff and discards return memory", t => {
@@ -119,7 +126,7 @@ test("intentional control actions cancel pending focus and destruction cancels f
 
 test("keyboard or pointer intent cancels delayed focus rather than stealing the user's next action", t => {
   const r = reader(t)
-  for (const event of ["keydown", "pointerdown"]) {
+  for (const event of ["keydown", "pointerdown", "input"]) {
     r.click("row")
     r.update({mailThread: "first", mailLoaded: "false"})
     r.documentListeners.get(event)()
@@ -130,6 +137,41 @@ test("keyboard or pointer intent cancels delayed focus rather than stealing the 
     r.update({mailThread: "", mailLoaded: "false"})
   }
   r.hook.destroyed()
+})
+
+test("newer pointer intent survives the first delayed thread patch while the pane stays active", t => {
+  const r = reader(t)
+  r.click("row")
+  r.documentListeners.get("pointerdown")()
+  r.update({mailThread: "first", mailLoaded: "false"})
+  r.elements.set("#mail-conversation-heading", {})
+  r.update({mailLoaded: "true"})
+  r.flush()
+  assert.deepEqual(r.focused, [])
+  assert.deepEqual(r.scrolled, [])
+  r.hook.destroyed()
+})
+
+test("browser Back starts a fresh return handoff after reader interactions, while newer input can still cancel it", t => {
+  const r = reader(t)
+  for (const cancelReturn of [false, true]) {
+    r.focused.length = 0
+    r.open()
+    r.documentListeners.get("keydown")()
+    r.click("metadata")
+    r.viewListeners.get("popstate")({type: "popstate"})
+    r.elements.delete("#mail-conversation-heading")
+    r.update({mailThread: "", mailLoaded: "false"})
+    r.scroller.scrollTop = 0
+    if (cancelReturn) r.documentListeners.get("input")()
+    r.elements.set("#mail-threads", {})
+    r.update({mailLoaded: "true"})
+    r.flush()
+    assert.deepEqual(r.focused, cancelReturn ? ["latest-summary"] : ["latest-summary", "mail-thread-first"])
+    assert.equal(r.scroller.scrollTop, cancelReturn ? 0 : 250)
+  }
+  r.hook.destroyed()
+  assert.equal(r.viewListeners.size, 0)
 })
 
 test("a late loading patch cannot wake scenery even if Escape happened before that patch", t => {
@@ -143,6 +185,29 @@ test("a late loading patch cannot wake scenery even if Escape happened before th
   r.flush()
   assert.deepEqual(r.focused, [])
   assert.deepEqual(r.scrolled, [])
+  r.hook.destroyed()
+})
+
+test("fresh inbox navigation focuses its new heading once, without waiting for provider data", t => {
+  const r = reader(t)
+  r.update({mailAccount: "account-a", mailContext: "account-a:list-1", mailLoaded: "false"})
+  r.flush()
+  assert.deepEqual(r.focused, ["mail-heading"])
+  assert.deepEqual(r.scrolled, ["mail-heading"])
+  r.update({mailLoaded: "true"})
+  r.flush()
+  assert.deepEqual(r.focused, ["mail-heading"])
+  r.hook.destroyed()
+})
+
+test("new keyboard intent cancels a queued inbox heading handoff", t => {
+  const r = reader(t)
+  r.update({mailAccount: "account-a", mailLoaded: "false"})
+  r.documentListeners.get("keydown")()
+  r.flush()
+  r.update({mailLoaded: "true"})
+  r.flush()
+  assert.deepEqual(r.focused, [])
   r.hook.destroyed()
 })
 

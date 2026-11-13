@@ -2,7 +2,7 @@ defmodule MonolithWeb.SceneComponents do
   @moduledoc "Recent app-wide scenery and explicit, potentially billable requests."
   use MonolithWeb, :html
 
-  alias Monolith.StageDesigner.{DirectionOptions, Models}
+  alias Monolith.StageDesigner.{BundledScenes, DirectionOptions, Models}
 
   attr :background, :map, required: true
 
@@ -27,6 +27,7 @@ defmodule MonolithWeb.SceneComponents do
       <.status_signal
         id="scene-global-signal"
         state={signal_state(@status)}
+        tone={signal_tone(@status)}
         label={status_text(@status)}
         embedded
       />
@@ -47,6 +48,7 @@ defmodule MonolithWeb.SceneComponents do
   attr :prepared, :map, default: nil
   attr :acknowledgement, :map, default: nil
   attr :gemini_status, :atom, required: true
+  attr :background, :map, default: %{url: nil}
 
   def gallery(assigns) do
     assigns =
@@ -58,6 +60,15 @@ defmodule MonolithWeb.SceneComponents do
 
     assigns = assign(assigns, :attempt, if(assigns.data, do: Map.get(assigns.data, :attempt)))
     assigns = assign(assigns, :setup_only, assigns.gemini_status not in [:stored, :rechecking])
+    url = Map.get(assigns.background, :url)
+
+    current_url =
+      if is_binary(url) &&
+           Regex.match?(~r/\A\/stage\/background\/[0-9a-f]{64}\.(?:png|jpg)\z/, url),
+         do: url,
+         else: BundledScenes.default_url()
+
+    assigns = assign(assigns, :current_url, current_url)
 
     ~H"""
     <section
@@ -70,19 +81,30 @@ defmodule MonolithWeb.SceneComponents do
       <section
         :if={@setup_only}
         id="scene-gemini-setup"
-        class="connection-card empty-state empty-state-card mb-6"
+        class="scene-setup"
         aria-labelledby="scene-gemini-heading"
       >
-        <.icon name="hero-sparkles" class="empty-state-mark size-6" />
+        <header class="card-section-heading">
+          <p class="mail-eyebrow">Gemini access</p>
+          <h3 id="scene-gemini-heading">
+            <%= case @gemini_status do %>
+              <% status when status in [:loading, :rechecking] -> %>
+                Checking local key availability
+              <% :not_connected -> %>
+                Set up Gemini, if you choose.
+              <% _ -> %>
+                Review Gemini access
+            <% end %>
+          </h3>
+        </header>
         <div class="empty-state-body">
-          <h3 id="scene-gemini-heading" class="empty-state-title">Set up generated scenery</h3>
           <p class="empty-state-copy">
             Generate app-wide scenery with Gemini. Bundled scenery remains available without a key.
             New requests may incur API charges.
           </p>
           <p id="scene-gemini-status" class="empty-state-copy" role="status">
             {case @gemini_status do
-              :loading ->
+              status when status in [:loading, :rechecking] ->
                 "Checking this device for a stored Gemini key…"
 
               :not_connected ->
@@ -102,10 +124,16 @@ defmodule MonolithWeb.SceneComponents do
             end}
           </p>
           <.status_signal
-            :if={@loading}
+            :if={@loading || @gemini_status == :loading}
             id="scene-setup-loading-signal"
             state={:active}
             label="Loading scene status…"
+          />
+          <.status_signal
+            :if={@gemini_status == :rechecking}
+            id="scene-credential-check-signal"
+            state={:active}
+            label="Checking this device for a stored Gemini key…"
           />
           <p :if={@error} class="connection-warning" role="alert">
             Scenes couldn’t be loaded. Open Gemini settings to check access, then return here.
@@ -123,8 +151,8 @@ defmodule MonolithWeb.SceneComponents do
             <.status_signal
               id="scene-setup-attempt-signal"
               state={signal_state(if @attempt, do: @attempt.status, else: @data.status)}
+              tone={signal_tone(if @attempt, do: @attempt.status, else: @data.status)}
               label={status_text(if @attempt, do: @attempt.status, else: @data.status)}
-              text
             />
             <p :if={!@data.eligible || (@attempt && @attempt.status == :abandoned)}>
               Removing a Gemini key does not cancel an earlier request. Google may still be
@@ -137,67 +165,36 @@ defmodule MonolithWeb.SceneComponents do
         </div>
         <div class="empty-state-actions">
           <.link patch="/connections/gemini" class="workspace-action workspace-action-primary">
-            Set up Gemini
+            {if @gemini_status == :not_connected, do: "Set up Gemini", else: "Review Gemini settings"}
           </.link>
         </div>
       </section>
-      <.direction_editor :if={!@setup_only} direction={@direction} />
-      <div :if={!@setup_only} class="scene-toolbar">
-        <div
-          class="scene-status connection-card"
-          role="status"
-          aria-live="polite"
-          aria-label="Scene generation status"
-        >
-          <.status_signal
-            :if={@loading}
-            id="scene-loading-signal"
-            state={:active}
-            label="Loading scene status…"
-          />
-          <.status_signal
-            :if={@gemini_status == :rechecking}
-            id="scene-credential-check-signal"
-            state={:active}
-            label="Checking this device for a stored Gemini key…"
-          />
-          <p :if={@error}>
-            Scenes couldn’t be loaded. Refresh status to retry. No generation was requested.
-          </p>
-          <p :if={@notice != ""}>{@notice}</p>
-          <p :if={@data && !@error && !@attempt && @data.status not in [:ready, :idle]}>
-            <.status_signal
-              id="scene-attempt-signal"
-              state={signal_state(@data.status)}
-              label={status_text(@data.status)}
-              text
-            />
-          </p>
-          <.attempt
-            :if={@attempt && !@error}
-            attempt={@attempt}
-            origin="current"
-            loading={@loading || @gemini_status != :stored}
-          />
-          <p :if={@data && Map.get(@data, :last_attempt_at) && !@attempt}>
-            Last attempt: <.timestamp value={@data.last_attempt_at} />
-          </p>
-          <button
-            :if={@data && @data.status == :uncertain && !@attempt && !@error}
-            id="scene-current-acknowledge-legacy"
-            type="button"
-            class="workspace-action"
-            phx-click="scenes:acknowledge"
-            phx-value-id="legacy"
-            phx-value-origin="current"
-            disabled={@loading || @gemini_status != :stored}
-          >Acknowledge unknown outcome…</button>
-          <p :if={@data && !@data.eligible} id="scene-generation-availability">
-            New requests are blocked to avoid overlap. Check a paused job’s status, or review an
-            unknown outcome before acknowledging it. Refresh status only reads local state.
-          </p>
-        </div>
-        <div class="mail-actions">
+      <div :if={!@setup_only} class="scene-editor">
+        <.direction_editor direction={@direction} />
+        <.generation_settings
+          settings={@settings}
+          disabled={
+            @gemini_status != :stored || @pending || @preparing || @loading || @error || !@data ||
+              !@data.eligible || !@direction_ready
+          }
+          guidance={
+            cond do
+              @data && !@data.eligible -> "scene-generation-availability"
+              !@direction_ready -> "scene-direction-guidance"
+              true -> "scene-settings-guidance"
+            end
+          }
+        />
+      </div>
+      <section
+        :if={!@setup_only}
+        id="scene-current"
+        class="scene-current-preview"
+        aria-labelledby="scene-current-title"
+      >
+        <header class="card-section-heading scene-current-heading">
+          <p class="mail-eyebrow">App-wide scenery</p>
+          <h3 id="scene-current-title">Current scene</h3>
           <button
             id="scenes-refresh"
             type="button"
@@ -205,108 +202,170 @@ defmodule MonolithWeb.SceneComponents do
             phx-click="scenes:refresh"
             aria-disabled={to_string(@loading || @gemini_status == :rechecking)}
           >Refresh status</button>
+        </header>
+        <div class="scene-preview">
+          <span class="scene-preview-fallback">Preview unavailable</span>
+          <img
+            id="scene-current-image"
+            src={@current_url}
+            alt="Current app-wide scenery"
+            phx-hook="StageBackground"
+            data-loaded="false"
+          />
         </div>
-      </div>
-      <.generation_settings
-        :if={!@setup_only}
-        settings={@settings}
-        disabled={
-          @gemini_status != :stored || @pending || @preparing || @loading || @error || !@data ||
-            !@data.eligible || !@direction_ready
-        }
-        guidance={
-          cond do
-            @data && !@data.eligible -> "scene-generation-availability"
-            !@direction_ready -> "scene-direction-guidance"
-            true -> "scene-settings-guidance"
-          end
-        }
-      />
-      <div
-        :if={!@setup_only && @data && @data.scenes == [] && !@error && !@loading}
-        id="scenes-empty"
-        class="empty-state"
-      >
-        <.icon name="hero-photo" class="empty-state-mark size-6" />
-        <div class="empty-state-body">
-          <h3 class="empty-state-title">No generated scenes yet</h3>
-          <p class="empty-state-copy">
-            Use the direction and settings above to request a scene. Bundled scenery remains available.
-          </p>
-        </div>
-      </div>
-      <ul
-        :if={!@setup_only && @data && !@error && @data.scenes != []}
-        id="scene-gallery"
-        class="scene-gallery"
-      >
-        <li
-          :for={
-            {scene, index} <- Enum.with_index(@data.scenes, (@data.page - 1) * @data.page_size + 1)
-          }
-          id={"scene-#{scene.digest}"}
-          class="scene-card"
-          data-active={to_string(scene.active)}
-        >
-          <div class="scene-preview">
-            <span class="scene-preview-fallback">Preview unavailable</span>
-            <img
-              :if={scene.available}
-              id={"scene-preview-#{scene.digest}"}
-              src={scene.url}
-              alt={"Generated scenery #{index}"}
-              phx-hook="StageBackground"
-              data-loaded="false"
+        <p class="mail-muted">The current scene stays in use during generation and failures.</p>
+        <div class="scene-toolbar">
+          <div
+            class="scene-status"
+            role="status"
+            aria-live="polite"
+            aria-label="Scene generation status"
+          >
+            <.status_signal
+              :if={@loading}
+              id="scene-loading-signal"
+              state={:active}
+              label="Loading scene status…"
             />
-          </div>
-          <div class="scene-caption">
-            <div>
-              <h3>Scene {index}<span :if={scene.active} class="scene-current"> · Current</span></h3>
-              <p class="mail-muted">
-                <.timestamp :if={scene.generated_at} value={scene.generated_at} /><span :if={
-                  !scene.generated_at
-                }>Generation date unavailable</span>
-              </p>
-              <p :if={!scene.available} class="connection-warning">Local image unavailable</p>
-            </div>
+            <.status_signal
+              :if={@gemini_status == :rechecking}
+              id="scene-credential-check-signal"
+              state={:active}
+              label="Checking this device for a stored Gemini key…"
+            />
+            <p :if={@error}>
+              Scenes couldn’t be loaded. Refresh status to retry. No generation was requested.
+            </p>
+            <p :if={@notice != ""}>{@notice}</p>
+            <p :if={@data && !@error && !@attempt && @data.status not in [:ready, :idle]}>
+              <.status_signal
+                id="scene-attempt-signal"
+                state={signal_state(@data.status)}
+                tone={signal_tone(@data.status)}
+                label={status_text(@data.status)}
+              />
+            </p>
+            <.attempt
+              :if={@attempt && !@error}
+              attempt={@attempt}
+              origin="current"
+              loading={@loading || @gemini_status != :stored}
+            />
+            <p :if={@data && Map.get(@data, :last_attempt_at) && !@attempt}>
+              Last attempt: <.timestamp value={@data.last_attempt_at} />
+            </p>
             <button
-              id={"use-scene-#{scene.digest}"}
+              :if={@data && @data.status == :uncertain && !@attempt && !@error}
+              id="scene-current-acknowledge-legacy"
               type="button"
               class="workspace-action"
-              phx-click="scenes:select"
-              phx-value-digest={scene.digest}
-              disabled={scene.active || !scene.available}
-              aria-label={"Use scene #{index} as background"}
-            >
-              {if scene.active, do: "In use", else: "Use scene"}
-            </button>
+              phx-click="scenes:acknowledge"
+              phx-value-id="legacy"
+              phx-value-origin="current"
+              disabled={@loading || @gemini_status != :stored}
+            >Acknowledge unknown outcome…</button>
+            <p :if={@data && !@data.eligible} id="scene-generation-availability">
+              New requests are blocked to avoid overlap. Check a paused job’s status, or review an
+              unknown outcome before acknowledging it. Refresh status only reads local state.
+            </p>
           </div>
-        </li>
-      </ul>
-      <nav
-        :if={!@setup_only && @data && !@error && (@data.has_previous || @data.has_next)}
-        id="scene-pagination"
-        class="scene-pagination"
-        aria-label="Scene gallery pages"
+        </div>
+      </section>
+      <section
+        :if={!@setup_only && @data && !@error}
+        class="scene-gallery-section"
+        aria-labelledby="scene-gallery-title"
       >
-        <button
-          id="scenes-newer"
-          type="button"
-          class="workspace-action"
-          phx-click="scenes:page"
-          phx-value-direction="newer"
-          disabled={@loading || !@data.has_previous}
-        >Newer scenes</button>
-        <span class="mail-muted" role="status">Page {@data.page}</span>
-        <button
-          id="scenes-older"
-          type="button"
-          class="workspace-action"
-          phx-click="scenes:page"
-          phx-value-direction="older"
-          disabled={@loading || !@data.has_next}
-        >Older scenes</button>
-      </nav>
+        <header class="card-section-heading">
+          <p class="mail-eyebrow">Saved scenes</p>
+          <h3 id="scene-gallery-title">Local gallery</h3>
+        </header>
+        <div
+          :if={@data.scenes == [] && !@loading}
+          id="scenes-empty"
+          class="empty-state"
+        >
+          <.icon name="hero-photo" class="empty-state-mark size-6" />
+          <div class="empty-state-body">
+            <h3 class="empty-state-title">No generated scenes yet</h3>
+            <p class="empty-state-copy">
+              Use the direction and settings above to request a scene. Bundled scenery remains available.
+            </p>
+          </div>
+        </div>
+        <ul
+          :if={@data.scenes != []}
+          id="scene-gallery"
+          class="scene-gallery"
+        >
+          <li
+            :for={
+              {scene, index} <- Enum.with_index(@data.scenes, (@data.page - 1) * @data.page_size + 1)
+            }
+            id={"scene-#{scene.digest}"}
+            class="scene-card"
+            data-active={to_string(scene.active)}
+          >
+            <div class="scene-preview">
+              <span class="scene-preview-fallback">Preview unavailable</span>
+              <img
+                :if={scene.available}
+                id={"scene-preview-#{scene.digest}"}
+                src={scene.url}
+                alt={"Generated scenery #{index}"}
+                phx-hook="StageBackground"
+                data-loaded="false"
+              />
+            </div>
+            <div class="scene-caption">
+              <div>
+                <h3>Scene {index}<span :if={scene.active} class="scene-current"> · Current</span></h3>
+                <p class="mail-muted">
+                  <.timestamp :if={scene.generated_at} value={scene.generated_at} /><span :if={
+                    !scene.generated_at
+                  }>Generation date unavailable</span>
+                </p>
+                <p :if={!scene.available} class="connection-warning">Local image unavailable</p>
+              </div>
+              <button
+                id={"use-scene-#{scene.digest}"}
+                type="button"
+                class="workspace-action"
+                phx-click="scenes:select"
+                phx-value-digest={scene.digest}
+                disabled={scene.active || !scene.available}
+                aria-label={"Use scene #{index} as background"}
+              >
+                {if scene.active, do: "In use", else: "Use scene"}
+              </button>
+            </div>
+          </li>
+        </ul>
+        <nav
+          :if={@data.has_previous || @data.has_next}
+          id="scene-pagination"
+          class="scene-pagination"
+          aria-label="Scene gallery pages"
+        >
+          <button
+            id="scenes-newer"
+            type="button"
+            class="workspace-action"
+            phx-click="scenes:page"
+            phx-value-direction="newer"
+            disabled={@loading || !@data.has_previous}
+          >Newer scenes</button>
+          <span class="mail-muted" role="status">Page {@data.page}</span>
+          <button
+            id="scenes-older"
+            type="button"
+            class="workspace-action"
+            phx-click="scenes:page"
+            phx-value-direction="older"
+            disabled={@loading || !@data.has_next}
+          >Older scenes</button>
+        </nav>
+      </section>
       <.attempt_history
         :if={!@setup_only && @data && !@error}
         data={@data}
@@ -339,8 +398,8 @@ defmodule MonolithWeb.SceneComponents do
         </dl>
         <p class="scene-confirmation-copy">
           This request uses Google’s background generation with <code>store=true</code>.
-          Google stores the job and result so LOVELACE can track it. After saving the image locally,
-          LOVELACE requests deletion from Google. Deletion can fail; its status is retained in
+          Google stores the job and result so MONOLITH can track it. After saving the image locally,
+          MONOLITH requests deletion from Google. Deletion can fail; its status is retained in
           attempt history. This is not a promise of zero provider retention.
         </p>
         <details
@@ -377,7 +436,7 @@ defmodule MonolithWeb.SceneComponents do
       >
         <p class="scene-confirmation-copy">
           Google may still be running this request and it may still incur charges.
-          Acknowledging does not cancel it or confirm that it failed. LOVELACE will abandon
+          Acknowledging does not cancel it or confirm that it failed. MONOLITH will abandon
           tracking and release the generation slot, while retaining this attempt in history.
           A later generation is a separate, potentially billable request and requires a new confirmation.
         </p>
@@ -408,15 +467,14 @@ defmodule MonolithWeb.SceneComponents do
 
     ~H"""
     <section id="scene-direction" class="scene-direction" aria-labelledby="scene-direction-title">
-      <div class="scene-direction-heading">
-        <div>
-          <h3 id="scene-direction-title">Scene direction</h3>
-          <p class="mail-muted">Choose the subject, light and atmosphere.</p>
-        </div>
+      <header class="card-section-heading scene-direction-heading">
+        <p class="mail-eyebrow">Art direction</p>
+        <h3 id="scene-direction-title">Scene direction</h3>
         <span :if={@direction.status == :ready} class="scene-direction-scope mail-muted">
           Default for new scenes
         </span>
-      </div>
+      </header>
+      <p class="scene-direction-description mail-muted">Choose the subject, light and atmosphere.</p>
       <p :if={@direction.status == :loading} id="scene-direction-guidance" role="status">
         Loading your direction…
       </p>
@@ -522,10 +580,21 @@ defmodule MonolithWeb.SceneComponents do
       phx-change="scenes:settings-change"
       phx-submit="scenes:request"
     >
-      <fieldset>
-        <legend>Generate a scene</legend>
+      <header class="card-section-heading">
+        <p class="mail-eyebrow">Generation settings</p>
+        <h3 id="scene-generation-settings-title">Generate a scene</h3>
+      </header>
+      <fieldset aria-labelledby="scene-generation-settings-title">
         <p id="scene-settings-guidance" class="mail-muted">
-          Settings for this manual request only. Startup defaults are unchanged.
+          Each request may incur API charges, even if it fails or its outcome is unknown.
+          These settings apply only to this request. Startup defaults are unchanged.
+          Google stores the job and result for tracking; deletion after local publication can fail.
+          Manual requests need fresh confirmation and have no daily cooldown.
+          Automatic startup has a persisted 24-hour minimum.
+          <span :if={@disabled}>
+            Generation is unavailable until the local key, scene status and saved direction are ready,
+            and any earlier request has settled or its unknown outcome has been acknowledged.
+          </span>
         </p>
         <div class="scene-generation-fields">
           <div :for={{key, label, options} <- @fields} class="scene-direction-field">
@@ -564,7 +633,7 @@ defmodule MonolithWeb.SceneComponents do
           id="scene-generate"
           type="submit"
           class="workspace-action workspace-action-primary"
-          aria-describedby={@guidance}
+          aria-describedby={@guidance <> " scene-settings-guidance"}
           disabled={@disabled || @settings.error != ""}
         >
           <span class="inline-flex" aria-hidden="true"><.icon name="hero-sparkles" class="size-4" /></span>
@@ -593,7 +662,10 @@ defmodule MonolithWeb.SceneComponents do
       class="scene-attempt-history"
       aria-labelledby="scene-attempt-history-title"
     >
-      <h3 id="scene-attempt-history-title">Generation attempts</h3>
+      <header class="card-section-heading">
+        <p class="mail-eyebrow">History</p>
+        <h3 id="scene-attempt-history-title">Generation attempts</h3>
+      </header>
       <div :if={@attempts == [] && !@loading} class="empty-state">
         <.icon name="hero-clock" class="empty-state-mark size-6" />
         <div class="empty-state-body">
@@ -645,8 +717,8 @@ defmodule MonolithWeb.SceneComponents do
         <.status_signal
           id={"scene-#{@origin}-signal-#{@attempt.id}"}
           state={signal_state(@attempt.status)}
+          tone={signal_tone(@attempt.status)}
           label={status_text(@attempt.status)}
-          text
         />
       </p>
       <p class="mail-muted scene-attempt-settings">
@@ -759,6 +831,9 @@ defmodule MonolithWeb.SceneComponents do
   defp signal_state(status) when status in [:completed, :ready], do: :ready
   defp signal_state(:idle), do: :waiting
   defp signal_state(_), do: :warning
+
+  defp signal_tone(:failed), do: :error
+  defp signal_tone(_), do: :auto
 
   defp status_text(:queued), do: "Scene generation queued locally."
   defp status_text(:submitting), do: "Submitting the scene request to Google."

@@ -155,7 +155,7 @@ defmodule Monolith.Calendar.Operations do
     state = state(args.account_id)
     ids = Enum.uniq(args.ids)
 
-    if valid_selection?(account, state, ids) do
+    if account && account.generation == args.generation && valid_selection?(account, state, ids) do
       current =
         state
         |> Map.take(@fields)

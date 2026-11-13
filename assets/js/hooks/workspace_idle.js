@@ -1,3 +1,5 @@
+import {idleMinutes, savedIdleMinutes} from "./idle_preference.js"
+
 // Keep idle state outside server assigns: a LiveView patch is not user activity.
 // Execute the shared HEEx commands so aria-pressed stays sticky across patches.
 const activityEvents = ["pointerdown", "click", "keydown", "wheel", "scroll", "touchstart", "touchmove"]
@@ -9,6 +11,13 @@ export default {
     this.window = this.document.defaultView
     this.lastActivity = this.window.Date.now()
     this.idle = false
+    this.preferenceMinutes = savedIdleMinutes(this.window, null)
+    this.onPreference = event => {
+      this.preferenceMinutes = idleMinutes(event.detail.minutes)
+      this.expireIfNeeded()
+      this.schedule()
+    }
+    this.window.addEventListener("monolith:idle-preference", this.onPreference)
 
     this.onActivity = event => {
       // A throttled timer may not have run yet after tab/system sleep.
@@ -42,8 +51,7 @@ export default {
   },
 
   duration() {
-    const minutes = Number(this.el.dataset.idleMinutes)
-    return (Number.isFinite(minutes) && minutes > 0 ? minutes : 3) * 60_000
+    return idleMinutes(this.preferenceMinutes ?? this.el.dataset.idleMinutes) * 60_000
   },
 
   command(name) {
@@ -84,6 +92,7 @@ export default {
 
   destroyed() {
     this.window.clearTimeout(this.timer)
+    this.window.removeEventListener("monolith:idle-preference", this.onPreference)
     for (const event of activityEvents) {
       this.document.removeEventListener(event, this.onActivity, true)
     }

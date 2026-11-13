@@ -5,17 +5,23 @@ defmodule MonolithWeb.HomeCalendar do
   @owner %{role: :local_owner}
 
   def init(socket),
-    do: assign(socket, calendar_window: nil, calendar_accounts: [], calendar_revision: 0)
+    do:
+      assign(socket,
+        calendar_window: nil,
+        calendar_accounts: [],
+        calendar_accounts_state: :unknown,
+        calendar_revision: 0
+      )
 
   def reload(socket) do
     case Monolith.Mail.list_accounts(actor: @owner) do
       {:ok, accounts} ->
         accounts = Enum.reject(accounts, &(&1.status == :disconnected))
-        socket = assign(socket, :calendar_accounts, accounts)
+        socket = assign(socket, calendar_accounts: accounts, calendar_accounts_state: :ready)
         prepare(socket)
 
       _ ->
-        assign(socket, :calendar_accounts, [])
+        assign(socket, :calendar_accounts_state, :unavailable)
     end
   end
 
@@ -49,7 +55,10 @@ defmodule MonolithWeb.HomeCalendar do
   def handle_event("calendar:select", %{"account_id" => id} = params, socket) do
     ids = Map.get(params, "calendar_ids", [])
     ids = if is_list(ids), do: Enum.reject(ids, &(&1 == "")), else: ids
-    result = Monolith.Calendar.select_calendars(id, ids, actor: @owner)
+
+    result =
+      Monolith.Calendar.select_calendars(id, Map.get(params, "generation"), ids, actor: @owner)
+
     {:noreply, feedback(socket, result) |> changed()}
   end
 

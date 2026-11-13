@@ -54,6 +54,42 @@ defmodule MonolithWeb.OwnerControllerTest do
     end
   end
 
+  test "unlock errors link to the real password field and unavailable storage never offers credential entry" do
+    for {state, configured?, notice} <- [
+          {:configured, true, "owner-unlock-error"},
+          {:new, false, "owner-setup-instructions"},
+          {:setup_incomplete, false, "owner-setup-instructions"},
+          {:migration_required, false, "owner-migration-instructions"},
+          {:unavailable, false, "owner-storage-unavailable"}
+        ] do
+      html =
+        Phoenix.LiveViewTest.render_component(&MonolithWeb.OwnerHTML.unlock/1,
+          configured?: configured?,
+          setup_state: state,
+          error?: configured?,
+          csrf_token: "synthetic-csrf",
+          background: %{url: nil, status: :ready}
+        )
+
+      document = LazyHTML.from_fragment(html)
+      assert Enum.any?(LazyHTML.query(document, "##{notice}"))
+
+      if configured? do
+        assert Enum.any?(
+                 LazyHTML.query(document, "#owner-unlock-error a[href='#owner-password']")
+               )
+
+        assert Enum.any?(LazyHTML.query(document, "label[for=owner-password]"))
+
+        assert LazyHTML.query(document, "#owner-password")
+               |> LazyHTML.attribute("aria-describedby") ==
+                 ["owner-unlock-error owner-recovery-note"]
+      else
+        assert Enum.empty?(LazyHTML.query(document, "input[type=password], form"))
+      end
+    end
+  end
+
   test "empty static and live stages share the persisted bundled default without creating scenes",
        %{conn: conn} do
     conn = authenticate_owner(conn)
@@ -117,7 +153,7 @@ defmodule MonolithWeb.OwnerControllerTest do
     assert get_session(conn, :owner_return_to) == destination
 
     conn = conn |> recycle() |> post_password("incorrect synthetic password")
-    assert html_response(conn, 401) =~ "Unable to unlock"
+    assert html_response(conn, 401)
     assert get_session(conn, :owner_return_to) == destination
     refute get_session(conn, :owner_session_token)
 
@@ -141,6 +177,16 @@ defmodule MonolithWeb.OwnerControllerTest do
     conn = conn |> recycle() |> post_password(@password)
     assert redirected_to(conn) == "/settings"
     assert {:ok, _} = Owner.verify_session(get_session(conn, :owner_session_token))
+    returned = conn |> recycle() |> get("/settings")
+    assert returned.assigns.workspace_unlock
+    refute get_session(returned, :workspace_unlock)
+    {:ok, view, _html} = Phoenix.LiveViewTest.live(returned)
+    assert Phoenix.LiveViewTest.has_element?(view, "#main-content[data-enter-on-unlock=true]")
+
+    reloaded = returned |> recycle() |> get("/settings")
+    refute reloaded.assigns.workspace_unlock
+    {:ok, view, _html} = Phoenix.LiveViewTest.live(reloaded)
+    refute Phoenix.LiveViewTest.has_element?(view, "#main-content[data-enter-on-unlock=true]")
     refute get_session(conn, :owner_return_to)
   end
 
@@ -245,8 +291,11 @@ defmodule MonolithWeb.OwnerControllerTest do
     configure()
     conn = post_password(conn, "private wrong value")
     response = html_response(conn, 401)
-    assert response =~ "Unable to unlock"
     assert_owner_stage(LazyHTML.from_document(response))
+    document = LazyHTML.from_document(response)
+    assert Enum.any?(LazyHTML.query(document, "#owner-unlock-error[role=alert]"))
+    assert Enum.any?(LazyHTML.query(document, "#owner-password[aria-invalid=true]"))
+    assert LazyHTML.attribute(LazyHTML.query(document, "#owner-password"), "value") == []
     refute response =~ "private wrong value"
     refute get_session(conn, :owner_session_token)
   end
