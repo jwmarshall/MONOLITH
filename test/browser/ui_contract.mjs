@@ -448,7 +448,7 @@ async function loadingStatus(forced, reduced) {
       hidden: track.closest('svg').getAttribute('aria-hidden'), role: status.getAttribute('role'),
       height: status.getBoundingClientRect().height};
   })()`)
-  assert.equal(state.background, "rgba(0, 0, 0, 0)", "loading sits directly on the shared glass")
+  assert.equal(state.background, "rgba(0, 0, 0, 0)", "loading has no persistent status-panel fill")
   assert.equal(state.loadingBackground, "rgba(0, 0, 0, 0)")
   assert.equal(state.edge, "0px", "loading does not borrow the warning edge")
   assert.equal(state.animation, reduced ? "none" : "monolith-square-cycle", "motion respects user preferences and forced colors")
@@ -496,6 +496,12 @@ async function readerLayout(width, forced) {
     `long URL and escaped HTML must wrap at ${width}px (forced colors: ${forced})`)
   assert.ok(dimensions.backHeight >= 44 && dimensions.refreshHeight >= 44 && dimensions.controlsInPane, "reader controls remain usable and within the viewport")
   assert.equal(dimensions.forced, forced)
+  if (!forced) {
+    assert.equal(await evaluate(`Array.from(document.querySelectorAll(
+      '#mail-account-view, #mail-conversation, .mail-reader-context, .mail-message'
+    )).every(element => getComputedStyle(element).backgroundColor === 'rgba(0, 0, 0, 0)')`), true,
+    "conversation and account context retain the study's transparent resting surfaces")
+  }
 }
 
 async function calendarItemLayout() {
@@ -1078,10 +1084,40 @@ try {
   assert.equal(await evaluate("document.querySelector('#mail-heading').textContent.trim()"), "browser@example.test")
   assert.equal(await evaluate("document.querySelector('#home-link').getAttribute('aria-current')"), "page", "account mail belongs to Home")
   await waitFor("document.activeElement.id === 'mail-heading'", "inbox navigation focus/scroll handoff settles before user scrolling")
+  assert.equal(await evaluate("document.querySelector('#workspace-content').scrollTop"), 0, "fresh inbox navigation keeps the shell's top inset instead of scrolling away the account register")
+  assert.equal(await evaluate(`(() => {
+    const context = document.querySelector('.mail-register-row').getBoundingClientRect();
+    const mark = document.querySelector('#sidebar-toggle').getBoundingClientRect();
+    const heading = document.querySelector('#mail-heading').getBoundingClientRect();
+    return context.top >= 0 && Math.abs(context.top + context.height / 2 - mark.top - mark.height / 2) <= 1 && heading.top >= context.bottom;
+  })()`), true, "account context and Lock remain visible, aligned with the sidebar mark above the inbox heading")
+  assert.equal(await evaluate(`(() => {
+    const input = document.querySelector('#mail-search input'), button = document.querySelector('#mail-search button');
+    const field = input.getBoundingClientRect(), submit = button.getBoundingClientRect();
+    return field.width >= 100 && field.height >= 44 && Math.abs(field.right - submit.left) <= 1 &&
+      field.height === submit.height && getComputedStyle(input).fontSize === getComputedStyle(button).fontSize &&
+      getComputedStyle(input.closest('label')).clipPath === 'none';
+  })()`), true, "search is visibly editable with touching, equally sized input and submit controls")
+  await send("Input.dispatchMouseEvent", {type: "mouseMoved", x: 0, y: 0})
+  assert.equal(await evaluate(`Array.from(document.querySelectorAll(
+    '#mail-account-view, #mail-threads, .mail-toolbar, #mail-status, .mail-thread'
+  )).every(element => getComputedStyle(element).backgroundColor === 'rgba(0, 0, 0, 0)')`), true,
+  "inbox and its rows remain transparent before hover")
+  const hoverRow = await evaluate(`(() => {
+    const rect = document.querySelector('.mail-thread').getBoundingClientRect();
+    return {x: rect.left + rect.width / 2, y: rect.top + rect.height / 2};
+  })()`)
+  await send("Input.dispatchMouseEvent", {type: "mouseMoved", ...hoverRow})
+  assert.deepEqual(await evaluate(`Array.from(document.querySelectorAll('.mail-thread')).slice(0, 2)
+    .map(row => getComputedStyle(row).backgroundColor)`),
+  ["rgba(18, 23, 21, 0.72)", "rgba(0, 0, 0, 0)"], "only the hovered inbox row gains the study's inset frosting")
+  await send("Input.dispatchMouseEvent", {type: "mouseMoved", x: 0, y: 0})
+  assert.equal(await evaluate("getComputedStyle(document.querySelector('.mail-thread')).backgroundColor"),
+    "rgba(0, 0, 0, 0)", "leaving the row restores its transparent surface")
   await evaluate("document.querySelector('#workspace-content').scrollTop = 100")
-  const inboxScroll = await evaluate("document.querySelector('#workspace-content').scrollTop")
   await evaluate("document.querySelector('#mail-search input').focus({preventScroll: true})")
   await send("Input.insertText", {text: "synthetic draft"})
+  const inboxScroll = await evaluate("document.querySelector('#workspace-content').scrollTop")
   assert.ok(inboxScroll > 0, "synthetic inbox must really scroll")
   await key("Escape")
   await landscape()
@@ -1122,6 +1158,8 @@ try {
     {id: "mail-message-synthetic-message-3", open: true},
   ], "chronological conversation expands only the latest message")
   assert.equal(await evaluate("document.activeElement.matches('[data-mail-latest=\"true\"] > summary')"), true, "latest reply receives keyboard focus")
+  assert.equal(await evaluate("getComputedStyle(document.activeElement).outlineStyle"), "none",
+    "opening mail with the mouse does not paint a selected message summary")
   assert.equal(await evaluate("(() => { const r = document.activeElement.getBoundingClientRect(); const context = document.querySelector('.mail-reader-context').getBoundingClientRect(); return r.top >= context.bottom && r.bottom <= innerHeight; })()"), true, "focused reply stays visible below account and return context")
   assert.equal(await evaluate("document.querySelectorAll('#mail-conversation-heading').length"), 1)
   assert.equal(await evaluate("document.querySelector('#mail-conversation-heading').textContent.trim()"), conversationTitle)
@@ -1159,6 +1197,9 @@ try {
   await evaluate("document.querySelector('#mail-message-synthetic-message-1 > summary.mail-message-summary').focus()")
   await key("Enter")
   await waitFor("document.querySelector('#mail-message-synthetic-message-1').open", "native summary Enter opens earlier message")
+  assert.equal(await evaluate("getComputedStyle(document.activeElement).outlineStyle"), "solid",
+    "native keyboard disclosure interaction retains visible focus")
+  assert.equal(await evaluate("getComputedStyle(document.activeElement).outlineWidth"), "2px")
   await key("Enter")
   await waitFor("!document.querySelector('#mail-message-synthetic-message-1').open", "native summary Enter collapses earlier message")
   await key("Enter")

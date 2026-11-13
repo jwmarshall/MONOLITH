@@ -407,22 +407,30 @@ Use the same hierarchy on static setup/unlock pages and authenticated views.
   on narrow screens. Search input and submit button touch, with matching height and font
   size. Keep an accessible search name without a visible account-scope explanation or
   generic reassurance copy. Retain actionable health/freshness/error states and workspace
-  **All accounts** navigation in the mail toolbar.
-- Inbox rows balance sender/date, a prominent subject and one muted preview line. Unread
-  uses a visible marker plus stronger text, with an accessible unread label; not color alone.
+  **All accounts** navigation. The shared shell alone owns the top inset; fresh account
+  navigation focuses its heading without scrolling the register or Lock out of view.
+  Match the study's compact account/search header and full-width, uninset result rows.
+- Inbox lists, toolbars and status regions remain transparent at rest. Only the hovered
+  inbox row gains the study's inset surface; neighboring rows do not change.
+  Rows keep the sender, prominent subject and muted preview in one column, with
+  the date at the far right (below the copy at ≤440px). Unread uses a visible marker
+  plus stronger text, with an accessible unread label; not color alone.
   Parseable message dates use browser-local compact labels, with full dates available;
   unparseable dates remain escaped provider text rather than invented timestamps.
-- Opening a conversation replaces the results with a dedicated reader on the normal
-  shared glass, with no separate opaque fill. Inherit the stage's text treatment; retain
-  the accessible Canvas background in forced colors. Do not add a new dashboard shell.
+- Opening a conversation replaces the results with a dedicated transparent reader,
+  without a persistent card fill or outer card frame. Inherit the stage's text treatment;
+  retain the accessible Canvas background in forced colors. Do not add a new dashboard shell.
   Use comfortable Space Grotesk body type (currently 18px desktop / 17px narrow), relaxed
-  line spacing and a bounded reading measure (currently 68ch). Long tokens wrap; narrow
-  screens reduce padding rather than shrinking body type below that starting point.
+  line spacing and a bounded reading measure (currently 68ch) within a centered 76ch
+  reader. The subject uses the study's 32–52px hierarchy, not the larger directory
+  display preset; narrow screens retain 17px body text without an extra padded card.
 - Show one conversation heading. Earlier messages use native expandable sender/date
-  summaries; the latest message starts expanded and the reader begins at that reply.
-  Focus the latest message summary without hiding it beneath the sticky account/return
-  context. Keep the reader at a comfortable text measure within its own glass plane;
-  search belongs to results, with its query preserved on return.
+  summaries; the latest message starts expanded and receives focus. Mouse-opened mail
+  must not paint that summary as selected; keyboard interaction retains visible focus.
+  Preserve the subject when that summary already fits, otherwise scroll only enough to expose it
+  below the account/return context. Refresh and observation share that normal-flow context
+  rather than a second toolbar above the subject; it must not overlap scrolled mail.
+  Search belongs to results, with its query preserved on return.
   Differing subjects remain visible within their messages. Full sender/recipient/raw-date
   metadata has its own disclosure. Preserve quoted history/signatures as escaped text;
   no automatic trimming, HTML rendering, remote content or mailbox writes. Attachment
@@ -432,8 +440,9 @@ Use the same hierarchy on static setup/unlock pages and authenticated views.
   survive ordinary refreshes. Escape/idle preserves reader state.
 - Back to results and browser Back retain search/page and restore the opened row's focus
   and scroll position after the async list returns, including after reader Escape/wake.
-  New keyboard, pointer or input intent cancels that pending handoff; a later navigation
-  starts fresh rather than inheriting the cancellation. Client navigation memory is
+  New keyboard, pointer, input or control-focus intent cancels that pending handoff;
+  a later navigation starts fresh rather than inheriting the cancellation. Preserve
+  the result memory through repeated Back/Forward traversal. Client navigation memory is
   ephemeral, bounded to one result context and reset on account/connection-generation/
   search/page changes; never persist bodies or queries in browser storage. Routine fetch freshness is compact
   and ages locally, with an exact timestamp disclosure. Loading/errors/stale-copy warnings
