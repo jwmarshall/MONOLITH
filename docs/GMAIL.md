@@ -1,4 +1,4 @@
-# Read-only Gmail in LOVELACE
+# Read-only Gmail in MONOLITH
 
 ## Scope
 
@@ -6,7 +6,7 @@ Optional read-only Google Calendar agendas reuse these connections with separate
 explicit consent and independent Calendar freshness. See [CALENDAR.md](CALENDAR.md)
 for scopes, selection, browser-local today, polling and shared disconnect semantics.
 
-One local owner unlocks LOVELACE with a password. Google connections are **not**
+One local owner unlocks MONOLITH with a password. Google connections are **not**
 owner identities. Connect Google once and attach that connection to one or more
 workspaces. Each workspace can contain several accounts; each inbox, search,
 conversation, cache, job and update remains account-scoped. There is no unified inbox.
@@ -32,11 +32,11 @@ and run from a private checkout:
 
 ```sh
 umask 077
-bin/lovelace setup
-bin/lovelace server
+bin/monolith setup
+bin/monolith server
 ```
 
-The launcher handles SQLCipher **4.20.0** internally. `bin/lovelace setup` prepares the native binding,
+The launcher handles SQLCipher **4.20.0** internally. `bin/monolith setup` prepares the native binding,
 helper, and assets without initializing application storage. Open <http://localhost:4321>
 and pair the browser with the private one-time code printed in the server terminal.
 Choose and confirm an owner password, then acknowledge permanent password loss.
@@ -53,11 +53,11 @@ keychain; enter the same owner password there, never in shell arguments or chat.
 If setup is interrupted, restart the server, pair again, and resume `/setup` with the
 **original password**. Private setup/creation markers and unused encrypted staging files
 are preserved; initialized keys and owner credentials are never replaced. Never delete
-those markers to force setup. The stopped-terminal `lovelace.owner.setup` task remains
+those markers to force setup. The stopped-terminal `monolith.owner.setup` task remains
 available for explicit attended maintenance, not required first-run setup.
 
 For an existing plaintext installation, stop the application and run
-`bin/lovelace mix lovelace.vault.migrate` in a terminal. It verifies the owner
+`bin/monolith mix monolith.vault.migrate` in a terminal. It verifies the owner
 password and copies legacy credentials into the dedicated keychain. Separate exact
 confirmations govern `CUT OVER`, `DELETE PLAINTEXT` and `DELETE LEGACY SECRETS`.
 Original database files (including WAL) and legacy secrets are retained by default;
@@ -66,12 +66,12 @@ is journaled and resumable. Deletion is not guaranteed secure erasure of APFS sn
 backups or previously copied data. Never reset the database to migrate it.
 
 The Keychain build requires Apple's Command Line Tools (`xcrun swiftc`). The generated
-`priv/native/lovelace-vault` binary is ignored, not a committed executable. Build on
+`priv/native/monolith-vault` binary is ignored, not a committed executable. Build on
 the target Mac before packaging a release; it must be included in the release's `priv`.
 The helper uses Security.framework and explicit references to the dedicated
-`lovelace.keychain-db`, without changing the user's default keychain or search list.
-Gmail refresh tokens use the fixed **LOVELACE Gmail** service and an account UUID,
-not an email address; Google client credentials use **LOVELACE Google OAuth**.
+`monolith.keychain-db`, without changing the user's default keychain or search list.
+Gmail refresh tokens use the fixed **MONOLITH Gmail** service and an account UUID,
+not an email address; Google client credentials use **MONOLITH Google OAuth**.
 Secrets travel over bounded private stdin/stdout, never argv, temporary files, SQL
 or job arguments. Access tokens are transient in memory. There is no runtime login
 keychain fallback, plaintext fallback or iCloud synchronization. Legacy login
@@ -82,10 +82,10 @@ minutes per operation). Migration permits legacy item reads/deletions and approv
 the existing Database-key item after a helper rebuild; it never replaces that key.
 Approval must allow the verified helper's later noninteractive reads. A `login`
 keychain dialog uses that keychain's password, normally the macOS account password;
-dedicated LOVELACE keychain dialogs use the owner password. Ordinary unlock,
+dedicated MONOLITH keychain dialogs use the owner password. Ordinary unlock,
 background access and credential operations remain noninteractive and fail closed
 on lock or access-control/signing mismatch.
-Unlock the dedicated vault through LOVELACE's owner password flow.
+Unlock the dedicated vault through MONOLITH's owner password flow.
 Rebuilding/replacing an unsigned or ad-hoc-signed helper can change its Keychain
 identity; do not grant all applications access to these items. The macOS file-keychain
 APIs are deprecated; this is not a signed desktop installer or a validated cross-version
@@ -124,30 +124,30 @@ in **Connections → Gmail**. Use a dedicated project at <https://console.cloud.
    Calendar explicitly in the following optional onboarding step, or later through
    **Connections → Calendar**; see [CALENDAR.md](CALENDAR.md).
 
-   OAuth requests may spell the email scope as the OpenID alias `email`; LOVELACE accepts
+   OAuth requests may spell the email scope as the OpenID alias `email`; MONOLITH accepts
    Google's returned `userinfo.email` form too. Do not add `userinfo.profile` just to
    obtain an email address.
 4. Create an OAuth **Desktop app** client for this locally installed application.
    A Desktop client is public; its bundled client secret is not a security boundary.
    Do not use service-account/domain-wide delegation or the obsolete OOB flow.
 5. Keep the client ID and client secret local. Paste them into the protected
-   **Connections → Google** (`/connections/google`) form while LOVELACE is unlocked, or
+   **Connections → Google** (`/connections/google`) form while MONOLITH is unlocked, or
    save them during `/onboarding/client`. Both use the same dedicated keychain namespace.
    The forms never display stored values and perform no provider probe.
    No server restart is required. Runtime `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`
    environment variables are not read. Never paste credentials into chat, source, logs,
    URLs, or shell history; do not commit downloaded client JSON.
-   For explicit stopped-server maintenance, `bin/lovelace mix lovelace.google.configure`
+   For explicit stopped-server maintenance, `bin/monolith mix monolith.google.configure`
    remains available with hidden terminal prompts; it does not start provider work.
    Google Connections reports only local credential presence/availability, not verified
    Google access. Saving settings does not grant Gmail or Calendar access. Replacing the
    client leaves existing accounts and grants intact; switching clients may require
    reconnecting those accounts.
 
-LOVELACE uses `http://localhost:4321/oauth/google/callback` by default. A custom `PORT`
+MONOLITH uses `http://localhost:4321/oauth/google/callback` by default. A custom `PORT`
 changes the callback port too. Desktop clients support loopback redirects without
 registering each port. Google recommends literal loopback IPs and an available port;
-LOVELACE deliberately uses its fixed **localhost** web origin so the initiating owner's
+MONOLITH deliberately uses its fixed **localhost** web origin so the initiating owner's
 host-only session cookie and LiveView origin checks agree. Always open the application
 as `http://localhost:PORT`; IP aliases redirect to the canonical homepage. The listener
 remains `127.0.0.1`, never a LAN interface.
@@ -178,7 +178,7 @@ The server is already running; Google credentials are not required to start it.
 For later sessions:
 
 ```sh
-bin/lovelace server
+bin/monolith server
 ```
 
 The application starts locked: Repo, Oban and provider work remain stopped until
@@ -201,7 +201,7 @@ Gmail never starts a browser or requests consent automatically.
    authorization, an unconfirmed first read, failures, and a timestamped saved read
    observation. Open that account's inbox to request its first read; finishing or skipping
    the guide never invents a connection or a successful read.
-3. LOVELACE binds the verified UserInfo `sub` to the connection. Email is a display
+3. MONOLITH binds the verified UserInfo `sub` to the connection. Email is a display
    attribute, not its stable identity. Reconnect cannot silently select another account.
 4. Open one account's inbox; search uses Gmail syntax across that account, including
    sent/archived mail. Spam/Trash follow Gmail's ordinary search behavior unless requested.
@@ -301,17 +301,17 @@ per view, and discarded across connection-generation changes or leaving Connecti
   prove that the item is absent or that Google is offline.
 - `invalid_account` / `invalid_value`: the adapter rejected the identifier/value.
 
-While LOVELACE is open, native authorization/access failures automatically trigger
+While MONOLITH is open, native authorization/access failures automatically trigger
 global Lock, including denied/locked reads, helper unavailability or timeout, and
 missing keychain storage. Active protected requests and jobs stop, browser sessions
 are revoked, and the encrypted Repo closes. A missing individual credential
 (`not_found`) or invalid local input does not lock the application. Detection happens
-when a native operation runs; LOVELACE does not continuously monitor macOS ACL changes.
+when a native operation runs; MONOLITH does not continuously monitor macOS ACL changes.
 Restore native access, then unlock with the owner password. This does not by itself
 mean Google authorization was revoked or require replacing stored credentials.
 
 Review **About Keychain access** in Connections before changing anything. Rebuilding
-the `lovelace-vault` helper can change its signing identity. Do not delete credentials,
+the `monolith-vault` helper can change its signing identity. Do not delete credentials,
 grant all applications access, broaden partition ACLs, or repeatedly rebuild as an
 attempted access repair. Diagnostics do not repair signing/ACLs or expose raw macOS
 OSStatus values; exact native denial recovery remains a manual investigation.
@@ -323,7 +323,7 @@ investigate only that legacy item and verified helper identity; do not broaden i
 or move current credentials back to the login keychain.
 
 `userinfo.email` is the canonical console scope for the OAuth alias `email`; both
-forms are already supported. If consent completes but LOVELACE rejects the connection,
+forms are already supported. If consent completes but MONOLITH rejects the connection,
 the flash and terminal now report an allowlisted stage/category (session/state,
 token exchange, identity, account binding, offline token, Keychain or persistence).
 Share only that safe category if needed, never a callback URL, code, state, token,
@@ -332,7 +332,7 @@ client secret or raw Google response.
 A corrected native-helper stdin bug previously caused short JSON requests to wait
 for 4096 bytes/EOF until the watchdog expired. The helper now uses bounded POSIX reads
 and processes newline frames with stdin still open. After updating this source, run
-`bin/lovelace mix lovelace.keychain.build` and restart LOVELACE, then start a **fresh**
+`bin/monolith mix monolith.keychain.build` and restart MONOLITH, then start a **fresh**
 connection attempt. Old binaries do not inherit Swift source changes. Restarting clears
 pending OAuth state, so do not reuse an earlier callback URL. A macOS-only regression
 compiles/runs the real helper with invalid inputs that cannot reach a credential operation.
@@ -392,7 +392,7 @@ interpreted as an absent credential during rollback.
   item if the process dies after its credential write but before the identity commits,
   or if persistence and compensating deletion both fail. The token remains in Keychain,
   never SQLite, but normal disconnect cannot discover that orphan. No automatic orphan
-  reconciliation is implemented; review the **LOVELACE Gmail** service in Keychain Access
+  reconciliation is implemented; review the **MONOLITH Gmail** service in Keychain Access
   and Google application access after an interrupted/failed connection. Do not share item
   values. Successful-return failure paths attempt restoration/deletion and report failures.
 - **Disconnect everywhere** atomically fences the connection generation, removes all

@@ -3,7 +3,7 @@
 # Real production native calls remain enabled: unsupported hosts must fail closed.
 Code.require_file("subprocess_coverage.ex", __DIR__)
 
-defmodule Lovelace.SyntheticMaintenanceIO do
+defmodule Monolith.SyntheticMaintenanceIO do
   def start(lines, observer), do: spawn_link(fn -> loop(lines, observer) end)
 
   defp loop(lines, observer) do
@@ -28,9 +28,9 @@ defmodule Lovelace.SyntheticMaintenanceIO do
   defp reply(_, lines), do: {{:error, :enotsup}, lines}
 end
 
-defmodule Mix.Tasks.Lovelace.SyntheticMaintenance do
+defmodule Mix.Tasks.Monolith.SyntheticMaintenance do
   use Mix.Task
-  alias Lovelace.TestSupport.SubprocessCoverage
+  alias Monolith.TestSupport.SubprocessCoverage
 
   def run([mode, root]) do
     unless Mix.env() == :prod, do: raise("Production configuration required")
@@ -55,13 +55,13 @@ defmodule Mix.Tasks.Lovelace.SyntheticMaintenance do
   defp attempt(mode) do
     {task, lines} =
       case mode do
-        "owner" -> {"lovelace.owner.setup", []}
-        "migration" -> {"lovelace.vault.migrate", ["STOPPED\n"]}
-        "google" -> {"lovelace.google.configure", ["synthetic unused owner password\n"]}
+        "owner" -> {"monolith.owner.setup", []}
+        "migration" -> {"monolith.vault.migrate", ["STOPPED\n"]}
+        "google" -> {"monolith.google.configure", ["synthetic unused owner password\n"]}
       end
 
     leader = Process.group_leader()
-    terminal = Lovelace.SyntheticMaintenanceIO.start(lines, self())
+    terminal = Monolith.SyntheticMaintenanceIO.start(lines, self())
     Process.group_leader(self(), terminal)
     previous_trap = Process.flag(:trap_exit, mode == "google")
 
@@ -110,7 +110,7 @@ defmodule Mix.Tasks.Lovelace.SyntheticMaintenance do
   defp assert_no_unexpected_exit(mode) do
     receive do
       {:EXIT, supervisor,
-       {:shutdown, {:failed_to_start_child, Lovelace.Security.Vault, :vault_unavailable}}}
+       {:shutdown, {:failed_to_start_child, Monolith.Security.Vault, :vault_unavailable}}}
       when is_pid(supervisor) and mode == "google" ->
         # start_link returns the refusal; newer OTP releases unlink and flush its
         # EXIT before returning. Older releases may leave this exact signal.
@@ -126,7 +126,7 @@ defmodule Mix.Tasks.Lovelace.SyntheticMaintenance do
 
   defp native_available? do
     :os.type() == {:unix, :darwin} and
-      File.regular?(Application.app_dir(:lovelace, "priv/native/lovelace-vault"))
+      File.regular?(Application.app_dir(:monolith, "priv/native/monolith-vault"))
   end
 
   defp assert_terminal_reads(mode) do
@@ -145,7 +145,7 @@ defmodule Mix.Tasks.Lovelace.SyntheticMaintenance do
   end
 
   defp assert_storage(mode, source, original, failure) do
-    unless Application.fetch_env!(:lovelace, Lovelace.Repo)[:database] == source,
+    unless Application.fetch_env!(:monolith, Monolith.Repo)[:database] == source,
       do:
         raise("Maintenance did not load production DATABASE_PATH: #{Exception.message(failure)}")
 
@@ -161,20 +161,20 @@ defmodule Mix.Tasks.Lovelace.SyntheticMaintenance do
 
     unless expected, do: raise("Maintenance did not preserve its intended storage boundary")
 
-    if File.exists?(Path.join(vault, "lovelace.keychain-db")),
+    if File.exists?(Path.join(vault, "monolith.keychain-db")),
       do: raise("Maintenance unexpectedly created native credentials")
   end
 
   defp assert_stopped do
     for name <- [
-          Lovelace.Supervisor,
-          Lovelace.Repo,
-          Lovelace.Security.Vault,
-          Lovelace.Security.LeaseGuard,
-          Lovelace.Security.ProtectedSupervisor,
-          Lovelace.Mail.OAuth,
-          Lovelace.Mail.ViewData,
-          LovelaceWeb.Endpoint,
+          Monolith.Supervisor,
+          Monolith.Repo,
+          Monolith.Security.Vault,
+          Monolith.Security.LeaseGuard,
+          Monolith.Security.ProtectedSupervisor,
+          Monolith.Mail.OAuth,
+          Monolith.Mail.ViewData,
+          MonolithWeb.Endpoint,
           Oban.Registry
         ] do
       if Process.whereis(name), do: raise("Protected application process survived maintenance")

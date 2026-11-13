@@ -1,10 +1,10 @@
-defmodule Lovelace.TestSupport.DisposableStageRepo do
+defmodule Monolith.TestSupport.DisposableStageRepo do
   @moduledoc """
   Independently owned, non-sandbox SQLite pools sharing a disposable database.
   Every process must explicitly select its dynamic Repo; this is not inherited.
   """
 
-  alias Lovelace.Repo
+  alias Monolith.Repo
 
   def start!(directory, opts \\ []) do
     File.mkdir_p!(directory)
@@ -13,11 +13,11 @@ defmodule Lovelace.TestSupport.DisposableStageRepo do
 
     migrations = [
       {20_261_102_020_618, "20261102020618_create_stage_designer.exs",
-       Lovelace.Repo.Migrations.CreateStageDesigner},
+       Monolith.Repo.Migrations.CreateStageDesigner},
       {20_261_103_014_313, "20261103014313_add_scene_selection.exs",
-       Lovelace.Repo.Migrations.AddSceneSelection},
+       Monolith.Repo.Migrations.AddSceneSelection},
       {20_261_103_040_753, "20261103040753_add_scene_catalog.exs",
-       Lovelace.Repo.Migrations.AddSceneCatalog},
+       Monolith.Repo.Migrations.AddSceneCatalog},
       tracking_migration()
     ]
 
@@ -38,7 +38,7 @@ defmodule Lovelace.TestSupport.DisposableStageRepo do
 
   def tracking_migration do
     {20_261_103_210_745, "20261103210745_tracked_gemini_generations.exs",
-     Lovelace.Repo.Migrations.TrackedGeminiGenerations}
+     Monolith.Repo.Migrations.TrackedGeminiGenerations}
   end
 
   def migrate!(repo, migrations) do
@@ -84,13 +84,13 @@ defmodule Lovelace.TestSupport.DisposableStageRepo do
 
   def on_repo(repo, fun) do
     previous = Repo.put_dynamic_repo(repo)
-    barrier = Process.put(:lovelace_synthetic_sql_barriers, true)
+    barrier = Process.put(:monolith_synthetic_sql_barriers, true)
 
     try do
       fun.()
     after
       Repo.put_dynamic_repo(previous)
-      Process.put(:lovelace_synthetic_sql_barriers, barrier)
+      Process.put(:monolith_synthetic_sql_barriers, barrier)
     end
   end
 end

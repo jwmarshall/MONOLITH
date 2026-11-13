@@ -1,4 +1,4 @@
-defmodule Lovelace.Repo.Migrations.CreateStageDesigner do
+defmodule Monolith.Repo.Migrations.CreateStageDesigner do
   @moduledoc """
   Updates resources based on their most recent snapshots.
 

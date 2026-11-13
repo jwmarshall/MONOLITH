@@ -1,4 +1,4 @@
-defmodule Lovelace.TestSupport.PNG do
+defmodule Monolith.TestSupport.PNG do
   @moduledoc "Small valid static PNG fixtures; no provider or private content."
 
   def image(width \\ 2, height \\ 2) do

@@ -1,0 +1,128 @@
+defmodule Monolith.Calendar.State do
+  @moduledoc "One sensitive, bounded agenda context per Google account; never an offline index."
+  use Ash.Resource,
+    domain: Monolith.Calendar,
+    primary_read_warning?: false,
+    data_layer: AshSqlite.DataLayer,
+    authorizers: [Ash.Policy.Authorizer]
+
+  sqlite do
+    repo Monolith.Repo
+    table "calendar_states"
+
+    references do
+      reference :account, on_delete: :delete
+    end
+  end
+
+  actions do
+    read :read do
+      primary? true
+      argument :account_id, :uuid, allow_nil?: false
+      filter expr(account_id == ^arg(:account_id))
+    end
+
+    read :due do
+      filter expr(next_poll_at <= now() and context_at > ago(24, :hour) and to_at > now())
+      prepare build(sort: [next_poll_at: :asc], limit: 100)
+    end
+
+    read :expired do
+      filter expr(fetched_at <= ago(24, :hour) or catalog_at <= ago(24, :hour))
+      prepare build(limit: 100)
+    end
+
+    create :store do
+      accept [
+        :account_id,
+        :generation,
+        :revision,
+        :calendars,
+        :selected_ids,
+        :explicit_selection,
+        :events,
+        :from_at,
+        :to_at,
+        :local_date,
+        :timezone,
+        :context_at,
+        :fetched_at,
+        :catalog_at,
+        :error,
+        :next_poll_at,
+        :cooldown_until,
+        :loading,
+        :truncated,
+        :selection_truncated
+      ]
+
+      upsert? true
+      upsert_identity :account_state
+
+      upsert_fields [
+        :generation,
+        :revision,
+        :calendars,
+        :selected_ids,
+        :explicit_selection,
+        :events,
+        :from_at,
+        :to_at,
+        :local_date,
+        :timezone,
+        :context_at,
+        :fetched_at,
+        :catalog_at,
+        :error,
+        :next_poll_at,
+        :cooldown_until,
+        :loading,
+        :truncated,
+        :selection_truncated
+      ]
+    end
+
+    destroy :clear
+  end
+
+  policies do
+    policy always() do
+      access_type :strict
+      authorize_if Monolith.Workspaces.LocalOwner
+    end
+  end
+
+  attributes do
+    uuid_primary_key :id
+    attribute :generation, :uuid, allow_nil?: false
+    attribute :revision, :uuid, allow_nil?: false
+    attribute :calendars, {:array, :map}, default: [], sensitive?: true
+    attribute :selected_ids, {:array, :string}, default: [], sensitive?: true
+    attribute :explicit_selection, :boolean, default: false, allow_nil?: false
+    attribute :events, {:array, :map}, default: [], sensitive?: true
+    attribute :from_at, :utc_datetime_usec, allow_nil?: false
+    attribute :to_at, :utc_datetime_usec, allow_nil?: false
+    attribute :local_date, :date, allow_nil?: false
+    attribute :timezone, :string, allow_nil?: false, constraints: [max_length: 128]
+    attribute :context_at, :utc_datetime_usec, allow_nil?: false
+    attribute :fetched_at, :utc_datetime_usec
+    attribute :catalog_at, :utc_datetime_usec
+
+    attribute :error, :atom,
+      constraints: [one_of: [:unavailable, :provider, :rate_limited, :reconnect, :keychain]]
+
+    attribute :next_poll_at, :utc_datetime_usec, allow_nil?: false
+    attribute :cooldown_until, :utc_datetime_usec
+    attribute :loading, :boolean, default: false, allow_nil?: false
+    attribute :truncated, :boolean, default: false, allow_nil?: false
+    attribute :selection_truncated, :boolean, default: false, allow_nil?: false
+  end
+
+  relationships do
+    belongs_to :account, Monolith.Mail.Account, allow_nil?: false
+  end
+
+  identities do
+    identity :account_state, [:account_id]
+  end
+end

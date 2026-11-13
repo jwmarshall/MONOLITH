@@ -1,4 +1,4 @@
-defmodule Lovelace.Repo.Migrations.AddReadonlyGithub do
+defmodule Monolith.Repo.Migrations.AddReadonlyGithub do
   @moduledoc """
   Updates resources based on their most recent snapshots.
 

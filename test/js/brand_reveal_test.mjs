@@ -1,433 +1,318 @@
 import assert from "node:assert/strict"
 import test from "node:test"
-import BrandReveal from "../../assets/js/hooks/brand_reveal.js"
+import BrandReveal, {createBrandReveal} from "../../assets/js/hooks/brand_reveal.js"
 import WorkspaceEntrance from "../../assets/js/hooks/workspace_entrance.js"
-import {gsap} from "../../assets/vendor/gsap/gsap.js"
 
 class FakeTarget extends EventTarget {
   listeners = new Map()
   attributes = new Map()
-
-  addEventListener(type, callback) {
-    super.addEventListener(type, callback)
+  addEventListener(type, callback, options) {
+    super.addEventListener(type, callback, options)
     if (!this.listeners.has(type)) this.listeners.set(type, new Set())
     this.listeners.get(type).add(callback)
   }
-
-  removeEventListener(type, callback) {
-    super.removeEventListener(type, callback)
+  removeEventListener(type, callback, options) {
+    super.removeEventListener(type, callback, options)
     this.listeners.get(type)?.delete(callback)
   }
-
   getAttribute(name) { return this.attributes.get(name) ?? null }
   emit(type) { this.dispatchEvent(new Event(type)) }
   get listenerCount() { return [...this.listeners.values()].reduce((n, callbacks) => n + callbacks.size, 0) }
 }
 
-function brand(t, {reduced = false, focused = false, enterOnReturn = null, beforeMount} = {}) {
-  const preference = new FakeTarget()
-  preference.matches = reduced
-  const previousWindow = Object.getOwnPropertyDescriptor(globalThis, "window")
-  Object.defineProperty(globalThis, "window", {configurable: true, value: {
-    matchMedia: query => {
-      assert.equal(query, "(prefers-reduced-motion: reduce)")
-      return preference
-    },
-  }})
-  t.after(() => {
-    if (previousWindow) Object.defineProperty(globalThis, "window", previousWindow)
-    else delete globalThis.window
-  })
-
-  // Real vendored GSAP animates plain properties in Node. This exercises timeline
-  // callbacks and hook lifecycle, not browser SVG/CSSPlugin rendering or layout.
-  const stroke = {strokeDasharray: 0, strokeDashoffset: 0, getTotalLength: () => 100}
-  const letters = Array.from({length: 8}, () => ({opacity: 1, rotationX: 0, yPercent: 0}))
-  const el = new FakeTarget()
-  el.querySelector = selector => {
-    assert.equal(selector, "#lovelace-monogram-stroke")
-    return stroke
+function brand(t, {reduced = false, focused = false, enterOnReturn = null, enterOnUnlock = null, standalone = false, beforeMount} = {}) {
+  const preference = Object.assign(new FakeTarget(), {matches: reduced})
+  const view = Object.assign(new FakeTarget(), {matchMedia: () => preference})
+  const frames = new Map()
+  let frameId = 0
+  view.requestAnimationFrame = callback => { frames.set(++frameId, callback); return frameId }
+  view.cancelAnimationFrame = id => frames.delete(id)
+  const document = Object.assign(new FakeTarget(), {defaultView: view, body: {id: "body"}, querySelector: () => null})
+  document.activeElement = {id: "workspace-pane"}
+  const animations = []
+  const target = () => {
+    const element = new FakeTarget()
+    element.animate = (frames, options) => {
+      let resolve, reject
+      const animation = {
+        element, frames, options, canceled: false,
+        finished: new Promise((done, fail) => { resolve = done; reject = fail }),
+        finish() { resolve() },
+        cancel() { this.canceled = true; reject(new Error("Canceled")) },
+      }
+      animations.push(animation)
+      return animation
+    }
+    return element
   }
-  el.querySelectorAll = selector => {
-    assert.equal(selector, ".workspace-letter")
-    return letters
-  }
+  const outline = [target(), target()]
+  const inner = [target(), target()]
+  const letters = Array.from({length: 8}, target)
+  const svg = target()
+  svg.querySelectorAll = selector => selector === "[data-layer=outline] path" ? outline : inner
+  const el = target()
+  el.ownerDocument = document
+  el.querySelector = () => svg
+  el.querySelectorAll = () => letters
   const main = new FakeTarget()
-  if (enterOnReturn !== null) main.attributes.set("data-enter-on-return", enterOnReturn)
   const pane = new FakeTarget()
+  main.ownerDocument = document
+  if (enterOnReturn !== null) main.attributes.set("data-enter-on-return", enterOnReturn)
+  if (enterOnUnlock !== null) main.attributes.set("data-enter-on-unlock", enterOnUnlock)
   pane.attributes.set("aria-pressed", String(focused))
-  const root = new FakeTarget()
-  root.querySelector = selector => {
-    if (selector === "#main-content") return main
-    assert.equal(selector, "#workspace-pane")
-    return pane
-  }
-  el.closest = selector => {
-    assert.equal(selector, "#workspace")
-    return root
-  }
   const completions = []
-  el.addEventListener("lovelace:brand-complete", event => completions.push(event))
-  const hook = Object.assign({}, BrandReveal, {el})
-  t.after(() => {
-    hook.destroyed()
-    gsap.ticker.sleep()
-  })
-  beforeMount?.({el, main, pane, root})
-  hook.mounted()
-  // Advance explicitly: no wall-clock waits or background animation races.
-  gsap.ticker.sleep()
-  const restart = t.mock.method(hook.timeline, "restart")
-  const seek = progress => {
-    hook.timeline.time(progress * hook.timeline.labels.exit).pause()
-    gsap.ticker.sleep()
+  el.addEventListener("monolith:brand-complete", event => completions.push(event))
+  const root = new FakeTarget()
+  root.querySelector = selector => selector === "#main-content" ? main : pane
+  el.closest = () => root
+  main.closest = () => root
+  beforeMount?.({el, main, pane, root, document, view})
+  const hook = standalone ? createBrandReveal(el) : Object.assign({}, BrandReveal, {el})
+  if (!standalone) hook.mounted()
+  t.after(() => hook.destroy())
+  // Resolve one native-animation phase, then let its Promise.all continuation run.
+  const finishPhase = async () => {
+    animations.forEach(animation => animation.finish())
+    for (let turn = 0; turn < 5; turn++) await Promise.resolve()
   }
-  const motion = matches => {
-    preference.matches = matches
-    preference.emit("change")
-    gsap.ticker.sleep()
-  }
-  const exit = progress => {
-    const start = hook.timeline.labels.exit
-    hook.timeline.time(start + progress * (hook.timeline.duration() - start)).pause()
-    gsap.ticker.sleep()
-  }
-  const finish = () => { seek(1); exit(1) }
-  return {hook, el, main, pane, root, preference, completions, stroke, letters, restart, seek, exit, motion, finish}
+  const motion = matches => { preference.matches = matches; preference.emit("change") }
+  return {hook, el, main, pane, root, document, view, preference, animations, completions, finishPhase, motion, svg, letters}
 }
 
-test("normal reveal holds, exits in the opposite direction, then completes exactly once", t => {
-  const {hook, el, completions, restart, seek, exit, stroke, letters} = brand(t)
-  assert.equal(hook.active, false)
-  assert.equal(hook.completed, false)
-  assert.equal(hook.timeline.paused(), true)
+test("reveal traces the mark, flips letters, holds, and exits before handing off once", async t => {
+  const {hook, el, animations, completions, finishPhase, svg, letters} = brand(t)
+  assert.equal(animations.length, 0)
+  el.emit("monolith:brand-focus")
+  assert.equal(animations.length, 12)
+  assert.deepEqual(animations[0].frames, [
+    {strokeDashoffset: 1, opacity: 0},
+    {strokeDashoffset: 1, opacity: 1, offset: .001},
+    {strokeDashoffset: 0, opacity: 1},
+  ])
+  assert.deepEqual(animations[0].options, {duration: 1600, delay: 180, easing: "cubic-bezier(.45,0,.2,1)", fill: "both"})
+  assert.equal(animations[2].options.duration, 1100)
+  assert.equal(animations[2].options.delay, 1100)
+  assert.equal(animations[3].options.duration, 500)
+  assert.equal(animations[3].options.delay, 1850)
+  assert.deepEqual(animations[11].options, {duration: 600, delay: 3195, easing: "cubic-bezier(.16,1,.3,1)", fill: "both"})
   assert.deepEqual(completions, [])
-
-  el.emit("lovelace:brand-focus")
-  assert.equal(restart.mock.callCount(), 1)
-  assert.equal(hook.active, true)
-  seek(0.5)
-  assert.equal(hook.completed, false)
+  await finishPhase()
+  assert.equal(animations.length, 13)
+  assert.equal(animations[12].element, el)
+  assert.equal(animations[12].options.duration, 360)
+  await finishPhase()
+  assert.equal(animations.length, 22)
+  assert.equal(animations[13].element, svg)
+  assert.deepEqual(animations[13].options, {duration: 900, delay: 150, easing: "cubic-bezier(.65,0,.35,1)", fill: "both"})
+  assert.equal(animations[14].element, letters[0])
+  assert.deepEqual(animations[14].options, {duration: 600 / 1.8, delay: 0, easing: "cubic-bezier(.7,0,.84,0)", fill: "both"})
   assert.deepEqual(completions, [])
-  seek(1)
-  assert.equal(hook.completed, false)
-  assert.equal(hook.exiting, true)
-  assert.equal(hook.timeline.reversed(), false)
-  assert.equal(hook.timeline.timeScale(), 1)
-  assert.deepEqual(completions, [])
-  assert.equal(stroke.strokeDashoffset, 0)
-  for (const letter of letters) {
-    assert.equal(letter.opacity, 1)
-    assert.equal(letter.rotationX, 0)
-    assert.equal(letter.yPercent, 0)
-  }
-  exit(0.15)
-  assert.equal(hook.completed, false)
-  assert.ok(letters[0].opacity < letters[7].opacity, "exit proceeds left-to-right")
-  assert.ok(letters[0].rotationX > 0, "letters continue flipping upward")
-  assert.ok(letters[0].yPercent < 0)
-  exit(0.7)
-  assert.equal(hook.completed, false)
-  assert.ok(stroke.strokeDashoffset < 0 && stroke.strokeDashoffset > -100)
-  assert.ok(letters.every(letter => letter.opacity === 0))
-  exit(1)
+  await finishPhase()
   assert.equal(hook.completed, true)
-  assert.equal(stroke.strokeDashoffset, -100)
-  for (const letter of letters) assert.equal(letter.opacity, 0)
+  assert.equal(hook.active, false)
+  assert.ok(animations.every(animation => animation.canceled))
   assert.equal(completions.length, 1)
-  assert.equal(completions[0].type, "lovelace:brand-complete")
   assert.equal(completions[0].bubbles, true)
   assert.equal(completions[0].target, el)
-
   hook.complete()
-  el.emit("lovelace:brand-focus")
-  el.emit("lovelace:brand-reset")
+  el.emit("monolith:brand-focus")
+  assert.equal(animations.length, 22)
   assert.equal(completions.length, 1)
 })
 
-test("duplicate focus/click signals do not restart an active animation", t => {
-  const {el, hook, restart, seek} = brand(t)
-  el.emit("lovelace:brand-focus")
-  seek(0.4)
-  el.emit("lovelace:brand-focus")
-  el.emit("lovelace:brand-focus")
-  assert.equal(restart.mock.callCount(), 1)
-  assert.equal(hook.timeline.time(), 0.4 * hook.timeline.labels.exit)
+test("duplicate focus signals do not overlap an active reveal", t => {
+  const {el, animations} = brand(t)
+  el.emit("monolith:brand-focus")
+  el.emit("monolith:brand-focus")
+  assert.equal(animations.length, 12)
 })
 
-test("reset mid-animation freezes in place and a fresh focus replays from the start", t => {
-  const {el, hook, restart, seek, completions, stroke, finish} = brand(t)
-  el.emit("lovelace:brand-focus")
-  seek(0.5)
-  const interruptedOffset = stroke.strokeDashoffset
-  assert.ok(interruptedOffset > 0 && interruptedOffset < 100)
-  el.emit("lovelace:brand-reset")
-  assert.equal(hook.active, false)
-  assert.equal(hook.completed, false)
-  assert.equal(hook.timeline.paused(), true)
-  assert.equal(hook.timeline.time(), 0.5 * hook.timeline.labels.exit)
-  assert.equal(stroke.strokeDashoffset, interruptedOffset)
-  assert.deepEqual(completions, [])
-
-  el.emit("lovelace:brand-focus")
-  assert.equal(restart.mock.callCount(), 2)
-  assert.equal(hook.timeline.progress(), 0)
-  assert.equal(hook.timeline.paused(), false)
-  assert.equal(stroke.strokeDashoffset, 100)
-  finish()
-  assert.equal(completions.length, 1)
-})
-
-test("completed state survives idle reset and prevents replay on resume", t => {
-  const {el, hook, restart, finish, completions} = brand(t)
-  el.emit("lovelace:brand-focus")
-  finish()
-  for (let cycle = 0; cycle < 2; cycle++) {
-    el.emit("lovelace:brand-reset")
-    assert.equal(hook.active, false)
-    assert.equal(hook.completed, true)
-    el.emit("lovelace:brand-focus")
-    assert.equal(hook.timeline.progress(), 1)
-    assert.equal(hook.timeline.paused(), true)
+for (const phase of [0, 1, 2]) {
+  for (const event of ["monolith:brand-reset", "beforeprint", "phx:page-loading-start", "reduced-motion"]) {
+    test(`${event} during phase ${phase} restores static artwork without replay or delayed handoff`, async t => {
+      const {hook, el, view, motion, animations, completions, finishPhase} = brand(t)
+      el.emit("monolith:brand-focus")
+      for (let index = 0; index < phase; index++) await finishPhase()
+      if (event === "reduced-motion") motion(true)
+      else (event === "monolith:brand-reset" ? el : view).emit(event)
+      const count = animations.length
+      assert.equal(hook.active, false)
+      assert.equal(hook.completed, true)
+      assert.ok(animations.every(animation => animation.canceled))
+      motion(false)
+      el.emit("monolith:brand-focus")
+      await finishPhase()
+      assert.equal(animations.length, count)
+      assert.equal(completions.length, 1)
+    })
   }
-  assert.equal(restart.mock.callCount(), 1)
-  assert.equal(completions.length, 1)
-})
+}
 
-test("initial reduced motion completes immediately without restarting the timeline", t => {
-  const {el, hook, restart, completions} = brand(t, {reduced: true})
-  assert.equal(hook.completed, false)
-  assert.deepEqual(completions, [])
-  el.emit("lovelace:brand-focus")
-  assert.equal(hook.completed, true)
-  assert.equal(hook.timeline.progress(), 1)
-  assert.equal(hook.timeline.paused(), true)
-  assert.equal(restart.mock.callCount(), 0)
-  assert.equal(completions.length, 1)
-  el.emit("lovelace:brand-focus")
-  assert.equal(completions.length, 1)
-})
-
-test("enabling reduced motion mid-animation completes once and disabling it does not replay", t => {
-  const {el, hook, restart, seek, motion, completions} = brand(t)
-  el.emit("lovelace:brand-focus")
-  seek(0.4)
-  motion(true)
-  assert.equal(hook.completed, true)
-  assert.equal(hook.timeline.progress(), 1)
-  assert.equal(hook.timeline.paused(), true)
-  assert.equal(completions.length, 1)
-  motion(true)
-  motion(false)
-  el.emit("lovelace:brand-reset")
-  el.emit("lovelace:brand-focus")
-  assert.equal(restart.mock.callCount(), 1)
-  assert.equal(completions.length, 1)
-})
-
-test("preference changes while inactive do not complete until focus resumes", t => {
-  const {el, hook, seek, motion, completions, restart} = brand(t)
+test("dormant motion changes do not open the gate; reduced-motion reveal completes without animation", t => {
+  const {hook, el, motion, animations, completions} = brand(t)
   motion(true)
   assert.equal(hook.completed, false)
-  assert.deepEqual(completions, [])
-  motion(false)
-  el.emit("lovelace:brand-focus")
-  seek(0.4)
-  el.emit("lovelace:brand-reset")
-  motion(true)
-  assert.equal(hook.timeline.time(), 0.4 * hook.timeline.labels.exit)
-  assert.equal(hook.completed, false)
-  assert.deepEqual(completions, [])
-  el.emit("lovelace:brand-focus")
+  assert.equal(completions.length, 0)
+  el.emit("monolith:brand-focus")
   assert.equal(hook.completed, true)
-  assert.equal(hook.timeline.paused(), true)
-  assert.equal(restart.mock.callCount(), 1)
+  assert.equal(animations.length, 0)
   assert.equal(completions.length, 1)
 })
 
 for (const reduced of [false, true]) {
-  test(`mount catches focus established before hook registration (reduced motion: ${reduced})`, t => {
-    const {hook, completions, finish} = brand(t, {focused: true, reduced})
-    assert.equal(hook.active, true)
-    if (!reduced) {
-      assert.equal(hook.completed, false)
-      assert.equal(hook.timeline.paused(), false)
-      finish()
-    }
-    assert.equal(hook.completed, true)
-    assert.equal(completions.length, 1)
+  test(`mount catches focus established before registration (reduced: ${reduced})`, t => {
+    const {hook, animations, completions} = brand(t, {focused: true, reduced})
+    assert.equal(hook.active, !reduced)
+    assert.equal(hook.completed, reduced)
+    assert.equal(animations.length, reduced ? 0 : 12)
+    assert.equal(completions.length, reduced ? 1 : 0)
   })
 }
 
-for (const enterOnReturn of [null, "false"]) {
-  test(`ordinary brand mount stays dormant for return flag ${JSON.stringify(enterOnReturn)}`, t => {
-    const {hook, completions} = brand(t, {enterOnReturn})
-    assert.equal(hook.completed, false)
-    assert.equal(hook.active, false)
-    assert.equal(hook.timeline.paused(), true)
-    assert.equal(hook.timeline.progress(), 0)
-    assert.deepEqual(completions, [])
+test("authorized return skips animation", t => {
+  const {hook, animations, completions} = brand(t, {enterOnReturn: "true"})
+  assert.equal(hook.completed, true)
+  assert.equal(animations.length, 0)
+  assert.equal(completions.length, 1)
+})
+
+test("standalone API supports reveal, cancellation, and teardown", t => {
+  const {hook, animations, completions, el, view, preference} = brand(t, {standalone: true})
+  hook.reveal()
+  hook.finishWithoutMotion()
+  hook.reveal()
+  assert.equal(animations.length, 12)
+  assert.equal(completions.length, 1)
+  hook.destroy()
+  assert.equal(el.listenerCount, 1)
+  assert.equal(view.listenerCount, 0)
+  assert.equal(preference.listenerCount, 0)
+})
+
+test("destruction cancels every animation/listener without handing off or continuing", async t => {
+  const {hook, el, animations, view, preference, completions, finishPhase} = brand(t)
+  el.emit("monolith:brand-focus")
+  hook.destroy()
+  assert.ok(animations.every(animation => animation.canceled))
+  assert.equal(el.listenerCount, 1)
+  assert.equal(view.listenerCount, 0)
+  assert.equal(preference.listenerCount, 0)
+  el.emit("monolith:brand-focus")
+  view.emit("beforeprint")
+  await finishPhase()
+  assert.equal(animations.length, 12)
+  assert.equal(completions.length, 0)
+})
+
+function entrance(t, {el, main, pane, root, document}) {
+  const content = new FakeTarget()
+  content.attributes.set("inert", "")
+  main.attributes.set("data-entered", "false")
+  const heading = {focus() { document.activeElement = heading }}
+  content.querySelector = () => heading
+  main.querySelector = selector => selector === "#workspace-content" ? content
+    : selector === "[data-workspace-heading]" ? heading : null
+  root.attributes.set("data-workspace-focus", "focus")
+  root.attributes.set("data-workspace-reset", "reset")
+  const sticky = []
+  const mutate = operation => { sticky.push(operation); operation() }
+  const hook = {...WorkspaceEntrance, el: main, handleEvent() {}, js: () => ({
+    setAttribute: (target, name, value) => mutate(() => target.attributes.set(name, value)),
+    removeAttribute: (target, name) => mutate(() => target.attributes.delete(name)),
+    exec: command => {
+      mutate(() => pane.attributes.set("aria-pressed", String(command === "focus")))
+      el.emit(command === "focus" ? "monolith:brand-focus" : "monolith:brand-reset")
+    },
+  })}
+  const onComplete = () => main.emit("monolith:brand-complete")
+  el.addEventListener("monolith:brand-complete", onComplete)
+  t.after(() => {
+    hook.destroyed()
+    el.removeEventListener("monolith:brand-complete", onComplete)
   })
+  const patch = () => {
+    content.attributes.set("inert", "")
+    main.attributes.set("data-entered", "false")
+    for (const operation of sticky) operation()
+  }
+  return {hook, content, patch}
 }
 
 for (const order of ["entrance-first", "brand-first"]) {
-  test(`return skips motion and opens the workspace with ${order} hook mounting`, t => {
-    let entranceHook, content, controls, document, sticky
-    const current = brand(t, {
-      enterOnReturn: "true",
-      beforeMount: ({el, main, pane, root}) => {
-        content = new FakeTarget()
-        controls = new FakeTarget()
-        content.attributes.set("inert", "")
-        controls.attributes.set("inert", "")
-        main.attributes.set("data-entered", "false")
-        document = {body: {id: "body"}, activeElement: {id: "reply", tagName: "INPUT"}}
-        main.ownerDocument = document
-        main.closest = () => root
-        main.querySelector = selector => {
-          if (selector === "#workspace-content") return content
-          if (selector === "#workspace-controls") return controls
-          throw new Error(`Unexpected focus query: ${selector}`)
-        }
-        root.attributes.set("data-workspace-focus", "shared-focus-command")
-        root.attributes.set("data-workspace-reset", "shared-reset-command")
-        sticky = []
-        const setAttribute = (target, name, value) => {
-          sticky.push(() => target.attributes.set(name, value))
-          sticky.at(-1)()
-        }
-        entranceHook = Object.assign({}, WorkspaceEntrance, {
-          el: main,
-          handleEvent() {},
-          js: () => ({
-            setAttribute,
-            removeAttribute: (target, name) => {
-              sticky.push(() => target.attributes.delete(name))
-              sticky.at(-1)()
-            },
-            exec: command => {
-              const focus = command === "shared-focus-command"
-              assert.ok(focus || command === "shared-reset-command")
-              setAttribute(pane, "aria-pressed", String(focus))
-              el.emit(focus ? "lovelace:brand-focus" : "lovelace:brand-reset")
-            },
-          }),
-        })
-        // Node EventTarget does not bubble; forward the brand's real completion.
-        const onComplete = () => main.emit("lovelace:brand-complete")
-        el.addEventListener("lovelace:brand-complete", onComplete)
-        t.after(() => {
-          entranceHook.destroyed()
-          el.removeEventListener("lovelace:brand-complete", onComplete)
-        })
-        if (order === "entrance-first") entranceHook.mounted()
-      },
-    })
-    if (order === "brand-first") entranceHook.mounted()
-
-    const {hook, el, main, pane, root, completions, stroke, letters, restart} = current
-    assert.equal(main.getAttribute("data-entered"), "true")
-    assert.equal(content.getAttribute("inert"), null)
-    assert.equal(controls.getAttribute("inert"), null)
-    assert.equal(pane.getAttribute("aria-pressed"), "true")
-    assert.equal(document.activeElement.id, "reply")
-    assert.equal(hook.completed, true)
-    assert.equal(hook.active, false, "no reveal was started")
-    assert.equal(hook.timeline.paused(), true)
-    assert.equal(hook.timeline.progress(), 1)
-    assert.equal(stroke.strokeDashoffset, -100)
-    assert.ok(letters.every(letter => letter.opacity === 0))
-    assert.equal(completions.length, 1)
-
-    // Escape and idle execute this same shared reset. Patches must not undo it.
-    entranceHook.js().exec(root.getAttribute("data-workspace-reset"))
-    main.attributes.set("data-entered", "false")
-    content.attributes.set("inert", "")
-    controls.attributes.set("inert", "")
-    pane.attributes.set("aria-pressed", "false")
-    for (const apply of sticky) apply()
-    entranceHook.updated?.()
-    assert.equal(pane.getAttribute("aria-pressed"), "false")
-    assert.equal(main.getAttribute("data-entered"), "true")
-    assert.equal(content.getAttribute("inert"), null)
-    assert.equal(controls.getAttribute("inert"), null)
-    assert.equal(hook.active, false)
-
-    entranceHook.js().exec(root.getAttribute("data-workspace-focus"))
-    el.emit("lovelace:brand-focus")
-    assert.equal(pane.getAttribute("aria-pressed"), "true")
-    assert.equal(restart.mock.callCount(), 0)
-    assert.equal(completions.length, 1)
+  test(`authorized return opens without motion with ${order} mounting`, t => {
+    let gate
+    const draft = {id: "reply", value: "Draft"}
+    const current = brand(t, {enterOnReturn: "true", beforeMount: fixture => {
+      fixture.document.activeElement = draft
+      gate = entrance(t, fixture)
+      if (order === "entrance-first") gate.hook.mounted()
+    }})
+    if (order === "brand-first") gate.hook.mounted()
+    assert.equal(current.hook.completed, true)
+    assert.equal(current.hook.active, false)
+    assert.equal(current.pane.getAttribute("aria-pressed"), "true")
+    assert.equal(gate.content.getAttribute("inert"), null)
+    assert.equal(current.document.activeElement, draft)
+    assert.equal(draft.value, "Draft")
+    gate.hook.js().exec("reset")
+    gate.patch()
+    assert.equal(current.pane.getAttribute("aria-pressed"), "false")
+    assert.equal(gate.content.getAttribute("inert"), null)
+    gate.hook.js().exec("focus")
+    assert.equal(current.animations.length, 0)
+    assert.equal(current.completions.length, 1)
   })
 }
-
-test("reset during the exit keeps the gate closed and fresh focus restarts at normal speed", t => {
-  const {hook, el, seek, exit, restart, completions, finish, stroke, letters} = brand(t)
-  el.emit("lovelace:brand-focus")
-  seek(1)
-  exit(0.7)
-  el.emit("lovelace:brand-reset")
-  assert.equal(hook.active, false)
-  assert.equal(hook.timeline.paused(), true)
-  assert.equal(hook.completed, false)
-  assert.deepEqual(completions, [])
-  el.emit("lovelace:brand-focus")
-  assert.equal(restart.mock.callCount(), 2)
-  assert.equal(hook.exiting, false)
-  assert.equal(hook.timeline.timeScale(), 1)
-  assert.equal(hook.timeline.reversed(), false)
-  assert.equal(hook.timeline.progress(), 0)
-  assert.equal(stroke.strokeDashoffset, 100)
-  for (const letter of letters) {
-    assert.equal(letter.opacity, 0)
-    assert.equal(letter.rotationX, -90)
-    assert.equal(letter.yPercent, 60)
+for (const order of ["entrance-first", "brand-first"]) {
+  for (const reduced of [false, true]) {
+    test(`successful unlock plays once with ${order} mounting and reduced motion ${reduced}`, async t => {
+      let gate
+      const draft = {id: "reply", value: "Unfinished draft"}
+      const current = brand(t, {reduced, enterOnUnlock: "true", beforeMount: fixture => {
+        fixture.document.activeElement = draft
+        gate = entrance(t, fixture)
+        if (order === "entrance-first") gate.hook.mounted()
+      }})
+      if (order === "brand-first") gate.hook.mounted()
+      assert.equal(current.pane.getAttribute("aria-pressed"), "true")
+      assert.equal(gate.content.getAttribute("inert"), reduced ? null : "")
+      if (!reduced) {
+        await current.finishPhase()
+        await current.finishPhase()
+        await current.finishPhase()
+      }
+      assert.equal(gate.content.getAttribute("inert"), null)
+      assert.equal(current.document.activeElement, draft)
+      assert.equal(draft.value, "Unfinished draft")
+      const effects = current.animations.length
+      gate.patch()
+      gate.hook.js().exec("reset")
+      gate.hook.js().exec("focus")
+      assert.equal(gate.content.getAttribute("inert"), null)
+      assert.equal(current.animations.length, effects)
+      assert.equal(current.completions.length, 1)
+    })
   }
-  assert.deepEqual(completions, [])
-  finish()
-  assert.equal(completions.length, 1)
-})
+}
 
-test("enabling reduced motion during the exit completes immediately without replay", t => {
-  const {hook, el, seek, exit, motion, completions} = brand(t)
-  el.emit("lovelace:brand-focus")
-  seek(1)
-  exit(0.4)
-  motion(true)
-  assert.equal(hook.completed, true)
-  assert.equal(hook.timeline.paused(), true)
-  assert.equal(completions.length, 1)
-  motion(false)
-  el.emit("lovelace:brand-focus")
-  assert.equal(hook.timeline.paused(), true)
-  assert.equal(completions.length, 1)
-})
 
-test("destroying during the exit kills the timeline without handing off", t => {
-  const {hook, el, seek, completions} = brand(t)
-  el.emit("lovelace:brand-focus")
-  seek(1)
-  hook.destroyed()
-  assert.equal(hook.timeline.parent, null)
-  assert.deepEqual(completions, [])
-})
-
-test("destruction removes hook and preference listeners and reverts the GSAP context", t => {
-  const {el, preference, hook, seek, motion, restart, completions, stroke, letters} = brand(t)
-  el.emit("lovelace:brand-focus")
-  seek(0.5)
-  const revert = t.mock.method(hook.context, "revert")
-  assert.equal(el.listenerCount, 3) // Two hook listeners plus the test completion observer.
-  assert.equal(preference.listenerCount, 1)
-  hook.destroyed()
-  assert.equal(revert.mock.callCount(), 1)
-  assert.equal(el.listenerCount, 1)
-  assert.equal(preference.listenerCount, 0)
-  assert.equal(stroke.strokeDashoffset, 0)
-  for (const letter of letters) assert.equal(letter.opacity, 1)
-  el.emit("lovelace:brand-reset")
-  el.emit("lovelace:brand-focus")
-  motion(true)
-  assert.equal(restart.mock.callCount(), 1)
-  assert.deepEqual(completions, [])
+test("Escape mid-entrance opens the canceled gate without refocusing or replaying", async t => {
+  let gate
+  const current = brand(t, {focused: true, beforeMount: fixture => {
+    gate = entrance(t, fixture)
+    gate.hook.mounted()
+  }})
+  const active = current.document.activeElement
+  const escape = new Event("keydown")
+  Object.defineProperty(escape, "key", {value: "Escape"})
+  current.view.dispatchEvent(escape)
+  gate.patch()
+  assert.equal(current.hook.completed, true)
+  assert.equal(current.pane.getAttribute("aria-pressed"), "false")
+  assert.equal(gate.content.getAttribute("inert"), null)
+  assert.equal(current.document.activeElement, active)
+  gate.hook.js().exec("focus")
+  await current.finishPhase()
+  assert.equal(current.animations.length, 12)
+  assert.equal(current.completions.length, 1)
 })

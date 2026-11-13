@@ -32,7 +32,7 @@
     }
   ],
   "table": "owner_sessions",
-  "repo": "Elixir.Lovelace.Repo",
+  "repo": "Elixir.Monolith.Repo",
   "multitenancy": {
     "global": null,
     "attribute": null,

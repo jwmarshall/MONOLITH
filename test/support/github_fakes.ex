@@ -1,7 +1,7 @@
-defmodule Lovelace.TestGitHub do
+defmodule Monolith.TestGitHub do
   @moduledoc false
   use Agent
-  @behaviour Lovelace.GitHub.Provider
+  @behaviour Monolith.GitHub.Provider
 
   def start_link(options \\ []) do
     Agent.start_link(
@@ -193,10 +193,10 @@ defmodule Lovelace.TestGitHub do
   end
 end
 
-defmodule Lovelace.TestGitHubKeychain do
+defmodule Monolith.TestGitHubKeychain do
   @moduledoc false
-  alias Lovelace.TestGitHub
-  @behaviour Lovelace.Integrations.GitHub.Keychain
+  alias Monolith.TestGitHub
+  @behaviour Monolith.Integrations.GitHub.Keychain
 
   @impl true
   def get(id) do

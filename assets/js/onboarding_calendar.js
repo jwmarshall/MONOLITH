@@ -115,7 +115,7 @@ export function initOnboardingCalendar(doc = document) {
     if (active) {
       const target = focusId ? doc.getElementById(focusId) :
         [...picker.querySelectorAll('input[type="checkbox"]')].find(input => input.value === focusChoice)
-      const focus = !target || target.disabled || target.closest("fieldset")?.disabled ? picker.querySelector("h2") : target
+      const focus = !target || target.disabled || target.closest("fieldset")?.disabled ? picker.querySelector("#onboarding-calendar-picker-heading") : target
       focus?.focus({preventScroll: true})
     }
   }

@@ -1,4 +1,4 @@
-defmodule Lovelace.Repo.Migrations.AddBundledSceneDefault do
+defmodule Monolith.Repo.Migrations.AddBundledSceneDefault do
   @moduledoc """
   Updates resources based on their most recent snapshots.
 

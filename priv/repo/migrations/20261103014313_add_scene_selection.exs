@@ -1,4 +1,4 @@
-defmodule Lovelace.Repo.Migrations.AddSceneSelection do
+defmodule Monolith.Repo.Migrations.AddSceneSelection do
   @moduledoc """
   Updates resources based on their most recent snapshots.
 

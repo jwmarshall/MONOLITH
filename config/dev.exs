@@ -5,8 +5,8 @@ config :ash,
   keyset_signing_secret: "AT/Z8cWpGHaLVBb3duMt0dwIiM+AzUSbs9XPXK9/aA0"
 
 # Configure your database
-config :lovelace, Lovelace.Repo,
-  database: Path.expand("../lovelace_dev.db", __DIR__),
+config :monolith, Monolith.Repo,
+  database: Path.expand("../monolith_dev.db", __DIR__),
   stacktrace: true,
   show_sensitive_data_on_connection_error: true
 
@@ -16,7 +16,7 @@ config :lovelace, Lovelace.Repo,
 # The watchers configuration can be used to run external
 # watchers to your application. For example, we can use it
 # to bundle .js and .css sources.
-config :lovelace, LovelaceWeb.Endpoint,
+config :monolith, MonolithWeb.Endpoint,
   # Binding to loopback ipv4 address prevents access from other machines.
   # Change to `ip: {0, 0, 0, 0}` to allow access from other machines.
   http: [ip: {127, 0, 0, 1}],
@@ -25,8 +25,8 @@ config :lovelace, LovelaceWeb.Endpoint,
   debug_errors: true,
   secret_key_base: "Q8KaZsFhuyZaMTDYykMNlCqfDV+E6E/xZtK02S3mF/69Ygk4YWq8XvkeIuZEBldx",
   watchers: [
-    esbuild: {Esbuild, :install_and_run, [:lovelace, ~w(--sourcemap=inline --watch)]},
-    tailwind: {Tailwind, :install_and_run, [:lovelace, ~w(--watch)]}
+    esbuild: {Esbuild, :install_and_run, [:monolith, ~w(--sourcemap=inline --watch)]},
+    tailwind: {Tailwind, :install_and_run, [:monolith, ~w(--watch)]}
   ]
 
 # ## SSL Support
@@ -53,7 +53,7 @@ config :lovelace, LovelaceWeb.Endpoint,
 # different ports.
 
 # Enable the development-only LiveDashboard route
-config :lovelace, dev_routes: true
+config :monolith, dev_routes: true
 
 # Do not include metadata nor timestamps in development logs
 config :logger, :default_formatter, format: "[$level] $message\n"

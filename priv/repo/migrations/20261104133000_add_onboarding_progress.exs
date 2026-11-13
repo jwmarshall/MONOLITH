@@ -1,4 +1,4 @@
-defmodule Lovelace.Repo.Migrations.AddOnboardingProgress do
+defmodule Monolith.Repo.Migrations.AddOnboardingProgress do
   use Ecto.Migration
 
   def up do

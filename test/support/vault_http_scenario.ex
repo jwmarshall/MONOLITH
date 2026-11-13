@@ -1,4 +1,4 @@
-defmodule Lovelace.TestSupport.VaultHTTPScenario.Adapter do
+defmodule Monolith.TestSupport.VaultHTTPScenario.Adapter do
   @moduledoc false
   @behaviour Plug.Conn.Adapter
   alias Plug.Adapters.Test.Conn, as: TestConn
@@ -38,15 +38,15 @@ defmodule Lovelace.TestSupport.VaultHTTPScenario.Adapter do
   defdelegate get_http_protocol(state), to: Plug.Adapters.Test.Conn
 end
 
-defmodule Lovelace.TestSupport.VaultHTTPScenario do
+defmodule Monolith.TestSupport.VaultHTTPScenario do
   @moduledoc false
   import ExUnit.Assertions
 
-  alias Lovelace.Owner
-  alias Lovelace.Security.Vault
-  alias Lovelace.StageDesigner.{Scene, Settings, Storage}
-  alias Lovelace.TestSupport.PNG
-  alias Lovelace.TestSupport.VaultHTTPScenario.Adapter
+  alias Monolith.Owner
+  alias Monolith.Security.Vault
+  alias Monolith.StageDesigner.{Scene, Settings, Storage}
+  alias Monolith.TestSupport.PNG
+  alias Monolith.TestSupport.VaultHTTPScenario.Adapter
 
   def run(token, options) do
     assert Vault.enabled?()
@@ -108,7 +108,7 @@ defmodule Lovelace.TestSupport.VaultHTTPScenario do
       {_, payload} = conn.adapter
       payload = Map.merge(payload, %{observer: observer, scenario: scenario})
       conn = %{conn | adapter: {Adapter, payload}}
-      response = LovelaceWeb.Endpoint.call(conn, LovelaceWeb.Endpoint.init([]))
+      response = MonolithWeb.Endpoint.call(conn, MonolithWeb.Endpoint.init([]))
       send(observer, {:http_finished, scenario, response.state})
 
       receive do

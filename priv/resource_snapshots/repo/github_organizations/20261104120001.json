@@ -251,7 +251,7 @@
       "index_name": "github_organizations_github_identity_index"
     }
   ],
-  "repo": "Elixir.Lovelace.Repo",
+  "repo": "Elixir.Monolith.Repo",
   "strict?": false,
   "base_filter": null,
   "custom_indexes": [],

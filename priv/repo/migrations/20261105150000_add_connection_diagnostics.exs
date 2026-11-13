@@ -1,4 +1,4 @@
-defmodule Lovelace.Repo.Migrations.AddConnectionDiagnostics do
+defmodule Monolith.Repo.Migrations.AddConnectionDiagnostics do
   use Ecto.Migration
 
   def change do

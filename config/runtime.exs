@@ -12,44 +12,44 @@ import Config
 # If you use `mix release`, you need to explicitly enable the server
 # by passing the PHX_SERVER=true when you start it:
 #
-#     PHX_SERVER=true bin/lovelace start
+#     PHX_SERVER=true bin/monolith start
 #
 # Alternatively, you can use `mix phx.gen.release` to generate a `bin/server`
 # script that automatically sets the env var above.
 if System.get_env("PHX_SERVER") do
-  config :lovelace, LovelaceWeb.Endpoint, server: true
+  config :monolith, MonolithWeb.Endpoint, server: true
 end
 
-config :lovelace, LovelaceWeb.Endpoint,
+config :monolith, MonolithWeb.Endpoint,
   http: [port: String.to_integer(System.get_env("PORT", "4321"))]
 
 # Fixed local origin matches the browser session and LiveView's origin protection.
 # Client credentials are resolved only at the private Google HTTP boundary.
-config :lovelace, :gmail,
+config :monolith, :gmail,
   redirect_uri: "http://localhost:#{System.get_env("PORT", "4321")}/oauth/google/callback"
 
-config :lovelace,
+config :monolith,
        :github_callback_url,
        "http://localhost:#{System.get_env("PORT", "4321")}/auth/github/callback"
 
 # dotenvx injects these before startup. API keys are resolved only at the HTTP boundary,
 # never retained in application configuration, Ash attributes, or LiveView assigns.
-config :lovelace,
+config :monolith,
        :stage_designer,
-       Lovelace.StageDesigner.Settings.from_env(System.get_env(), config_env() == :test)
+       Monolith.StageDesigner.Settings.from_env(System.get_env(), config_env() == :test)
 
-config :lovelace,
+config :monolith,
        :workspace_idle_minutes,
-       Lovelace.StageDesigner.Settings.idle_minutes(System.get_env())
+       Monolith.StageDesigner.Settings.idle_minutes(System.get_env())
 
 if config_env() == :dev do
   # Explicit disposable installations can be selected without replacing the normal dev vault.
   if database_path = System.get_env("DATABASE_PATH") do
-    config :lovelace, Lovelace.Repo, database: database_path
+    config :monolith, Monolith.Repo, database: database_path
   end
 
   # Reload browser tabs when matching files change.
-  config :lovelace, LovelaceWeb.Endpoint,
+  config :monolith, MonolithWeb.Endpoint,
     live_reload: [
       web_console_logger: true,
       patterns: [
@@ -58,8 +58,8 @@ if config_env() == :dev do
         # Gettext translations
         ~r"priv/gettext/.*\.po$"E,
         # Router, Controllers, LiveViews and LiveComponents
-        ~r"lib/lovelace_web/router\.ex$"E,
-        ~r"lib/lovelace_web/(controllers|live|components)/.*\.(ex|heex)$"E
+        ~r"lib/monolith_web/router\.ex$"E,
+        ~r"lib/monolith_web/(controllers|live|components)/.*\.(ex|heex)$"E
       ]
     ]
 end
@@ -69,10 +69,10 @@ if config_env() == :prod do
     System.get_env("DATABASE_PATH") ||
       raise """
       environment variable DATABASE_PATH is missing.
-      For example: /etc/lovelace/lovelace.db
+      For example: /etc/monolith/monolith.db
       """
 
-  config :lovelace, Lovelace.Repo, database: database_path
+  config :monolith, Monolith.Repo, database: database_path
 
   # The secret key base is used to sign/encrypt cookies and other secrets.
   # A default value is used in config/dev.exs and config/test.exs but you
@@ -88,11 +88,11 @@ if config_env() == :prod do
 
   host = System.get_env("PHX_HOST") || "localhost"
 
-  config :lovelace, :dns_cluster_query, System.get_env("DNS_CLUSTER_QUERY")
+  config :monolith, :dns_cluster_query, System.get_env("DNS_CLUSTER_QUERY")
 
-  config :lovelace, LovelaceWeb.Endpoint,
+  config :monolith, MonolithWeb.Endpoint,
     url: [host: host, port: String.to_integer(System.get_env("PORT", "4321")), scheme: "http"],
-    # LOVELACE is local-only. Network exposure requires a separate security design.
+    # MONOLITH is local-only. Network exposure requires a separate security design.
     http: [ip: {127, 0, 0, 1}],
     secret_key_base: secret_key_base
 
@@ -111,7 +111,7 @@ if config_env() == :prod do
   # To get SSL working, you will need to add the `https` key
   # to your endpoint configuration:
   #
-  #     config :lovelace, LovelaceWeb.Endpoint,
+  #     config :monolith, MonolithWeb.Endpoint,
   #       https: [
   #         ...,
   #         port: 443,
@@ -133,7 +133,7 @@ if config_env() == :prod do
   # We also recommend setting `force_ssl` in your config/prod.exs,
   # ensuring no data is ever sent via http, always redirecting to https:
   #
-  #     config :lovelace, LovelaceWeb.Endpoint,
+  #     config :monolith, MonolithWeb.Endpoint,
   #       force_ssl: [hsts: true]
   #
   # Check `Plug.SSL` for all available options in `force_ssl`.

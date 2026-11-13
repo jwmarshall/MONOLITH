@@ -1,11 +1,11 @@
-defmodule Lovelace.TestSupport.OAuthJobs do
+defmodule Monolith.TestSupport.OAuthJobs do
   @moduledoc false
-  alias Lovelace.GitHub.Auth
+  alias Monolith.GitHub.Auth
 
   def complete(session, params), do: run(fn -> Auth.complete(session, params) end)
 
   def get(conn, path) do
-    run(fn -> Phoenix.ConnTest.dispatch(conn, LovelaceWeb.Endpoint, :get, path, nil) end)
+    run(fn -> Phoenix.ConnTest.dispatch(conn, MonolithWeb.Endpoint, :get, path, nil) end)
   end
 
   def run(fun) do

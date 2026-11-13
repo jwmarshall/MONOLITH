@@ -52,55 +52,55 @@ config :spark,
     "Ash.Domain": [section_order: [:resources, :policies, :authorization, :domain, :execution]]
   ]
 
-config :lovelace,
+config :monolith,
   ash_domains: [
-    Lovelace.StageDesigner,
-    Lovelace.Workspaces,
-    Lovelace.Mail,
-    Lovelace.Calendar,
-    Lovelace.GitHub,
-    Lovelace.Google,
-    Lovelace.Onboarding,
-    Lovelace.Home,
-    Lovelace.OAuth,
-    Lovelace.ConnectionDiagnostics,
-    Lovelace.Owner
+    Monolith.StageDesigner,
+    Monolith.Workspaces,
+    Monolith.Mail,
+    Monolith.Calendar,
+    Monolith.GitHub,
+    Monolith.Google,
+    Monolith.Onboarding,
+    Monolith.Home,
+    Monolith.OAuth,
+    Monolith.ConnectionDiagnostics,
+    Monolith.Owner
   ],
-  ecto_repos: [Lovelace.Repo],
+  ecto_repos: [Monolith.Repo],
   generators: [timestamp_type: :utc_datetime]
 
 # Serialize SQLite writes. Never hold a transaction across a provider HTTP request.
-config :lovelace, Lovelace.Repo,
+config :monolith, Monolith.Repo,
   pool_size: 1,
   timeout: 15_000,
   busy_timeout: 16_000
 
 # Configure the endpoint
-config :lovelace, LovelaceWeb.Endpoint,
+config :monolith, MonolithWeb.Endpoint,
   url: [host: "localhost"],
   adapter: Bandit.PhoenixAdapter,
   render_errors: [
-    formats: [html: LovelaceWeb.ErrorHTML, json: LovelaceWeb.ErrorJSON],
+    formats: [html: MonolithWeb.ErrorHTML, json: MonolithWeb.ErrorJSON],
     layout: false
   ],
-  pubsub_server: Lovelace.PubSub,
+  pubsub_server: Monolith.PubSub,
   live_view: [signing_salt: "U9kM1spw"]
 
-config :lovelace, :scene_confirmation, {LovelaceWeb.SceneConfirmation, []}
-config :lovelace, :paid_render_provider, Lovelace.Integrations.Gemini.Interactions
+config :monolith, :scene_confirmation, {MonolithWeb.SceneConfirmation, []}
+config :monolith, :paid_render_provider, Monolith.Integrations.Gemini.Interactions
 
 # Lite is Oban's bundled SQLite engine. Only identifiers enter durable job arguments.
-config :lovelace, Oban,
-  repo: Lovelace.Repo,
+config :monolith, Oban,
+  repo: Monolith.Repo,
   engine: Oban.Engines.Lite,
   queues: [gmail: 1, calendar: 1, gemini: 1, github: 1, oauth: 1, diagnostics: 1],
   plugins: [
     {Oban.Plugins.Cron,
      crontab: [
-       {"* * * * *", Lovelace.Mail.SweepWorker},
-       {"* * * * *", Lovelace.Calendar.SweepWorker},
-       {"* * * * *", Lovelace.GitHub.SweepWorker},
-       {"* * * * *", Lovelace.StageDesigner.RecoveryWorker}
+       {"* * * * *", Monolith.Mail.SweepWorker},
+       {"* * * * *", Monolith.Calendar.SweepWorker},
+       {"* * * * *", Monolith.GitHub.SweepWorker},
+       {"* * * * *", Monolith.StageDesigner.RecoveryWorker}
      ]},
     {Oban.Plugins.Lifeline, rescue_after: :timer.minutes(5)},
     {Oban.Plugins.Pruner, max_age: 86_400}
@@ -130,9 +130,9 @@ config :phoenix_live_view,
 # Configure esbuild (the version is required)
 config :esbuild,
   version: "0.25.4",
-  lovelace: [
+  monolith: [
     args:
-      ~w(js/app.js js/theme_boot.js --bundle --target=es2022 --outdir=../priv/static/assets/js --external:/fonts/* --external:/images/* --alias:@=.),
+      ~w(js/app.js --bundle --target=es2022 --outdir=../priv/static/assets/js --external:/fonts/* --external:/images/* --alias:@=.),
     cd: Path.expand("../assets", __DIR__),
     env: %{"NODE_PATH" => [Path.expand("../deps", __DIR__), Mix.Project.build_path()]}
   ]
@@ -140,7 +140,7 @@ config :esbuild,
 # Configure tailwind (the version is required)
 config :tailwind,
   version: "4.3.0",
-  lovelace: [
+  monolith: [
     args: ~w(
       --input=assets/css/app.css
       --output=priv/static/assets/css/app.css

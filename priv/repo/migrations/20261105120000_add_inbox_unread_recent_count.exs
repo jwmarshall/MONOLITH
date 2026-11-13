@@ -1,4 +1,4 @@
-defmodule Lovelace.Repo.Migrations.AddInboxUnreadRecentCount do
+defmodule Monolith.Repo.Migrations.AddInboxUnreadRecentCount do
   use Ecto.Migration
 
   def up do

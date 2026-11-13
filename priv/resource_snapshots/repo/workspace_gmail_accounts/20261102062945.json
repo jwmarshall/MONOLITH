@@ -92,7 +92,7 @@
       "index_name": "workspace_gmail_accounts_membership_index"
     }
   ],
-  "repo": "Elixir.Lovelace.Repo",
+  "repo": "Elixir.Monolith.Repo",
   "strict?": false,
   "custom_indexes": [],
   "base_filter": null,

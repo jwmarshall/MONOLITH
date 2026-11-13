@@ -1,12 +1,12 @@
-// LOVELACE dedicated file-keychain boundary. Secrets use stdin/stdout only.
+// MONOLITH dedicated file-keychain boundary. Secrets use stdin/stdout only.
 // File keychains require deprecated macOS Security APIs. No login/default/search-list
 // changes, Data Protection Keychain fallback or broad ACLs. Explicit setup/migration UI only.
 import Foundation
 import Security
 import Darwin
 
-#if LOVELACE_TEST_MIGRATION && !LOVELACE_TEST
-#error("Synthetic migration requires LOVELACE_TEST; no production legacy-source fallback")
+#if MONOLITH_TEST_MIGRATION && !MONOLITH_TEST
+#error("Synthetic migration requires MONOLITH_TEST; no production legacy-source fallback")
 #endif
 
 private let version = 1
@@ -75,10 +75,10 @@ private func uuid(_ value: String) -> Bool {
 private func validIdentity(_ account: String, _ service: String) -> Bool {
     guard uuid(account) else { return false }
     switch service {
-    case "LOVELACE Gmail", "LOVELACE GitHub": return true
-    case "LOVELACE Gemini": return account == geminiAccount
-    case "LOVELACE Google OAuth": return account == oauthAccount
-    case "LOVELACE Database": return account == databaseAccount
+    case "MONOLITH Gmail", "MONOLITH GitHub": return true
+    case "MONOLITH Gemini": return account == geminiAccount
+    case "MONOLITH Google OAuth": return account == oauthAccount
+    case "MONOLITH Database": return account == databaseAccount
     default: return false
     }
 }
@@ -99,7 +99,7 @@ private func privateDirectory(_ root: String, create: Bool) {
           (info.st_mode & 0o077) == 0 else { respond(["error": "invalid_directory"]) }
 }
 
-private let creationContents = Data("LOVELACE keychain creation v1\n".utf8)
+private let creationContents = Data("MONOLITH keychain creation v1\n".utf8)
 
 private func creationPending(_ marker: String) -> Bool {
     guard let info = fileInfo(marker) else { return false }
@@ -117,7 +117,7 @@ private func beginCreation(_ marker: String, interrupt: Bool = false) {
     let descriptor = Darwin.open(temporary, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW, 0o600)
     guard descriptor >= 0 else { respond(["error": "unavailable"]) }
     defer { Darwin.close(descriptor) }
-    #if LOVELACE_TEST
+    #if MONOLITH_TEST
     if interrupt { respond(["error": "unavailable"]) }
     #endif
     let written = creationContents.withUnsafeBytes {
@@ -202,15 +202,15 @@ private func password(_ request: [String: Any]) -> Data {
 
 private func migrateLegacy(_ keychain: SecKeychain, _ accounts: [String], delete: Bool,
                            root: String, request: [String: Any]) {
-#if LOVELACE_TEST && !LOVELACE_TEST_MIGRATION
+#if MONOLITH_TEST && !MONOLITH_TEST_MIGRATION
     // Default test binaries cannot even open a legacy source.
     respond(["error": "unavailable"])
 #else
-    #if LOVELACE_TEST
+    #if MONOLITH_TEST
     // This branch never compiles the real login-keychain path into a test binary.
     let legacyRoot = root + "/legacy"
     privateDirectory(legacyRoot, create: false)
-    let sourcePath = legacyRoot + "/lovelace.keychain-db"
+    let sourcePath = legacyRoot + "/monolith.keychain-db"
     #else
     let sourcePath = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent("Library/Keychains/login.keychain-db").path
@@ -231,14 +231,14 @@ private func migrateLegacy(_ keychain: SecKeychain, _ accounts: [String], delete
     guard (sourceStatus & SecKeychainStatus(kSecUnlockStateStatus)) != 0 else {
         respond(["error": "legacy_locked"])
     }
-    let identities = accounts.map { ($0, "LOVELACE Gmail") } + [
-        (geminiAccount, "LOVELACE Gemini"), (oauthAccount, "LOVELACE Google OAuth")
+    let identities = accounts.map { ($0, "MONOLITH Gmail") } + [
+        (geminiAccount, "MONOLITH Gemini"), (oauthAccount, "MONOLITH Google OAuth")
     ]
     // Authorize and snapshot every source before any mutation. In particular, a
     // later denied ACL must not leave an earlier credential partially copied.
     var originals: [(String, String, Data, SecKeychainItem)] = []
     for (account, service) in identities {
-        #if LOVELACE_TEST && LOVELACE_TEST_MIGRATION
+        #if MONOLITH_TEST && MONOLITH_TEST_MIGRATION
         // Synthetic Security failure boundary; never present in production or the
         // default test helper. Actual locked-source/ACL tests also use real APIs.
         if request["legacy_failure_account"] as? String == account,
@@ -311,7 +311,7 @@ let migrationOperation = operation == "copy_legacy" || operation == "delete_lega
 // ACL. Only the migration caller opts in; no other get identity can enable UI.
 let migrationDatabaseRead = operation == "get"
     && (request["account"] as? String)?.lowercased() == databaseAccount
-    && request["service"] as? String == "LOVELACE Database"
+    && request["service"] as? String == "MONOLITH Database"
 let migrationInteraction = (migrationOperation || migrationDatabaseRead)
     && request["migration_interaction"] as? Bool == true
 
@@ -325,7 +325,7 @@ if ["get", "put", "delete"].contains(operation) {
     service = suppliedService
     guard validIdentity(account, service) else { respond(["error": "invalid_account"]) }
     // The generated database key has no public overwrite/delete path.
-    guard service != "LOVELACE Database" || operation == "get" else { respond(["error": "unavailable"]) }
+    guard service != "MONOLITH Database" || operation == "get" else { respond(["error": "unavailable"]) }
 }
 var value: Data?
 if operation == "put" {
@@ -344,13 +344,13 @@ inputDeadline.cancel()
 DispatchQueue.global().asyncAfter(deadline: .now() + (setupInteraction || migrationInteraction ? 120 : 4)) { _exit(124) }
 
 privateDirectory(root, create: operation == "create")
-let path = root + "/lovelace.keychain-db"
+let path = root + "/monolith.keychain-db"
 if operation == "create" {
     let marker = root + "/.keychain-pending"
     let resuming = creationPending(marker)
     guard fileInfo(path) == nil || resuming else { respond(["error": "exists"]) }
     if !resuming {
-        #if LOVELACE_TEST
+        #if MONOLITH_TEST
         beginCreation(marker, interrupt: request["interrupt_before_marker"] as? Bool == true)
         #else
         beginCreation(marker)
@@ -366,7 +366,7 @@ if operation == "create" {
             SecKeychainUnlock(existingKeychain, UInt32(data.count), $0.baseAddress, true)
         }
         guard unlocked == errSecSuccess else { fail(unlocked) }
-        guard let (existing, _) = find(existingKeychain, databaseAccount, "LOVELACE Database"),
+        guard let (existing, _) = find(existingKeychain, databaseAccount, "MONOLITH Database"),
               let hex = String(data: existing, encoding: .utf8),
               hex.range(of: "^[0-9a-f]{64}$", options: .regularExpression) != nil else {
             respond(["error": "unavailable"])
@@ -383,7 +383,7 @@ if operation == "create" {
     }
     guard status == errSecSuccess, let keychain = created else { fail(status) }
     guard chmod(staging, 0o600) == 0 else { respond(["error": "unavailable"]) }
-    #if LOVELACE_TEST
+    #if MONOLITH_TEST
     if request["interrupt_after_create"] as? Bool == true {
         _ = SecKeychainLock(keychain)
         respond(["error": "unavailable"])
@@ -403,8 +403,8 @@ if operation == "create" {
     let generated = random.withUnsafeMutableBytes { SecRandomCopyBytes(kSecRandomDefault, 32, $0.baseAddress!) }
     guard generated == errSecSuccess else { fail(generated) }
     let hex = random.map { String(format: "%02x", $0) }.joined()
-    add(keychain, databaseAccount, "LOVELACE Database", Data(hex.utf8))
-    guard let (stored, _) = find(keychain, databaseAccount, "LOVELACE Database"), stored == Data(hex.utf8) else {
+    add(keychain, databaseAccount, "MONOLITH Database", Data(hex.utf8))
+    guard let (stored, _) = find(keychain, databaseAccount, "MONOLITH Database"), stored == Data(hex.utf8) else {
         respond(["error": "unavailable"])
     }
     guard SecKeychainLock(keychain) == errSecSuccess,
@@ -416,7 +416,7 @@ if operation == "create" {
         SecKeychainUnlock(published, UInt32(data.count), $0.baseAddress, true)
     }
     guard publishedUnlock == errSecSuccess else { fail(publishedUnlock) }
-    guard let (publishedKey, _) = find(published, databaseAccount, "LOVELACE Database"),
+    guard let (publishedKey, _) = find(published, databaseAccount, "MONOLITH Database"),
           publishedKey == Data(hex.utf8) else { respond(["error": "unavailable"]) }
     finishCreation(marker)
     respond(["ok": true])

@@ -6,7 +6,7 @@ import "phoenix_html"
 // Establish Phoenix Socket and LiveView configuration.
 import {Socket} from "phoenix"
 import {LiveSocket} from "phoenix_live_view"
-import {hooks as colocatedHooks} from "phoenix-colocated/lovelace"
+import {hooks as colocatedHooks} from "phoenix-colocated/monolith"
 import topbar from "../vendor/topbar"
 import BrandReveal from "./hooks/brand_reveal"
 import WorkspaceIdle from "./hooks/workspace_idle"
@@ -15,11 +15,12 @@ import WorkspaceEntrance from "./hooks/workspace_entrance"
 import DailyOrientation from "./hooks/daily_orientation"
 import {CalendarDay, CalendarEventTime} from "./hooks/calendar_agenda"
 import ObservationTime from "./hooks/observation_time"
-import StatusSignal from "./hooks/status_signal"
 import MailReader from "./hooks/mail_reader"
 import {MailDate, MailFreshness} from "./hooks/mail_time"
 import StageBackground, {observeStageImage} from "./hooks/stage_background"
-import ThemePicker from "./hooks/theme_picker"
+import Sidebar from "./hooks/sidebar"
+import IdlePreference from "./hooks/idle_preference"
+import CalendarEventDialog from "./hooks/calendar_event_dialog"
 import {initOnboardingCalendar} from "./onboarding_calendar"
 import {initFirstRunEntrance} from "./first_run_entrance"
 
@@ -35,7 +36,7 @@ const csrfToken = document.querySelector("meta[name='csrf-token']").getAttribute
 const liveSocket = new LiveSocket("/live", Socket, {
   longPollFallbackMs: 2500,
   params: {_csrf_token: csrfToken},
-  hooks: {...colocatedHooks, StatusSignal, CalendarDay, CalendarEventTime, BrandReveal, WorkspaceIdle, NativeModal, WorkspaceEntrance, StageBackground, DailyOrientation, ObservationTime, MailReader, MailDate, MailFreshness, ThemePicker},
+  hooks: {...colocatedHooks, CalendarDay, CalendarEventTime, BrandReveal, WorkspaceIdle, NativeModal, WorkspaceEntrance, StageBackground, DailyOrientation, ObservationTime, MailReader, MailDate, MailFreshness, Sidebar, IdlePreference, CalendarEventDialog},
 })
 
 // Show progress bar on live navigation and form submits
@@ -48,7 +49,6 @@ const configureThemeChrome = () => {
   document.querySelector("meta[name='theme-color']").content = styles.getPropertyValue("--color-base-100").trim()
 }
 configureThemeChrome()
-window.addEventListener("lovelace:theme-change", configureThemeChrome)
 window.addEventListener("phx:page-loading-start", _info => {
   configureThemeChrome()
   topbar.show(300)

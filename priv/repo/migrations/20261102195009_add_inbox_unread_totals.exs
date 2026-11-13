@@ -1,4 +1,4 @@
-defmodule Lovelace.Repo.Migrations.AddInboxUnreadTotals do
+defmodule Monolith.Repo.Migrations.AddInboxUnreadTotals do
   @moduledoc """
   Updates resources based on their most recent snapshots.
 

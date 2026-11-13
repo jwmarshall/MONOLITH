@@ -1,4 +1,4 @@
-defmodule Lovelace.Repo.Migrations.TrackedGeminiGenerations do
+defmodule Monolith.Repo.Migrations.TrackedGeminiGenerations do
   @moduledoc """
   Updates resources based on their most recent snapshots.
 

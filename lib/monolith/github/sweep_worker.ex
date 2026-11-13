@@ -1,0 +1,8 @@
+defmodule Monolith.GitHub.SweepWorker do
+  @moduledoc "Minute sweep resumes overdue installation-owner polling after restart or sleep."
+  use Oban.Worker, queue: :github, max_attempts: 1, unique: [period: 50]
+  alias Monolith.GitHub.Polling
+
+  @impl true
+  def perform(_), do: Polling.sweep()
+end

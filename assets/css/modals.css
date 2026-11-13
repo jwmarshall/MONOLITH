@@ -1,5 +1,5 @@
 /* Native top-layer dialogs keep working content inert without a second trap. */
-.lovelace-modal {
+.monolith-modal {
   width: min(480px, calc(100vw - 32px));
   max-height: calc(100dvh - 48px);
   margin: auto;
@@ -12,17 +12,23 @@
   box-shadow: var(--shadow-modal);
   text-shadow: none;
 }
-.lovelace-modal::backdrop { background: var(--modal-backdrop); }
-.lovelace-modal-title { margin-bottom: 24px; font-size: 22px; font-weight: 400; }
-.lovelace-modal .label { color: var(--color-secondary); }
-.lovelace-modal .workspace-name-input { color: var(--color-base-content); background: var(--color-base-200); border-color: var(--color-base-300); }
-.lovelace-modal .workspace-form-hint { color: var(--color-secondary); }
-.lovelace-modal .workspace-form-feedback { color: var(--color-error); }
-.lovelace-modal .workspace-editor-actions { flex-wrap: wrap; gap: 12px; }
+.monolith-modal::backdrop { background: var(--modal-backdrop); }
+.monolith-modal-title { margin-bottom: 24px; font-size: 22px; font-weight: 400; }
+.monolith-modal .label { color: var(--color-secondary); }
+.monolith-modal .workspace-name-input { color: var(--color-base-content); background: var(--color-base-200); border-color: var(--border-input); }
+.monolith-modal .workspace-form-hint { color: var(--color-secondary); }
+.monolith-modal .workspace-form-feedback { color: var(--color-error); }
+.monolith-modal .workspace-editor-actions { flex-wrap: wrap; gap: 12px; }
+.credential-form { display: grid; gap: 8px; min-width: 0; }
+.credential-form label:not(:first-child) { margin-top: 16px; }
+.credential-form input { width: 100%; min-width: 0; }
+.credential-form p { margin-block: 8px; overflow-wrap: anywhere; }
+.credential-form .workspace-editor-actions { margin-top: 16px; }
+.credential-form :focus-visible { outline: 2px solid var(--attention); outline-offset: 3px; }
 @media (forced-colors: active) {
-  .lovelace-modal { background: Canvas; color: CanvasText; border-color: CanvasText; box-shadow: none; }
-  .lovelace-modal::backdrop { background: Canvas; opacity: 0.8; }
-  .lovelace-modal .label, .lovelace-modal .workspace-form-hint,
-  .lovelace-modal .workspace-form-feedback { color: CanvasText; }
-  .lovelace-modal .workspace-name-input { color: FieldText; background: Field; border-color: FieldText; }
+  .monolith-modal { background: Canvas; color: CanvasText; border-color: CanvasText; box-shadow: none; }
+  .monolith-modal::backdrop { background: Canvas; opacity: 0.8; }
+  .monolith-modal .label, .monolith-modal .workspace-form-hint,
+  .monolith-modal .workspace-form-feedback { color: CanvasText; }
+  .monolith-modal .workspace-name-input { color: FieldText; background: Field; border-color: FieldText; }
 }

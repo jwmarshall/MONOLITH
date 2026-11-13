@@ -50,7 +50,8 @@ function page(t, initial = {}) {
     const selectors = {
       "[data-calendar-progress]": progress, "[data-calendar-client-error]": error,
       "[data-calendar-poll-stopped]": pending, "[data-calendar-loading-message]": loading,
-      "[data-calendar-load]": form, "[data-calendar-status]": status, fieldset, h2: heading,
+      "[data-calendar-load]": form, "[data-calendar-status]": status, fieldset,
+      "#onboarding-calendar-picker-heading": heading,
       "#onboarding-calendar-save": save,
     }
     section.querySelector = selector => selectors[selector] ?? null

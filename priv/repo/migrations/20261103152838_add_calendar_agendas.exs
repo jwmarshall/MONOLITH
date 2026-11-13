@@ -1,4 +1,4 @@
-defmodule Lovelace.Repo.Migrations.AddCalendarAgendas do
+defmodule Monolith.Repo.Migrations.AddCalendarAgendas do
   @moduledoc """
   Updates resources based on their most recent snapshots.
 

@@ -1,4 +1,4 @@
-defmodule Lovelace.Repo.Migrations.AddSceneDirection do
+defmodule Monolith.Repo.Migrations.AddSceneDirection do
   @moduledoc """
   Updates resources based on their most recent snapshots.
 

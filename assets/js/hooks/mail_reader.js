@@ -4,17 +4,34 @@ export default {
   mounted() {
     this.context = this.el.dataset.mailContext
     this.thread = this.el.dataset.mailThread
+    this.account = this.el.dataset.mailAccount || ""
+    this.inboxPending = Boolean(this.account && !this.thread)
     this.returnPosition = null
     this.readerPending = Boolean(this.thread)
     this.returnPending = false
     this.frame = null
+    this.handoffCanceled = false
     this.cancelHandoff = () => {
+      this.handoffCanceled = true
       this.readerPending = false
       this.returnPending = false
+      this.inboxPending = false
       this.cancelFrame()
     }
+    // Cancellation belongs to the pending navigation, not every future one.
+    // History traversal has no mail-row/Back click to establish fresh intent.
+    this.beginNavigation = event => {
+      if (event.type === "popstate" || ["patch", "redirect"].includes(event.detail?.kind)) {
+        this.cancelHandoff()
+        this.handoffCanceled = false
+      }
+    }
+    this.view = this.el.ownerDocument.defaultView
+    this.view.addEventListener("popstate", this.beginNavigation, true)
+    this.view.addEventListener("phx:page-loading-start", this.beginNavigation)
     this.rememberPosition = event => {
       const row = event.target.closest("[data-mail-open-thread]")
+      if (row || event.target.closest("#mail-back")) this.handoffCanceled = false
       if (row && this.el.contains(row) && !this.thread) {
         this.returnPosition = {id: row.id, top: this.scroller().scrollTop}
       }
@@ -24,6 +41,7 @@ export default {
     this.el.addEventListener("click", this.rememberPosition, true)
     this.el.ownerDocument.addEventListener("keydown", this.cancelHandoff, true)
     this.el.ownerDocument.addEventListener("pointerdown", this.cancelHandoff, true)
+    this.el.ownerDocument.addEventListener("input", this.cancelHandoff, true)
     this.updateReader()
   },
 
@@ -39,7 +57,7 @@ export default {
   updated() { this.updateReader() },
 
   updateReader() {
-    const {mailContext: context, mailThread: thread, mailLoaded: loaded} = this.el.dataset
+    const {mailContext: context, mailThread: thread, mailLoaded: loaded, mailAccount: account = ""} = this.el.dataset
     if (context !== this.context) {
       this.cancelFrame()
       this.context = context
@@ -47,11 +65,24 @@ export default {
       this.returnPending = false
       this.readerPending = false
     }
+    if (account !== this.account) {
+      this.inboxPending = Boolean(account && !thread) && !this.handoffCanceled
+      this.account = account
+    }
     if (thread !== this.thread) {
       this.cancelFrame()
-      this.readerPending = Boolean(thread)
-      this.returnPending = !thread && Boolean(this.returnPosition)
+      this.readerPending = Boolean(thread) && !this.handoffCanceled
+      this.inboxPending = false
+      this.returnPending = !thread && Boolean(this.returnPosition) && !this.handoffCanceled
       this.thread = thread
+    }
+    if (this.inboxPending && this.el.querySelector("#mail-heading")) {
+      this.inboxPending = false
+      this.schedule(() => {
+        const heading = this.el.querySelector("#mail-heading")
+        heading?.focus({preventScroll: true})
+        heading?.scrollIntoView({block: "start", behavior: "instant"})
+      })
     }
     if (loaded !== "true") return
 
@@ -60,9 +91,16 @@ export default {
       this.schedule(() => {
         const heading = this.el.querySelector("#mail-conversation-heading")
         const latest = this.el.querySelector('[data-mail-latest="true"]')
-        heading?.focus({preventScroll: true})
-        // Keep earlier summaries accessible above, but begin at the latest reply.
+        const target = latest?.querySelector(":scope > summary") || heading
+        // Begin at the latest reply and focus its visible disclosure, not the
+        // conversation heading above the viewport. Account/return stays nearby.
         ;(latest || heading)?.scrollIntoView({block: "start", behavior: "instant"})
+        const context = this.el.querySelector(".mail-reader-context")
+        if (context && target) {
+          const overlap = context.getBoundingClientRect().bottom + 16 - target.getBoundingClientRect().top
+          if (overlap > 0) this.scroller().scrollTop -= overlap
+        }
+        target?.focus({preventScroll: true})
       })
     } else if (this.returnPending && this.el.querySelector("#mail-threads")) {
       this.returnPending = false
@@ -94,6 +132,9 @@ export default {
     this.el.removeEventListener("click", this.rememberPosition, true)
     this.el.ownerDocument.removeEventListener("keydown", this.cancelHandoff, true)
     this.el.ownerDocument.removeEventListener("pointerdown", this.cancelHandoff, true)
+    this.el.ownerDocument.removeEventListener("input", this.cancelHandoff, true)
+    this.view.removeEventListener("popstate", this.beginNavigation, true)
+    this.view.removeEventListener("phx:page-loading-start", this.beginNavigation)
     this.returnPosition = null
   },
 }

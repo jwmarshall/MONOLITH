@@ -1,4 +1,4 @@
-defmodule Lovelace.Repo.Migrations.AddOnboardingWorkspace do
+defmodule Monolith.Repo.Migrations.AddOnboardingWorkspace do
   use Ecto.Migration
 
   def up do

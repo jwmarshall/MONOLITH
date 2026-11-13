@@ -3,14 +3,18 @@ import test from "node:test"
 import DailyOrientation, {dailyOrientation} from "../../assets/js/hooks/daily_orientation.js"
 import ObservationTime, {observationText} from "../../assets/js/hooks/observation_time.js"
 
-test("daily greeting uses local time and rolls over the local calendar day", () => {
-  for (const [hour, greeting] of [[0, "Good morning"], [11, "Good morning"], [12, "Good afternoon"], [17, "Good afternoon"], [18, "Good evening"], [23, "Good evening"]]) {
-    const day = dailyOrientation(new Date(2026, 10, 2, hour), "en-US")
-    assert.equal(day.greeting, greeting)
-    assert.equal(day.iso, "2026-11-02")
-    assert.equal(day.date, "Monday, November 2")
-  }
-  assert.equal(dailyOrientation(new Date(2026, 10, 3, 0), "en-US").iso, "2026-11-03")
+test("daily orientation follows the local calendar across midnight and year boundaries", () => {
+  const evening = dailyOrientation(new Date(2026, 11, 31, 23, 59), "en-US")
+  assert.deepEqual(evening, {
+    day: "31", weekday: "Thursday", monthYear: "December 2026",
+    date: "Thursday, December 31", iso: "2026-12-31",
+  })
+  const morning = dailyOrientation(new Date(2027, 0, 1, 0), "en-US")
+  assert.deepEqual(morning, {
+    day: "01", weekday: "Friday", monthYear: "January 2027",
+    date: "Friday, January 1", iso: "2027-01-01",
+  })
+  assert.deepEqual(dailyOrientation(new Date(2027, 0, 1, 18), "en-US"), morning)
 })
 
 test("observations age independently of page activity and preserve known failures", () => {
@@ -58,18 +62,38 @@ function document() {
   }
 }
 
-test("daily hook refreshes on resume and removes its timer and listener", t => {
+test("daily hook refreshes visible and accessible dates after sleep and tears down cleanly", t => {
   const callbacks = timers(t)
   const doc = document()
-  const greeting = {}
+  const RealDate = globalThis.Date
+  let now = new RealDate(2026, 11, 31, 23, 59)
+  globalThis.Date = class extends RealDate {
+    constructor(...args) { super(...(args.length ? args : [now])) }
+  }
+  t.after(() => { globalThis.Date = RealDate })
+  const number = {}, weekday = {}, month = {}
   const date = {setAttribute: (name, value) => { date[name] = value }}
-  const hook = {...DailyOrientation, el: {ownerDocument: doc, querySelector: selector => selector === "[data-daily-greeting]" ? greeting : date}}
+  const targets = new Map([
+    ["[data-daily-number]", number], ["[data-daily-weekday]", weekday],
+    ["[data-daily-month]", month], ["[data-daily-date]", date],
+  ])
+  const hook = {...DailyOrientation, el: {ownerDocument: doc, querySelector: selector => targets.get(selector)}}
+  const assertCurrent = () => {
+    const expected = dailyOrientation(now)
+    assert.equal(number.textContent, expected.day)
+    assert.equal(weekday.textContent, expected.weekday)
+    assert.equal(month.textContent, expected.monthYear)
+    assert.equal(date.datetime, expected.iso)
+    assert.equal(date["aria-label"], expected.date)
+  }
   hook.mounted()
-  assert.match(greeting.textContent, /^Good /)
-  assert.match(date.datetime, /^\d{4}-\d{2}-\d{2}$/)
-  date.textContent = "old"
+  assertCurrent()
+  now = new RealDate(2027, 0, 1, 8)
   doc.listeners.get("visibilitychange")()
-  assert.notEqual(date.textContent, "old")
+  assertCurrent()
+  now = new RealDate(2027, 0, 2, 0)
+  callbacks.values().next().value()
+  assertCurrent()
   assert.equal(callbacks.size, 1)
   hook.destroyed()
   assert.equal(callbacks.size, 0)

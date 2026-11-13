@@ -1,8 +1,8 @@
-# LOVELACE stage designer
+# MONOLITH stage designer
 
 ## Behavior
 
-LOVELACE can generate a background through the **server-side Gemini Developer API**
+MONOLITH can generate a background through the **server-side Gemini Developer API**
 on the first successful ordinary owner unlock of each application startup when opted in,
 or through an explicitly confirmed request in **Scenes**. It never generates before
 unlock, from a page load, later relock/unlock, LiveView reconnect, gallery/status refresh,
@@ -86,13 +86,13 @@ tier, not full desktop-native resolution or a visual-quality guarantee.
   are protected by exclusion, not age guesses. Brief extra files can exist during
   publication/recovery. See [storage coordination](STORAGE_COORDINATION.md): keep
   the private `.stage-coordination.sqlite3` identity for the lifetime of a shared root;
-  never unlink/replace it while any LOVELACE process may use that root.
+  never unlink/replace it while any MONOLITH process may use that root.
 
 ### Application boundaries
 
 `StageDesigner.Generation` owns workflow policy and the permanent one-shot claim.
 `StageDesigner.Confirmation` owns the signing capability contract; composition supplies
-`{LovelaceWeb.SceneConfirmation, []}` through `:scene_confirmation`. Only that web adapter
+`{MonolithWeb.SceneConfirmation, []}` through `:scene_confirmation`. Only that web adapter
 knows Phoenix's Endpoint signing context. Missing configuration fails closed. Purpose,
 ten-minute expiry, full-request binding, version fences and single-use attempt IDs remain
 mandatory regardless of adapter.
@@ -113,6 +113,34 @@ independent work. The obsolete `generateContent` implementation and transport sh
 removed; actual transport regressions exercise the supported Interactions path.
 
 
+## Saved automatic startup preference
+
+Automatic scenery requires **both** the local owner's saved opt-in and
+`MONOLITH_STAGE_ENABLED=true`. The application-wide Ash startup-preference singleton
+defaults to **off when absent**; reads never initialize it. Unknown/unreadable saved
+state fails closed before reservation, job admission, credentials or provider access.
+Apply the additive `add_startup_scene_preference` migration before using this preference.
+The environment is an independent hard veto: saving opt-in cannot override maintenance
+configuration, including through the internal failed-attempt retry action.
+
+`StageDesigner.startup_preference(actor: owner)` returns
+`{:ok, %{enabled: saved_boolean, environment_enabled: configured_boolean}}`.
+`StageDesigner.save_startup_preference(%{enabled: boolean}, actor: owner)` validates
+the required boolean, upserts the singleton and returns the observed saved/configured
+flags. These public actions require the strict local-owner capability; only the
+service-authorized persistence read is also available to startup admission.
+Read/save errors are errors, not evidence that opt-in succeeded.
+
+Saving never generates, admits a job, probes credentials/providers, changes the
+reservation version or cooldown, or cancels existing work. A save while running is
+not a new startup event. The next eligible first ordinary unlock after an application
+restart still observes the persisted minimum 24-hour cooldown and permanent one-shot
+submission claims. Manual Scenes requests remain independent and require fresh cost
+confirmation. Recovery/retrieval/cleanup and queued submissions of already-authorized
+work remain allowed with either startup gate off; a retry flag never authorizes a new
+attempt through a disabled gate.
+
+
 ## Saved scene direction
 
 Scenes offers guided subject (architecture, landscape, abstract), setting, light and palette
@@ -122,7 +150,7 @@ active prompt. Status refresh, background updates and Escape/idle wake preserve 
 and the prompt disclosure. Navigation away may discard unsaved choices.
 
 The app-wide Ash direction singleton is only written by an owner-authorized save. Reads
-never initialize it. Until the first save, `LOVELACE_STAGE_PROMPT` (or its built-in default)
+never initialize it. Until the first save, `MONOLITH_STAGE_PROMPT` (or its built-in default)
 remains the exact effective prompt. Saving adopts the guided choices and supersedes that
 configuration for **all new manual and already opted-in startup generations**, across restarts.
 It never generates, checks credentials, changes startup opt-in, alters cooldowns or affects
@@ -180,13 +208,13 @@ The external **dotenvx 2.38.2** CLI was used; no npm dotenv package or Elixir do
 was added. Install a reviewed version of the [official CLI](https://github.com/dotenvx/dotenvx)
 on another machine. The private local `.env` contains startup settings, not runtime
 Google OAuth or Gemini credentials. The Gemini API key is entered in **Connections →
-Gemini** and stored in the dedicated password-unlocked LOVELACE file keychain under
-the separate `LOVELACE Gemini` service, never alongside Gmail tokens.
+Gemini** and stored in the dedicated password-unlocked MONOLITH file keychain under
+the separate `MONOLITH Gemini` service, never alongside Gmail tokens.
 `GEMINI_API_KEY`, `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` have no runtime
 environment fallback. Configure the shared Google Desktop OAuth client in
-**Connections → Google** (`/connections/google`) while LOVELACE is unlocked, or
+**Connections → Google** (`/connections/google`) while MONOLITH is unlocked, or
 during browser onboarding. Saving credentials makes no provider request and needs
-no restart. The hidden-prompt `bin/lovelace mix lovelace.google.configure` task is
+no restart. The hidden-prompt `bin/monolith mix monolith.google.configure` task is
 an explicit stopped-server maintenance alternative; see [GMAIL.md](GMAIL.md).
 The dotenvx decryption key is in private `.env.keys`; both environment files are ignored
 and mode `0600`. `.env.example` is deliberately readable, credential-free, and disabled by default.
@@ -209,7 +237,7 @@ test ! -e .env && test ! -e .env.keys && (
 
 Create an API key in [Google AI Studio](https://aistudio.google.com/api-keys), in a project
 with appropriate billing/quotas. Build the native helper explicitly with
-`LOVELACE_STAGE_ENABLED=false mix lovelace.keychain.build`, unlock LOVELACE, and enter the
+`MONOLITH_STAGE_ENABLED=false mix monolith.keychain.build`, unlock MONOLITH, and enter the
 key in **Connections → Gemini → Add API key**. Replace/remove it there too. Keys
 travel through an authenticated, CSRF-protected ordinary POST before Phoenix request
 instrumentation, not LiveView events/assigns. The documented stock Bandit in-process conn
@@ -220,7 +248,7 @@ It does not trigger a request, change opt-in settings, or bypass cooldowns. Remo
 keeps scenery/cooldowns and cannot cancel a request that already acquired the key.
 
 **Migrating an existing setup:** stop the application and use the terminal
-`bin/lovelace mix lovelace.vault.migrate` workflow described in
+`bin/monolith mix monolith.vault.migrate` workflow described in
 [GMAIL.md](GMAIL.md). It verifies the owner password and copies legacy keychain
 credentials; it does not inspect private environment files. Exact separate confirmations
 control cutover, plaintext deletion and legacy-secret deletion. Originals are retained
@@ -229,7 +257,7 @@ erasure from APFS snapshots or backups. If the Gemini key existed only in an old
 environment setting, re-enter it in Connections and remove that ignored setting using
 your own dotenvx workflow.
 
-The native `priv/native/lovelace-vault` helper uses deprecated macOS custom-file
+The native `priv/native/monolith-vault` helper uses deprecated macOS custom-file
 keychain APIs, never the login/default keychain at runtime, and changes neither the
 default keychain nor its search list. Do not broaden ACLs to repair helper identity
 changes. Normal Lock/shutdown and every startup lock the keychain, but macOS may
@@ -238,8 +266,8 @@ instant crash-time lock is not guaranteed. There is no password recovery: forget
 the owner password permanently loses access to the encrypted database and credentials.
 
 ```sh
-# Explicit opt-in to paid startup generation:
-dotenvx set LOVELACE_STAGE_ENABLED true -f .env --no-native --no-armor --no-1password --no-bitwarden
+# Enable the environment prerequisite; also save owner opt-in in Settings:
+dotenvx set MONOLITH_STAGE_ENABLED true -f .env --no-native --no-armor --no-1password --no-bitwarden
 chmod 600 .env .env.keys
 ```
 
@@ -248,16 +276,17 @@ Complete owner setup or the stopped-application migration before activating; see
 Start the server through the SQLCipher wrapper:
 
 ```sh
-dotenvx run --strict -f .env --no-native --no-armor --no-1password --no-bitwarden -- bin/lovelace server
+dotenvx run --strict -f .env --no-native --no-armor --no-1password --no-bitwarden -- bin/monolith server
 # Interactive variant: replace server with console
 ```
 
 Plain Mix does not load `.env`. Existing shell variables take precedence over dotenvx;
 avoid stale overrides. Do not `source .env`. Configuration changes require restarting
 the application. Startup remains locked. The first ordinary unlock may authorize a new
-startup generation; `LOVELACE_STAGE_ENABLED=false` blocks new automatic generations,
-not already authorized durable jobs once unlocked. Unlock can resume queued submission,
-retrieval or deletion even with startup opt-in disabled. Maintenance requiring no provider
+startup generation only with saved owner opt-in and `MONOLITH_STAGE_ENABLED=true`;
+`MONOLITH_STAGE_ENABLED=false` blocks new automatic/operator attempts regardless of the
+saved flag, not already authorized durable jobs once unlocked. Unlock can resume queued
+submission, retrieval or deletion even with either startup gate disabled. Maintenance requiring no provider
 calls must keep the vault locked, use no-start terminal tooling, or use the explicit
 maintenance unlock mode that does not activate Oban queues. Stopping queues—not merely
 disabling startup generation—is required. Test runtime disables real provider transport,
@@ -277,20 +306,20 @@ argument at save time, never database state, application configuration, or a Liv
 
 | Variable | Default / constraint |
 | --- | --- |
-| Gemini API key | Connections UI → dedicated LOVELACE file keychain; resolved only at the server HTTP boundary while unlocked. `GEMINI_API_KEY` is ignored |
-| `LOVELACE_STAGE_ENABLED` | `false` by default; exact `true`/`false` |
-| `LOVELACE_STAGE_MODEL` | `gemini-nano-banana-2.1`; explicit safe model ID |
-| `LOVELACE_STAGE_ASPECT_RATIO` | `16:9`; also `21:9`, `4:3`, `3:2`, `1:1` |
-| `LOVELACE_STAGE_IMAGE_SIZE` | `1K`; also `2K`/`4K`, subject to validation limits/model support |
-| `LOVELACE_STAGE_REFRESH` | `on_startup` only |
-| `LOVELACE_STAGE_MIN_REFRESH_HOURS` | `24`; range 24–8760; cannot lower the minimum below a day |
-| `LOVELACE_STAGE_MAX_ATTEMPTS_PER_STARTUP` | `1` only |
-| `LOVELACE_STAGE_MAX_RETRIES` | `0` only |
-| `LOVELACE_STAGE_TIMEOUT_SECONDS` | `120`; range 1–120, includes an overall deadline |
-| `LOVELACE_STAGE_STORAGE_DIR` | `./data/stage-designer`; private, persistent, gitignored; use an absolute release path |
-| `LOVELACE_STAGE_RETAIN_COUNT` | Obsolete and ignored; published scenes have no total storage-count cap |
-| `LOVELACE_STAGE_PROMPT` | Initial generic brief; 1–8000 bytes, no private information. Superseded after a direction is saved in Scenes |
-| `LOVELACE_WORKSPACE_IDLE_MINUTES` | `3`; range 1–60 |
+| Gemini API key | Connections UI → dedicated MONOLITH file keychain; resolved only at the server HTTP boundary while unlocked. `GEMINI_API_KEY` is ignored |
+| `MONOLITH_STAGE_ENABLED` | `false` by default; exact `true`/`false`; hard veto independent of saved owner opt-in (also off by default) |
+| `MONOLITH_STAGE_MODEL` | `gemini-nano-banana-2.1`; explicit safe model ID |
+| `MONOLITH_STAGE_ASPECT_RATIO` | `16:9`; also `21:9`, `4:3`, `3:2`, `1:1` |
+| `MONOLITH_STAGE_IMAGE_SIZE` | `1K`; also `2K`/`4K`, subject to validation limits/model support |
+| `MONOLITH_STAGE_REFRESH` | `on_startup` only |
+| `MONOLITH_STAGE_MIN_REFRESH_HOURS` | `24`; range 24–8760; cannot lower the minimum below a day |
+| `MONOLITH_STAGE_MAX_ATTEMPTS_PER_STARTUP` | `1` only |
+| `MONOLITH_STAGE_MAX_RETRIES` | `0` only |
+| `MONOLITH_STAGE_TIMEOUT_SECONDS` | `120`; range 1–120, includes an overall deadline |
+| `MONOLITH_STAGE_STORAGE_DIR` | `./data/stage-designer`; private, persistent, gitignored; use an absolute release path |
+| `MONOLITH_STAGE_RETAIN_COUNT` | Obsolete and ignored; published scenes have no total storage-count cap |
+| `MONOLITH_STAGE_PROMPT` | Initial generic brief; 1–8000 bytes, no private information. Superseded after a direction is saved in Scenes |
+| `MONOLITH_WORKSPACE_IDLE_MINUTES` | `3`; range 1–60 |
 
 Image files and the directory are owner-only. Digest URLs serve only catalog-registered,
 validated original PNG or JPEG bytes: `.png` / `image/png` and `.jpg` / `image/jpeg`.
@@ -354,8 +383,8 @@ but do not promise zero retention or no abuse review. Review project
 [logging/sharing settings](https://ai.google.dev/gemini-api/docs/logs-policy) and leave
 dataset sharing disabled. Scenery requests use the Google Interactions API with `background: true, store: true` so
 saved interaction IDs can be retrieved after restart. Google may continue rendering while
-LOVELACE is closed or locked; local polling/publication only runs while the application is unlocked. Paid-tier
-interaction retention defaults to 55 days (configurable in AI Studio). LOVELACE requests deletion
+MONOLITH is closed or locked; local polling/publication only runs while the application is unlocked. Paid-tier
+interaction retention defaults to 55 days (configurable in AI Studio). MONOLITH requests deletion
 after successful local publication; failed deletion and failed/unresolved generations can leave
 remote interactions subject to Google's retention policy. Deletion does not override abuse
 monitoring or contractual retention. The shared text/image Interactions client defaults to
@@ -397,9 +426,10 @@ of the same ID without submitting another generation. An expired/unavailable int
 becomes an acknowledgeable unknown outcome rather than permanently blocking generation. There is also an **internal operator-only**
 `retry_failed_startup` Ash action for an explicitly authorized single diagnostic attempt;
 it is never called by startup, a timer, or the browser. It only accepts a prior failed
-state, requires the service actor, reserves a fresh timestamp/version before HTTP, and
-leaves the normal cooldown/retry policy intact. It must not be invoked without the user's
-explicit permission for another potentially billable request. It refuses successful or
+state, requires the service actor and both startup gates, reserves a fresh
+timestamp/version before HTTP, and leaves the normal automatic cooldown/retry policy
+intact. It must not be invoked without the user's explicit permission for another
+potentially billable request. It refuses successful or
 still-`generating` attempts, including interrupted ones. A persisted `generating` state after a crash is not
 permission to retry. Legacy public background reads expose a reservation without a tracked attempt as `uncertain`,
 not proof of activity. Explicit acknowledgement preserves a labelled legacy unknown record;

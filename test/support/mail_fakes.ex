@@ -1,4 +1,4 @@
-defmodule Lovelace.TestMail do
+defmodule Monolith.TestMail do
   @moduledoc false
   def start do
     Agent.start_link(
@@ -19,50 +19,50 @@ defmodule Lovelace.TestMail do
   def unread_result, do: Agent.get(__MODULE__, & &1.unread_response)
 end
 
-defmodule Lovelace.TestMailVault do
+defmodule Monolith.TestMailVault do
   @moduledoc false
   def get(id),
     do:
-      Agent.get(Lovelace.TestMail, fn s ->
+      Agent.get(Monolith.TestMail, fn s ->
         case s.vault[id] do
           nil -> {:error, :not_found}
           value -> {:ok, value}
         end
       end)
 
-  def put(id, value), do: Agent.update(Lovelace.TestMail, &put_in(&1, [:vault, id], value))
+  def put(id, value), do: Agent.update(Monolith.TestMail, &put_in(&1, [:vault, id], value))
 
   def delete(id),
     do:
       Agent.update(
-        Lovelace.TestMail,
+        Monolith.TestMail,
         &Map.update!(&1, :vault, fn vault -> Map.delete(vault, id) end)
       )
 end
 
-defmodule Lovelace.TestMailReadDenied do
+defmodule Monolith.TestMailReadDenied do
   @moduledoc false
   def get(_id), do: {:error, :locked}
   def put(_id, _token), do: raise("must not overwrite an unreadable credential")
   def delete(_id), do: raise("must not delete an unreadable credential")
 end
 
-defmodule Lovelace.TestMailDeleteFailure do
+defmodule Monolith.TestMailDeleteFailure do
   @moduledoc false
-  defdelegate get(id), to: Lovelace.TestMailVault
-  defdelegate put(id, token), to: Lovelace.TestMailVault
+  defdelegate get(id), to: Monolith.TestMailVault
+  defdelegate put(id, token), to: Monolith.TestMailVault
   def delete(_id), do: raise("synthetic vault failure")
 end
 
-defmodule Lovelace.TestGoogle do
+defmodule Monolith.TestGoogle do
   @moduledoc false
-  @behaviour Lovelace.Mail.Provider
-  @behaviour Lovelace.Google.OAuthProvider
+  @behaviour Monolith.Mail.Provider
+  @behaviour Monolith.Google.OAuthProvider
   @impl true
   def refresh(token) do
-    Lovelace.TestMail.record({:refresh, token})
+    Monolith.TestMail.record({:refresh, token})
 
-    case Lovelace.TestMail.result() do
+    case Monolith.TestMail.result() do
       :ok ->
         {:ok, %{access_token: "access:" <> token, expires_in: 3600}}
 
@@ -86,9 +86,9 @@ defmodule Lovelace.TestGoogle do
 
   @impl true
   def inbox_unread(token) do
-    Lovelace.TestMail.record({:inbox_unread, token})
+    Monolith.TestMail.record({:inbox_unread, token})
 
-    case Lovelace.TestMail.unread_result() do
+    case Monolith.TestMail.unread_result() do
       {:raise, message} ->
         raise message
 
@@ -112,7 +112,7 @@ defmodule Lovelace.TestGoogle do
 
   @impl true
   def search(token, query, page) do
-    Lovelace.TestMail.record({:page, token, query, page})
+    Monolith.TestMail.record({:page, token, query, page})
 
     {:ok,
      %{
@@ -132,7 +132,7 @@ defmodule Lovelace.TestGoogle do
 
   @impl true
   def thread(token, id) do
-    case Lovelace.TestMail.result() do
+    case Monolith.TestMail.result() do
       {:wait_thread, pid} ->
         send(pid, {:thread_waiting, self()})
 
@@ -170,9 +170,9 @@ defmodule Lovelace.TestGoogle do
 
   @impl true
   def attachment(token, message_id, attachment_id) do
-    Lovelace.TestMail.record({:attachment, token, message_id, attachment_id})
+    Monolith.TestMail.record({:attachment, token, message_id, attachment_id})
 
-    case Lovelace.TestMail.result() do
+    case Monolith.TestMail.result() do
       {:wait_attachment, pid} ->
         send(pid, {:attachment_waiting, self()})
 
@@ -187,7 +187,7 @@ defmodule Lovelace.TestGoogle do
 
   @impl true
   def revoke(token) do
-    Lovelace.TestMail.record({:revoke, token})
+    Monolith.TestMail.record({:revoke, token})
     :ok
   end
 

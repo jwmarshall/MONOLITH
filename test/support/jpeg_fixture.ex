@@ -1,4 +1,4 @@
-defmodule Lovelace.TestSupport.JPEG do
+defmodule Monolith.TestSupport.JPEG do
   @moduledoc "Synthetic JPEG fixtures encoded locally by libvips; no provider or private content."
 
   alias Vix.Vips.{Image, Operation}

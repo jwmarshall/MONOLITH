@@ -1,8 +1,15 @@
-# Working on LOVELACE
+# Working on MONOLITH
 
-The project name is **LOVELACE**, always uppercase in prose and UI. Use `:lovelace`
-for the OTP application, `Lovelace`/`LovelaceWeb` for modules, and `lovelace` in paths,
-configuration keys, and database filenames.
+The approved application identity is **MONOLITH**, uppercase in prose and UI.
+The full rebrand includes `:monolith` for the OTP application/configuration,
+`Monolith`/`MonolithWeb` modules, `monolith` project-owned libraries, paths,
+commands, database/keychain identifiers and tooling, and `MONOLITH_*` environment
+variables. Third-party dependencies retain their upstream names.
+The production UI follows the MONOLITH presentation across all application routes;
+docs/MONOLITH_DESIGN_SYSTEM.md is its single visual and experience authority.
+There are no users and existing local data is replaceable: this pre-user rebrand
+requires no data migration, preservation, backward compatibility or legacy aliases.
+The identity cutover does not authorize accessing, resetting or deleting private local state.
 
 Stack: Phoenix LiveView, Ash/AshSqlite over Ecto/SQLite, and Tailwind.
 
@@ -33,7 +40,7 @@ Stack: Phoenix LiveView, Ash/AshSqlite over Ecto/SQLite, and Tailwind.
   reservation; unknown outcomes require sign-in again. No repository writes, contents,
   workflow logs or artifacts. See the GitHub section in docs/DEVELOPMENT.md before changing
   credentials or polling.
-- Gmail owns mail state; LOVELACE owns workspace/project data. Use bounded on-demand caching
+- Gmail owns mail state; MONOLITH owns workspace/project data. Use bounded on-demand caching
   and Gmail search, not a full offline mirror or local mail index. Poll while the app runs;
   do not promise instant updates or execution while the computer is asleep/off.
 - Show honest health, freshness and failure states. Unread signals must be per-account inbox
@@ -66,8 +73,8 @@ Stack: Phoenix LiveView, Ash/AshSqlite over Ecto/SQLite, and Tailwind.
   Initial browser owner setup requires single-use terminal pairing; it is not public signup.
   Keep early credential POST boundaries, HTTP/LiveView session guards and revocation intact.
 - Production/dev storage uses SQLCipher 4.20.0 and a dedicated password-unlocked macOS
-  file keychain, not the login keychain. Use `bin/lovelace setup` / `server` for development
-  and `bin/lovelace mix TASK` for other Mix tasks.
+  file keychain, not the login keychain. Use `bin/monolith setup` / `server` for development
+  and `bin/monolith mix TASK` for other Mix tasks.
   Startup is locked; explicit global Lock stops protected Repo/queues/provider work.
   Detected native keychain authorization/access failures also trigger global Lock;
   a missing individual credential is not a keychain-access failure.
@@ -90,16 +97,18 @@ Stack: Phoenix LiveView, Ash/AshSqlite over Ecto/SQLite, and Tailwind.
 - No external telemetry exporter. Stock Bandit's in-process conn metadata is an explicit
   user-accepted local exception; never add payload logging/export without privacy review.
 - Scenery is app-wide, not account-owned. Gemini generation is opt-in and potentially billable;
-  allow opted-in startup or explicitly confirmed Scenes requests. The persisted 24-hour
-  cooldown applies to automatic startup only; manual requests need fresh cost confirmation
+  allow opted-in startup or explicitly confirmed Scenes requests. The saved Ash startup
+  opt-in defaults off when absent; environment configuration can veto it. Saving the
+  preference neither generates nor cancels work. The persisted 24-hour cooldown applies
+  to automatic startup only; manual requests need fresh cost confirmation
   and refuse overlapping/unconfirmed attempts. Paid submissions are one-shot, fenced by durable
   claims even under Oban rescue. Google background interactions explicitly allow provider storage;
   resume only retrieval of known IDs, and delete remote results after committed local publication.
   Unknown submissions require explicit charge/overlap acknowledgement before fresh confirmation;
   safe polling/cleanup retries never authorize another generation. Keep permanent attempt history.
-  Gemini keys are managed in Connections and stored separately in the dedicated LOVELACE keychain;
+  Gemini keys are managed in Connections and stored separately in the dedicated MONOLITH keychain;
   no environment-key fallback or provider probe/generation on credential saves.
-  Force `LOVELACE_STAGE_ENABLED=false` for maintenance; it blocks new startup generations,
+  Force `MONOLITH_STAGE_ENABLED=false` for maintenance; it blocks new startup generations,
   not already authorized jobs. No-provider maintenance must also avoid starting Oban queues;
   see docs/STAGE_DESIGNER.md.
 - Clearly label placeholders; do not imply disconnected integrations are operational.
@@ -108,22 +117,32 @@ Stack: Phoenix LiveView, Ash/AshSqlite over Ecto/SQLite, and Tailwind.
 
 ## Experience
 
-- Warm cinematic minimalism: quiet brutalist geometry, charcoal/sea-glass, Space Grotesk,
-  restrained motion and an edge-to-edge transparent glass stage shared by owner/workspace/mail views.
-  Use quiet workspace cards; preserve the scenery/working-content focal-plane model.
-  Escape/idle is visual, **not Lock**.
-- Keyboard access, readable mail, contrast, reduced motion and forced colors outrank atmosphere.
-  See docs/UI_CONTRACT.md for visual/interaction requirements and their verification map.
+- All application surfaces follow docs/MONOLITH_DESIGN_SYSTEM.md; docs/UI_CONTRACT.md
+  retains operational, route, lifecycle and security requirements, not a competing
+  presentation system. MONOLITH reviewers own visual/experience standards;
+  existing specialists retain application correctness and safety.
+- Omit account-letter register codes. Keep numbered sections and adjacent full account
+  or installation identity; never derive identity labels from filtered array positions.
+- Preserve the scenery/working-content focal-plane model. Escape/idle is visual,
+  **not Lock**. Keyboard access, readable mail, contrast, reduced motion and forced
+  colors outrank atmosphere.
 
 ## Verification
 
-Load `lovelace-architecture-development` for boundary changes and `lovelace-oban-workflows`
+Load `monolith-architecture-development` for boundary changes and `monolith-oban-workflows`
 for async/background changes; invoke the corresponding hexagonal-boundary/background-work
 reviewer before completion. See docs/REVIEWERS.md for discovery, fallback and specialist routing.
+For MONOLITH rebrand work, load `monolith-rebrand-implementation` and
+`monolith-design-verification`; use docs/MONOLITH_DESIGN_SYSTEM.md for the approved
+target and migration boundary. Invoke `monolith-visual-system-reviewer` and
+`monolith-experience-reviewer` for their affected scopes before completion.
+The rebrand includes application/runtime/library/tooling identity, not just display
+strings. Preserve product/security behavior rather than importing the study simulator.
 
-Run `bin/lovelace check` (format/compile/Credo/AshCredo/architecture/Sobelow/tests/assets)
-and `bin/lovelace audit` (online advisories/retired packages). For UI
-changes also run `bin/lovelace mix test.ui` (installed Chrome/Chromium; see docs/DEVELOPMENT.md). `mix lint` compiles in test for AshCredo introspection.
+Run `bin/monolith check` (format/compile/Credo/AshCredo/architecture/Sobelow/tests/assets)
+and `bin/monolith audit` (online advisories/retired packages). For UI
+changes also run `bin/monolith mix test.ui` (installed Chrome/Chromium; see docs/DEVELOPMENT.md). `mix lint` compiles in test for AshCredo introspection.
+Use the renamed wrappers; no legacy command or environment-variable aliases are provided.
 Keep durable decisions here and operational contracts in the relevant docs. Do not maintain
 handoff documents, completion histories or speculative backlogs. Choose future work from the
 current user request; retired plans are not obligations. Verify implementation in code and
