@@ -11,8 +11,9 @@ defmodule MonolithWeb.HomeComponents do
     <header id="daily-heading" class="home-hero" phx-hook="DailyOrientation" phx-update="ignore">
       <div class="date-block">
         <time data-daily-date class="daily-date">
+          <span data-daily-weekday class="date-caption"></span>
           <span data-daily-number class="day-number"></span>
-          <span class="date-caption"><span data-daily-weekday></span><span data-daily-month></span></span>
+          <span data-daily-month class="date-caption"></span>
         </time>
       </div>
       <div class="home-greeting">
@@ -56,7 +57,7 @@ defmodule MonolithWeb.HomeComponents do
         </div>
       </div>
       <ul :if={!@error && !@loading && @accounts != []} id="home-accounts" class="home-accounts">
-        <.account_readout :for={account <- @accounts} account={account} />
+        <.account_readout :for={account <- @accounts} account={account} show_freshness={false} />
       </ul>
     </section>
     """
@@ -64,6 +65,7 @@ defmodule MonolithWeb.HomeComponents do
 
   attr :account, :map, required: true
   attr :inbox_path, :string, default: nil
+  attr :show_freshness, :boolean, default: true
 
   def account_readout(assigns) do
     ~H"""
@@ -85,28 +87,27 @@ defmodule MonolithWeb.HomeComponents do
         </span>
         <span id={"home-count-#{@account.id}"} class="home-unread">
           <span class="home-count">
+            <span class="metric-label">UNREAD<span class="sr-only"> inbox conversations</span></span>
             <b aria-hidden="true">{if is_integer(@account.inbox_unread_count),
               do: @account.inbox_unread_count,
               else: "—"}</b>
-            <span>Unread inbox conversations</span>
             <span class="sr-only">{if is_integer(@account.inbox_unread_count),
               do: "#{@account.inbox_unread_count} total",
               else: "Total unavailable"}</span>
           </span>
           <span class="home-count home-count-recent">
+            <span class="metric-label">LAST 24H</span>
             <b aria-hidden="true">{if is_integer(@account.inbox_unread_recent_count),
               do: @account.inbox_unread_recent_count,
               else: "—"}</b>
-            <span>Received in the last 24h</span>
             <span class="sr-only">{if is_integer(@account.inbox_unread_recent_count),
               do: "#{@account.inbox_unread_recent_count} received in the last 24 hours",
               else: "Last 24 hours unavailable"}</span>
           </span>
         </span>
-        <span class="home-account-affordance">Open account inbox</span>
       </.link>
       <div id={"home-health-#{@account.id}"} class="home-account-health">
-        <.freshness account={@account} />
+        <.freshness :if={@show_freshness} account={@account} />
         <span :if={health_message(@account)} class="connection-warning">{health_message(@account)}</span>
         <.status_signal
           :if={!@account.inbox_unread_at && !health_message(@account)}
