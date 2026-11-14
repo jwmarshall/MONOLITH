@@ -171,7 +171,7 @@ defmodule MonolithWeb.HomeOverviewLiveTest do
     refute_receive {:home_fetch, _}
   end
 
-  test "count updates stay account-scoped and retain visible stale/error context", %{conn: conn} do
+  test "count updates stay account-scoped and retain visible error context", %{conn: conn} do
     first = account("first", 8, 2)
     second = account("second", 19, 5)
     {:ok, view, _html} = live(conn, ~p"/")
@@ -186,7 +186,6 @@ defmodule MonolithWeb.HomeOverviewLiveTest do
     assert has_element?(view, "#home-count-#{first.id}", "8")
     assert has_element?(view, "#home-count-#{first.id} .home-count-recent", "2")
     assert has_element?(view, "#home-health-#{first.id}", "Gmail rate limit")
-    assert has_element?(view, "#home-freshness-#{first.id}[data-failed=true]")
     assert has_element?(view, "#home-count-#{second.id}", "19")
     assert has_element?(view, "#home-count-#{second.id} .home-count-recent", "5")
     refute_receive {:home_fetch, _}
@@ -460,7 +459,6 @@ defmodule MonolithWeb.HomeOverviewLiveTest do
 
     {:ok, view, _html} = live(conn, ~p"/")
     assert has_element?(view, "#home-count-#{account.id} .home-count b", "9")
-    assert has_element?(view, "#home-freshness-#{account.id}[data-failed=true]")
     assert has_element?(view, "#home-health-#{account.id}", "Reconnect required")
 
     assert has_element?(

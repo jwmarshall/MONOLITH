@@ -16,9 +16,9 @@ the coverage map is not evidence that checks passed.
   setup/unlock, directories, provider pages, mail, Calendar, GitHub and Scenes.
   Account-letter register codes are deliberately omitted; retain numbered sections
   and adjacent full account/address or installation identity.
-- Keep health, freshness and actionable warnings visible. Occasional setup,
-  billing-policy and disconnect guidance can use native disclosures, but billing
-  confirmation remains explicit before generation. Semantic warnings/errors stay distinct.
+- Keep health and actionable warnings visible; Home omits freshness labels.
+  Occasional setup, billing-policy and disconnect guidance can use native disclosures,
+  but billing confirmation remains explicit before generation. Semantic warnings/errors stay distinct.
 - Scripts/fonts/imagery are local, with applicable licenses, provenance and checksums for
   vendored assets. No runtime CDN, font service, remote browser imagery, animated scenery
   or parallax. Server-side opted-in Gemini output is validated and served locally;
@@ -50,6 +50,8 @@ Use the same hierarchy on static setup/unlock pages and authenticated views.
   unboxed summaries with a disclosure indicator. Opening help is not a destructive action.
   Provider-wide help and billing/disconnect disclosures sit in the provider's right context
   column, stacked after the main plane on narrow screens, not inside an individual setup card.
+  Gmail's About Keychain access and Removal & disconnecting disclosures share that
+  context column; account actions and their diagnostic results stay in the main plane.
   Keep current credential health, actionable warnings and brief cost/startup notices visible
   with their controls; moving policy details must not hide consent or billing confirmation.
 - Back/manage/reconnect navigation is a text link; actually submitting authorization is an
@@ -72,6 +74,8 @@ Use the same hierarchy on static setup/unlock pages and authenticated views.
   Keep **Refresh status** in the connected designer, where it reads local state only.
   Danger color supplements explicit removal/disconnect wording and existing confirmations.
 - Shared actions have at least 44×44px targets, wrapping labels and visible keyboard focus.
+  Standalone action links use the shared 14px action size across views, including
+  header returns and GitHub activity links; inline prose/content links retain their own typography.
   Inline prose links are not padded into buttons. Secondary hover stays neutral; accent is
   reserved for primary actions and navigation. Disabled actions do not gain hover emphasis.
   Use semantic tokens and system colors for operations/navigation in forced colors;
@@ -222,19 +226,21 @@ Use the same hierarchy on static setup/unlock pages and authenticated views.
   GitHub below; responsive composition, numbered headings, joined glass and semantic
   rhythm follow the design system. Keep timezone/context beside the corresponding
   heading and full account identity beside observations, wrapping without clipping.
-  Home omits routine successful-check statuses and Calendar Refresh controls. Keep loading, error and
-  locally aging stale warnings visible; workspace/Connections timestamps and refresh remain unchanged.
+  Home omits routine successful-check statuses, freshness/stale labels and Calendar Refresh
+  controls. Keep loading, error and partial-result warnings; workspace/Connections timestamps and refresh remain unchanged.
   Unknown unread totals use a dash with an accessible unavailable label, never a fabricated zero.
   Calendar setup is a compact empty state linking directly to Connections → Calendar.
 - Gmail cards appear once per non-disconnected connection, including connections with no
   workspace membership. Each shows identity, workspace names and paired unread inbox
-  conversation counts as **total / last 24h**, with explicit labels for both values.
+  conversation counts labeled **UNREAD / LAST 24H**, with explicit accessible context for both values.
+  Labels sit above values with an 8px gap and share the GitHub metric-label default:
+  Space Grotesk 400, 13px/1.55, uppercase with normal tracking.
   The recent value uses Gmail received-time search over a fixed rolling 24-hour window,
   not a local calendar day or partial cached page. Both observations are committed together;
   incomplete paging/failures retain the previous pair as stale. See [GMAIL.md](GMAIL.md) for bounds.
-  Home shows stale warnings rather than routine successful-check timestamps; the underlying
-  observation still ages locally. Clicking a card opens only that account's read-only inbox
-  without attaching it anywhere.
+  Home omits observation-age text; the underlying observation still ages locally.
+  The account identity opens only that account's read-only inbox without attaching it
+  anywhere; Home and workspace readouts omit a redundant “Open account inbox” prompt.
 - Unknown counts are not zero. Failed updates retain known counts as stale; elapsed time
   marks observations stale after three minutes, independent of unrelated mail-page success.
   Home rendering reads persisted metadata, never provider calls or cached message content.
