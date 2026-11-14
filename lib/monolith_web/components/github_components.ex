@@ -30,15 +30,8 @@ defmodule MonolithWeb.GitHubComponents do
           id={if @workspace_id, do: "workspace-github-activity-heading", else: "github-home-heading"}
           class="home-eyebrow"
         >
-          03 / GitHub activity
+          03 / GitHub
         </h3>
-        <.link
-          :if={@organizations != []}
-          patch="/connections/github"
-          class="workspace-action workspace-action-link home-section-meta"
-        >
-          GitHub connections
-        </.link>
       </div>
       <p :if={@error} class="connection-warning" role="alert">
         GitHub information is unavailable. Your connections have not been changed.
@@ -55,29 +48,33 @@ defmodule MonolithWeb.GitHubComponents do
           </div>
         </div>
       </div>
-      <div class={if !@activity, do: "github-home-grid"}>
+      <div class={[
+        !@activity && "github-home-grid",
+        !@activity && !@workspace_id && "github-home-repository-grid"
+      ]}>
         <article
           :for={org <- @organizations}
           id={"#{if @workspace_id, do: "workspace-", else: ""}github-org-#{org.id}"}
           class={["github-organization", !@activity && "github-home-organization"]}
         >
-          <div :if={!@activity} class="github-org-heading">
+          <.home_owner_heading
+            :if={!@activity && !@workspace_id}
+            organization={org}
+            memberships={@memberships}
+            workspace_options={@workspace_options}
+            now={@now}
+          />
+          <div :if={!@activity && @workspace_id} class="github-org-heading">
             <div>
               <h4>{org.login}</h4>
               <p class="mail-muted">
                 {workspace_names(org.id, @memberships, @workspace_options)}
               </p>
-              <p class="github-pr-meta">{owner_label(org)} · bounded installation snapshot</p>
             </div>
           </div>
           <.health :if={@activity} organization={org} now={@now} />
-          <.home_snapshot :if={!@activity} organization={org} now={@now} />
-          <.home_activity_links
-            :if={!@workspace_id}
-            organization={org}
-            memberships={@memberships}
-            workspace_options={@workspace_options}
-          />
+          <.home_repositories :if={!@activity && !@workspace_id} organization={org} now={@now} />
+          <.home_snapshot :if={!@activity && @workspace_id} organization={org} now={@now} />
           <.link
             :if={@workspace_id && !@activity}
             patch={MonolithWeb.HomeNavigation.github_activity_path(@workspace_id, org.id)}
@@ -180,6 +177,64 @@ defmodule MonolithWeb.GitHubComponents do
   attr :organization, :any, required: true
   attr :now, :any, required: true
 
+  defp home_repositories(assigns) do
+    org = assigns.organization
+
+    grouped =
+      Map.new([:pull_requests, :issues, :workflow_runs], fn kind ->
+        {kind, Enum.group_by(Map.fetch!(org, kind), & &1["repository_id"])}
+      end)
+
+    repositories =
+      org
+      |> Map.get(:repositories, [])
+      |> Enum.sort_by(& &1["full_name"])
+      |> Enum.map(fn repository ->
+        snapshot =
+          Enum.reduce(grouped, org, fn {kind, rows}, snapshot ->
+            Map.put(snapshot, kind, Map.get(rows, repository["id"], []))
+          end)
+
+        %{id: repository["id"], name: repository["full_name"], snapshot: snapshot}
+      end)
+
+    assigns = assign(assigns, :repositories, repositories)
+
+    ~H"""
+    <div
+      id={"github-home-repositories-#{@organization.id}"}
+      class="github-home-repository-disclosure"
+      hidden
+      phx-mounted={JS.ignore_attributes("hidden")}
+    >
+      <ul
+        :if={@repositories != []}
+        class="github-home-repositories"
+        aria-label={@organization.login <> " repositories"}
+      >
+        <li
+          :for={repository <- @repositories}
+          class="github-home-repository"
+          data-repository-id={repository.id}
+        >
+          <h5 class="github-home-repository-name"><bdi>{repository.name}</bdi></h5>
+          <.home_snapshot organization={repository.snapshot} now={@now} />
+        </li>
+      </ul>
+      <div :if={@repositories == []} class="github-home-repository-empty">
+        <p class="mail-muted">
+          {if observed?(@organization, @now),
+            do: "No repositories listed in this snapshot",
+            else: "Repository list unavailable"}
+        </p>
+      </div>
+    </div>
+    """
+  end
+
+  attr :organization, :any, required: true
+  attr :now, :any, required: true
+
   defp home_snapshot(assigns) do
     assigns =
       assign(
@@ -189,9 +244,16 @@ defmodule MonolithWeb.GitHubComponents do
 
     ~H"""
     <dl class="github-home-metrics" aria-label="Bounded installation snapshot">
-      <.snapshot_count label="PRs in snapshot" total={@prs} paired attention={@prs_attention} />
-      <.snapshot_count label="Issues in snapshot" total={@issues} />
-      <.snapshot_count label="Recent runs" total={@runs} paired attention={@runs_attention} />
+      <.snapshot_count label="PRS" total={@prs} paired attention={@prs_attention} />
+      <.snapshot_count label="ISSUES" total={@issues} />
+      <.snapshot_count
+        label="RUNS"
+        total={@runs}
+        paired
+        attention={@runs_attention}
+        attention_label="FAILED"
+        failure
+      />
     </dl>
     """
   end
@@ -208,7 +270,7 @@ defmodule MonolithWeb.GitHubComponents do
       issues: if(org.issues != [] || !org.issues_truncated, do: length(org.issues)),
       prs_attention:
         if prs_available do
-          Enum.count(org.pull_requests, &pr_needs_attention?/1)
+          pr_attention_count(org.pull_requests)
         end,
       runs: if(runs_available, do: length(org.workflow_runs)),
       runs_attention:
@@ -221,15 +283,29 @@ defmodule MonolithWeb.GitHubComponents do
     }
   end
 
-  defp pr_needs_attention?(pr) do
-    (!pr["is_draft"] && pr["review_decision"] == "REVIEW_REQUIRED") ||
-      pr["checks"] in ["FAILURE", "ERROR"]
+  defp pr_attention_count(prs) do
+    Enum.reduce_while(prs, 0, fn pr, count ->
+      cond do
+        (!pr["is_draft"] && pr["review_decision"] == "REVIEW_REQUIRED") ||
+            pr["checks"] in ["FAILURE", "ERROR"] ->
+          {:cont, count + 1}
+
+        (pr["is_draft"] || pr["review_decision"] in ["APPROVED", "CHANGES_REQUESTED"]) &&
+            pr["checks"] in ["SUCCESS", "PENDING"] ->
+          {:cont, count}
+
+        true ->
+          {:halt, nil}
+      end
+    end)
   end
 
   attr :label, :string, required: true
   attr :total, :any, required: true
   attr :paired, :boolean, default: false
   attr :attention, :any, default: nil
+  attr :attention_label, :string, default: "ATTENTION"
+  attr :failure, :boolean, default: false
 
   defp snapshot_count(assigns) do
     assigns =
@@ -240,7 +316,7 @@ defmodule MonolithWeb.GitHubComponents do
 
     ~H"""
     <div class="github-home-metric">
-      <dt>{@label}<span :if={@paired}> / need attention</span></dt>
+      <dt class="metric-label">{@label}<span :if={@paired}> / {@attention_label}</span></dt>
       <dd class="github-home-number">
         <span aria-hidden="true">
           <span class="github-home-total">{@value}</span><span
@@ -248,18 +324,16 @@ defmodule MonolithWeb.GitHubComponents do
             class="github-home-separator"
           > / </span><span
             :if={@paired}
-            class="github-home-attention"
-            title="Needs attention in the snapshot"
+            class={["github-home-attention", @failure && "github-home-failure"]}
+            title={"#{@attention_label} in the snapshot"}
           >{@attention_value}</span>
         </span>
         <span class="sr-only">
-          {@label}: {if is_integer(@total), do: @total, else: "unavailable"}<span :if={@paired}>; needs attention in the snapshot: {if is_integer(
-                                                                                                                                         @attention
-                                                                                                                                       ),
-                                                                                                                                       do:
-                                                                                                                                         @attention,
-                                                                                                                                       else:
-                                                                                                                                         "unavailable"}</span>
+          {@label} in snapshot: {if is_integer(@total), do: @total, else: "unavailable"}<span :if={
+            @paired
+          }>; {@attention_label} in snapshot: {if is_integer(@attention),
+            do: @attention,
+            else: "unavailable"}</span>
         </span>
       </dd>
     </div>
@@ -269,18 +343,59 @@ defmodule MonolithWeb.GitHubComponents do
   attr :organization, :any, required: true
   attr :memberships, :list, required: true
   attr :workspace_options, :list, required: true
+  attr :now, :any, required: true
 
-  defp home_activity_links(assigns) do
-    ids =
-      for member <- assigns.memberships,
-          member.organization_id == assigns.organization.id,
-          do: member.workspace_id
+  defp home_owner_heading(assigns) do
+    assigns = assign(assigns, :workspaces, owner_workspaces(assigns))
 
-    workspaces = for {name, id} <- assigns.workspace_options, id in ids, do: {name, id}
+    ~H"""
+    <div class="github-org-heading github-home-owner-heading">
+      <div>
+        <h4>
+          <button
+            id={"github-home-toggle-#{@organization.id}"}
+            type="button"
+            class="github-home-owner-toggle"
+            aria-expanded="false"
+            aria-controls={"github-home-repositories-#{@organization.id}"}
+            phx-mounted={JS.ignore_attributes("aria-expanded")}
+            phx-click={
+              JS.toggle_attribute({"hidden", ""},
+                to: "#github-home-repositories-#{@organization.id}"
+              )
+              |> JS.toggle_attribute({"aria-expanded", "true", "false"})
+            }
+          >
+            <.icon name="hero-chevron-right" class="github-home-owner-chevron size-4" />
+            <span><bdi>{@organization.login}</bdi><span class="sr-only"> repositories</span></span>
+          </button>
+        </h4>
+        <p class="github-home-workspaces mail-muted">
+          <span :for={{name, _id} <- @workspaces}><bdi>{name}</bdi></span>
+          <span :if={@workspaces == []}>Not in a workspace</span>
+        </p>
+        <.link
+          :if={@workspaces == []}
+          patch="/connections/github"
+          class="github-home-setup workspace-action workspace-action-link"
+          aria-label={"Add #{@organization.login} to a workspace"}
+        >Add to workspace</.link>
+      </div>
+      <.home_snapshot organization={@organization} now={@now} />
+    </div>
+    """
+  end
+
+  attr :organization, :any, required: true
+  attr :memberships, :list, required: true
+  attr :workspace_options, :list, required: true
+
+  defp connection_activity_links(assigns) do
+    workspaces = owner_workspaces(assigns)
     assigns = assign(assigns, workspaces: workspaces, single: length(workspaces) == 1)
 
     ~H"""
-    <div class="github-home-links">
+    <div class="github-connection-links">
       <.link
         :for={{name, id} <- @workspaces}
         patch={MonolithWeb.HomeNavigation.github_activity_path(id, @organization.id)}
@@ -295,6 +410,15 @@ defmodule MonolithWeb.GitHubComponents do
       >Add to workspace</.link>
     </div>
     """
+  end
+
+  defp owner_workspaces(assigns) do
+    ids =
+      for member <- assigns.memberships,
+          member.organization_id == assigns.organization.id,
+          do: member.workspace_id
+
+    for {name, id} <- assigns.workspace_options, id in ids, do: {name, id}
   end
 
   attr :organizations, :list, required: true
@@ -343,8 +467,8 @@ defmodule MonolithWeb.GitHubComponents do
         <div class="github-owner-heading">
           <h1 id="github-activity-title" tabindex="-1" data-workspace-heading>
             {case @organizations do
-              [organization] -> organization.login <> "."
-              _ -> "GitHub activity unavailable."
+              [organization] -> organization.login
+              _ -> "GitHub activity unavailable"
             end}
           </h1>
           <button
@@ -768,7 +892,7 @@ defmodule MonolithWeb.GitHubComponents do
                     @workspace_options
                   )}
                 </p>
-                <.home_activity_links
+                <.connection_activity_links
                   :if={org.status == :ready}
                   organization={org}
                   memberships={@memberships}
@@ -1363,7 +1487,24 @@ defmodule MonolithWeb.GitHubComponents do
           member.organization_id == org.id,
           do: scoped_snapshot(org, member.repository_ids)
     else
-      ready
+      Enum.map(ready, &home_selection(&1, assigns.memberships))
+    end
+  end
+
+  defp home_selection(org, memberships) do
+    selections = Enum.filter(memberships, &(&1.organization_id == org.id))
+
+    if selections == [] || Enum.any?(selections, &(Map.get(&1, :repository_ids, []) == [])) do
+      org
+    else
+      ids = selections |> Enum.flat_map(& &1.repository_ids) |> Enum.uniq()
+
+      org
+      |> scoped_snapshot(ids)
+      |> Map.put(
+        :repositories,
+        Enum.filter(Map.get(org, :repositories, []), &(&1["id"] in ids))
+      )
     end
   end
 

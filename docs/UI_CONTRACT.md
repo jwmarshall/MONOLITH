@@ -275,18 +275,32 @@ Use the same hierarchy on static setup/unlock pages and authenticated views.
   Workspace removal is not global disconnect; both services share the Google credential.
   See [CALENDAR.md](CALENDAR.md) for bounds and lifecycle.
 
-- GitHub adds a full-width **GitHub activity** section beneath Gmail/Calendar, grouped by
+- GitHub adds a full-width **GitHub** section beneath Gmail/Calendar, grouped by
   personal/organization installation owner, never merged with mail or another owner.
-  Home uses compact per-owner readouts with full installation identity.
-  Show open PR/issue totals and recent-run snapshot counts. PRs and runs pair the
-  main count with snapshot attention count as `total / attention`, using distinct
-  semantic ink and visible accessible labels, not tooltip-only explanations.
+  Home uses condensed, full-width per-owner registers with full installation identity
+  and aggregate snapshot metrics in the owner header. Counts and repository rows
+  follow the union of that owner's saved workspace repository selections, deduplicated
+  by immutable repository ID. Any whole-owner membership includes all accessible
+  repositories; an unattached owner retains its accessible snapshot.
+  Each owner title is an independent repository disclosure button, initially collapsed,
+  with truthful expanded state and a controlled repository section. There is no separate
+  Repositories row. Header metrics and plain-text workspace labels stay visible when collapsed.
+  Repository names are indented beneath their owner, retain their full owner/name and wrap
+  rather than truncate. The GitHub section header has no Repository snapshots subtitle.
+  Each row shows only its immutable repository ID's PR, issue and run snapshot counts;
+  an accessible repository with no matching rows shows zero only for a complete
+  observation of that activity kind, otherwise a dash. A missing repository catalog
+  retains header snapshot counts without inventing rows.
+  Snapshot metric labels are **PRS / ATTENTION**, **ISSUES**, and **RUNS / FAILED**.
+  PRs and runs pair the main count with the attention/failure count as `total / attention`,
+  using distinct semantic ink and visible accessible labels, not tooltip-only explanations.
+  Accessible metric descriptions retain snapshot scope.
   Count each PR needing review or failing checks once. Unknown/unavailable or expired
   counts use a dash, never a fabricated zero. Home omits per-owner status, partial-result
   messages and last-checked timestamps; workspace details retain health, freshness and
-  partial-result context. Home has no Refresh buttons or activity disclosures. **View activity** links directly
-  to the owner's expanded activity in its workspace; shared owners expose each attached
-  workspace by name, and unattached owners offer **Add to workspace** through Connections.
+  partial-result context. Home has no Refresh buttons or detailed activity lists.
+  Workspace names are noninteractive labels; activity remains available from Workspaces.
+  Unattached owners offer **Add to workspace** through Connections.
   Workspace activity and its Refresh controls remain expanded and available.
   Detailed bounded pull requests, issues and runs retain repository, escaped title,
   author, explicit review/check/run state, safe new-tab links and UTC update times.

@@ -126,8 +126,9 @@ async function click(selector) {
 
 async function key(key, text, modifiers = 0) {
   const enter = key === "Enter" ? {code: "Enter", windowsVirtualKeyCode: 13, nativeVirtualKeyCode: 13, text: "\r", unmodifiedText: "\r"} : {}
-  await send("Input.dispatchKeyEvent", {type: "keyDown", key, modifiers, ...enter, ...(text ? {text} : {})})
-  await send("Input.dispatchKeyEvent", {type: "keyUp", key, modifiers, ...enter})
+  const space = key === " " ? {code: "Space", windowsVirtualKeyCode: 32, nativeVirtualKeyCode: 32, text: " ", unmodifiedText: " "} : {}
+  await send("Input.dispatchKeyEvent", {type: "keyDown", key, modifiers, ...enter, ...space, ...(text ? {text} : {})})
+  await send("Input.dispatchKeyEvent", {type: "keyUp", key, modifiers, ...enter, ...space})
 }
 
 async function media(features = []) {
@@ -245,7 +246,7 @@ async function verifyGitHubDiscovery() {
   await evaluate(`document.querySelectorAll('#github-connections button[phx-click="github:refresh"]').forEach(button => button.click())`)
   await click('#home-link')
   await home()
-  await waitFor("Array.from(document.querySelectorAll('#github-readouts .github-home-metric:first-child .github-home-total')).length === 2 && Array.from(document.querySelectorAll('#github-readouts .github-home-metric:first-child .github-home-total')).every(count => count.textContent.trim() === '1')", 'synthetic owner snapshots repopulate through the protected GitHub queue', 16_000)
+  await waitFor("Array.from(document.querySelectorAll('#github-readouts .github-home-owner-heading .github-home-metric:first-child .github-home-total')).length === 2 && Array.from(document.querySelectorAll('#github-readouts .github-home-owner-heading .github-home-metric:first-child .github-home-total')).every(count => count.textContent.trim() === '1')", 'synthetic owner snapshots repopulate through the protected GitHub queue', 16_000)
   console.log('PASS durable GitHub discovery: accepted job correlation, browser reload and eventual fenced success')
 }
 
@@ -511,6 +512,77 @@ async function calendarItemLayout() {
     'calendar content wraps and external links retain the safe provider origin and rel')
 }
 
+async function verifyHomeRepositories() {
+  await evaluate(`Promise.all(document.querySelector('#workspace-content').getAnimations()
+    .map(animation => animation.finished.catch(() => {}))).then(() => true)`)
+  const ownerIds = await evaluate("[...document.querySelectorAll('#github-readouts .github-home-repository-disclosure')].map(section => section.id)")
+  assert.equal(ownerIds.length, 2)
+  assert.equal(await evaluate("[...document.querySelectorAll('#github-readouts .github-home-repository-disclosure')].every(section => section.hidden)"), true, 'owner repository sections start collapsed')
+  assert.equal(await evaluate("document.querySelectorAll('#github-readouts summary').length"), 0, 'no separate Repositories toggle row')
+  assert.equal(await evaluate("document.querySelectorAll('#github-readouts .github-home-workspaces a, #github-readouts .home-section-heading p').length"), 0, 'workspace labels are plain text and the GitHub header has no subtitle')
+  assert.equal(await evaluate("[...document.querySelectorAll('#github-readouts .github-home-owner-heading .github-home-metrics')].every(metrics => metrics.getBoundingClientRect().height > 0)"), true, 'overall metrics remain visible while repositories are collapsed')
+  assert.equal(await evaluate("document.querySelectorAll('#github-readouts .github-home-repository').length"), 5, 'Home follows selected repositories, not the entire catalog')
+  const first = '#' + ownerIds[0]
+  const second = '#' + ownerIds[1]
+  const firstToggle = '[aria-controls="' + ownerIds[0] + '"]'
+  const secondToggle = '[aria-controls="' + ownerIds[1] + '"]'
+  await evaluate(`document.querySelector(${JSON.stringify(firstToggle)}).focus()`)
+  await key('Enter')
+  await waitFor(`!document.querySelector(${JSON.stringify(first)}).hidden`, 'org title keyboard activation opens repositories')
+  assert.equal(await evaluate(`document.querySelector(${JSON.stringify(firstToggle)}).getAttribute('aria-expanded')`), 'true')
+  assert.equal(await evaluate(`document.querySelector(${JSON.stringify(second)}).hidden`), true, 'owners expand independently')
+  assert.equal(await evaluate("getComputedStyle(document.activeElement).outlineWidth"), '2px', 'keyboard title retains visible focus')
+  assert.equal(await evaluate("document.activeElement.getBoundingClientRect().height >= 44"), true, 'title toggle retains a 44px target')
+  await click(secondToggle)
+  assert.equal(await evaluate(`document.querySelector(${JSON.stringify(second)}).hidden`), false)
+  assert.equal(await evaluate(`document.querySelector(${JSON.stringify(secondToggle)}).getAttribute('aria-expanded')`), 'true')
+  await click('.navigation-toggle')
+  await evaluate("Promise.all(document.querySelector('.workspace-shell').getAnimations().map(animation => animation.finished.catch(() => {}))).then(() => true)")
+  for (const width of [1081, 1080, 800, 761]) {
+    await send('Emulation.setDeviceMetricsOverride', {width, height: 1000, deviceScaleFactor: 1, mobile: false})
+    assert.equal(await evaluate(`(() => {
+      const root = document.querySelector('#github-readouts');
+      return root.scrollWidth <= root.clientWidth &&
+        [...root.querySelectorAll('.github-home-owner-heading, .github-home-repository')]
+          .every(row => row.scrollWidth <= row.clientWidth);
+    })()`), true, `org titles and repositories fit expanded navigation at ${width}px`)
+  }
+  await click('.navigation-toggle')
+  await evaluate("Promise.all(document.querySelector('.workspace-shell').getAnimations().map(animation => animation.finished.catch(() => {}))).then(() => true)")
+  for (const width of [1440, 1080, 601, 600, 440, 320]) {
+    await send('Emulation.setDeviceMetricsOverride', {width, height: 1000, deviceScaleFactor: 1, mobile: false})
+    const layout = await evaluate(`(() => {
+      const root = document.querySelector('#github-readouts');
+      const rows = [...root.querySelectorAll('.github-home-repository')];
+      return {fits: root.scrollWidth <= root.clientWidth && rows.every(row => row.scrollWidth <= row.clientWidth),
+        quiet: [...root.querySelectorAll('[data-repository-id="QUIET_SYNTHETIC"] .github-home-total')].map(value => value.textContent.trim()),
+        names: rows.map(row => row.querySelector('h5').textContent.trim()),
+        indented: rows.every(row => row.querySelector('h5 bdi').getBoundingClientRect().left >
+          row.closest('article').querySelector('.github-home-owner-toggle bdi').getBoundingClientRect().left)};
+    })()`)
+    assert.equal(layout.fits, true, `repository identities and metrics fit at ${width}px`)
+    assert.equal(layout.indented, true, `repository names are indented beneath their owner at ${width}px`)
+    assert.deepEqual(layout.quiet, ['0', '0', '0'], 'unselected quiet repository is absent; whole-owner selection retains its observed zeroes')
+    assert.equal(layout.names.filter(name => name.includes('deliberately-long')).length, 2, 'long repository identities remain intact')
+    await evaluate("document.querySelector('#github-readouts').scrollIntoView({block:'start'})")
+    if ([1440, 320].includes(width)) await screenshot(`github-repositories-${width}`)
+  }
+  await send('Emulation.setDeviceMetricsOverride', {width: 1440, height: 1000, deviceScaleFactor: 1, mobile: false})
+  await evaluate(`document.querySelector(${JSON.stringify(firstToggle)}).focus()`)
+  await key(' ')
+  await waitFor(`document.querySelector(${JSON.stringify(first)}).hidden`, 'Space collapses owner repositories')
+  assert.equal(await evaluate(`document.querySelector(${JSON.stringify(firstToggle)}).getAttribute('aria-expanded')`), 'false')
+  assert.equal(await evaluate(`document.querySelector(${JSON.stringify(second)}).hidden`), false, 'collapsing one owner leaves the other open')
+  assert.equal(await evaluate("document.querySelectorAll('#github-readouts .github-home-owner-heading .github-home-metrics').length"), 2)
+  await click(secondToggle)
+  await evaluate("document.querySelector('#github-readouts').scrollIntoView({block:'start'})")
+  await screenshot('github-owners-collapsed')
+  await send('Emulation.setEmulatedMedia', {media: 'print'})
+  assert.equal(await evaluate("[...document.querySelectorAll('#github-readouts .github-home-repository-disclosure')].every(section => getComputedStyle(section).display !== 'none')"), true, 'print media preserves repository content when collapsed')
+  await send('Emulation.setEmulatedMedia', {media: ''})
+  console.log('PASS Home org-title toggles, selected counts and long-name fit from 320px to desktop')
+}
+
 async function homeLayout(width, forced = false) {
   await evaluate("document.querySelector('#workspace-content').scrollTop = 0")
   const layout = await evaluate(`(() => {
@@ -723,11 +795,14 @@ async function verifyDisconnect() {
 }
 
 async function verifyGitHubActivity() {
+  await click('#home-link')
+  await home()
+  assert.equal(await evaluate("document.querySelectorAll('#github-readouts .github-home-workspaces a').length"), 0)
   await click('#show-workspaces')
-  await waitFor("!!document.querySelector('#workspace-list')", 'directory before GitHub activity')
+  await waitFor(`!!document.querySelector('#open-${workspaceId}')`, 'workspace directory for owner activity')
   await click(`#open-${workspaceId}`)
-  await waitFor("!!document.querySelector('#workspace-github a[href*=\"/github/\"]')", 'synthetic workspace GitHub activity link')
-  const selector = '#workspace-github a[href*=\"/github/\"]'
+  const selector = '#workspace-github a[href*="/github/"]'
+  await waitFor(`!!document.querySelector(${JSON.stringify(selector)})`, 'workspace offers owner activity')
   const route = await evaluate(`new URL(document.querySelector(${JSON.stringify(selector)}).href).pathname`)
   await click(selector)
   await waitFor("!!document.querySelector('#github-owner-activity')", 'actual owner activity page')
@@ -865,6 +940,7 @@ try {
   assert.equal(await evaluate("document.activeElement.matches('[data-workspace-heading]')"), true)
   console.log("PASS automatic successful-unlock entrance, styled failure, equal control widths and gate/focus handoff")
 
+  await verifyHomeRepositories()
   await verifyGitHubDiscovery()
   await home()
   await verifyNavigationHistory()
@@ -1455,6 +1531,10 @@ try {
       await waitFor("document.querySelector('#calendar-agenda')?.textContent.includes('Synthetic focus time')", "Calendar remains available after navigation")
       await homeLayout(width, forced)
       if (width === 390 && !forced) await screenshot('home-narrow')
+      if (!forced) {
+        await evaluate("document.querySelector('#github-readouts').scrollIntoView({block:'start'})")
+        await screenshot(`github-home-${width}`)
+      }
       if (width === 390) await evaluate("document.querySelector('#calendar-agenda').scrollIntoView({block:'center'})")
       assert.equal(await evaluate("document.querySelector('#calendar-agenda').scrollWidth <= document.querySelector('#calendar-agenda').clientWidth"), true, "Calendar agenda has no horizontal overflow")
       if (width === 390 && !forced) await screenshot("calendar-home-narrow")

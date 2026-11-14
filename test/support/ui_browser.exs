@@ -474,9 +474,37 @@ try do
   {:ok, _} = Monolith.GitHub.Operations.authorize(session, Monolith.TestGitHub.bundle())
 
   for organization <- Monolith.GitHub.directory!(actor: owner).organizations do
+    Monolith.TestGitHub.configure(
+      repositories: [
+        Monolith.TestGitHub.repository(%{"full_name" => organization.login <> "/repo"}),
+        Monolith.TestGitHub.repository(%{
+          "id" => "QUIET_SYNTHETIC",
+          "name" => "quiet-repository",
+          "full_name" => organization.login <> "/quiet-repository"
+        }),
+        Monolith.TestGitHub.repository(%{
+          "id" => "LONG_SYNTHETIC",
+          "name" => "repository-with-a-deliberately-long-name-for-content-fit",
+          "full_name" =>
+            organization.login <> "/repository-with-a-deliberately-long-name-for-content-fit"
+        })
+      ]
+    )
+
     Monolith.GitHub.attach!(workspace.id, organization.id, actor: owner)
     Monolith.GitHub.poll!(organization.id, organization.generation, actor: owner)
+
+    if organization.login == "acme" do
+      Monolith.GitHub.attach_repositories!(
+        workspace.id,
+        organization.id,
+        ["REPO_SYNTHETIC", "LONG_SYNTHETIC"],
+        actor: owner
+      )
+    end
   end
+
+  Monolith.TestGitHub.configure(repositories: nil)
 
   # Bounded synthetic latency lets Chrome observe the durable discovery claim.
   Monolith.TestGitHub.configure(installation_response: {:delay, 5_000})

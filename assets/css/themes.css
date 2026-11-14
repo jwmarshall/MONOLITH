@@ -148,6 +148,8 @@
   --depth: 0;
   --noise: 0;
 }
+/* Shared metric labels: reading face, above counts with the component-owned 8px gap. */
+.metric-label { font-family: var(--font-body); font-size: var(--text-small); font-weight: var(--weight-regular); line-height: var(--leading-body); letter-spacing: normal; color: var(--muted); text-transform: uppercase; }
 @media (forced-colors: active) {
   :root {
     --ink: CanvasText;
