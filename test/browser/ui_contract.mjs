@@ -829,6 +829,8 @@ async function home() {
   assert.match(await evaluate("document.querySelector('#home-link').textContent.trim()"), /01\s*Home/)
   assert.equal(await evaluate("location.pathname + location.search + location.hash"), "/", "Home has its canonical URL")
   assert.equal(await evaluate("!!document.querySelector('#workspace-list, #home-inbox, #connections-panel, #scenes-panel')"), false)
+  assert.equal(await evaluate("[...document.querySelectorAll('#home-overview a')].some(link => link.textContent.includes('Open account inbox'))"), false, 'all account readouts omit the redundant inbox prompt')
+  assert.equal(await evaluate("document.querySelectorAll('#home-overview [phx-hook=\"ObservationTime\"]').length"), 0, 'account readouts contain no age/stale indicator, including hidden markup')
   const orientation = await evaluate(`(() => {
     const now = new Date(), date = document.querySelector('#daily-heading [data-daily-date]');
     return {day: document.querySelector('[data-daily-number]').textContent.trim(),

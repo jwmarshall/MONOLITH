@@ -103,10 +103,8 @@ defmodule MonolithWeb.HomeComponents do
               else: "Last 24 hours unavailable"}</span>
           </span>
         </span>
-        <span class="home-account-affordance">Open account inbox</span>
       </.link>
       <div id={"home-health-#{@account.id}"} class="home-account-health">
-        <.freshness account={@account} />
         <span :if={health_message(@account)} class="connection-warning">{health_message(@account)}</span>
         <.status_signal
           :if={!@account.inbox_unread_at && !health_message(@account)}
@@ -122,28 +120,6 @@ defmodule MonolithWeb.HomeComponents do
         >Connections</.link>
       </div>
     </li>
-    """
-  end
-
-  attr :account, :map, required: true
-
-  def freshness(assigns) do
-    ~H"""
-    <span
-      :if={@account.inbox_unread_at}
-      id={"home-freshness-#{@account.id}"}
-      class="home-freshness"
-      phx-hook="ObservationTime"
-      phx-update="ignore"
-      data-observed-at={DateTime.to_iso8601(@account.inbox_unread_at)}
-      data-warnings-only="true"
-      data-failed={
-        to_string(
-          @account.status != :ready || !is_nil(@account.inbox_unread_error) ||
-            !is_nil(@account.last_error)
-        )
-      }
-    ></span>
     """
   end
 

@@ -137,6 +137,8 @@ defmodule MonolithWeb.HomeOverviewLiveTest do
     assert has_element?(view, "#home-count-#{orphan.id} .home-count-recent b", "—")
     assert has_element?(view, "#home-count-#{orphan.id} .sr-only", "Last 24 hours unavailable")
     assert has_element?(view, "#home-account-#{orphan.id}", "Not in a workspace")
+    refute has_element?(view, "#home-overview a", "Open account inbox")
+    refute has_element?(view, "#home-overview [phx-hook='ObservationTime']")
 
     assert view
            |> render()
@@ -171,7 +173,7 @@ defmodule MonolithWeb.HomeOverviewLiveTest do
     refute_receive {:home_fetch, _}
   end
 
-  test "count updates stay account-scoped and retain visible stale/error context", %{conn: conn} do
+  test "count updates stay account-scoped and retain visible error context", %{conn: conn} do
     first = account("first", 8, 2)
     second = account("second", 19, 5)
     {:ok, view, _html} = live(conn, ~p"/")
@@ -186,7 +188,6 @@ defmodule MonolithWeb.HomeOverviewLiveTest do
     assert has_element?(view, "#home-count-#{first.id}", "8")
     assert has_element?(view, "#home-count-#{first.id} .home-count-recent", "2")
     assert has_element?(view, "#home-health-#{first.id}", "Gmail rate limit")
-    assert has_element?(view, "#home-freshness-#{first.id}[data-failed=true]")
     assert has_element?(view, "#home-count-#{second.id}", "19")
     assert has_element?(view, "#home-count-#{second.id} .home-count-recent", "5")
     refute_receive {:home_fetch, _}
@@ -214,13 +215,14 @@ defmodule MonolithWeb.HomeOverviewLiveTest do
     render_patch(view, ~p"/workspaces/#{workspace.id}")
     assert has_element?(view, "#home-count-#{first.id} .sr-only", "23 total")
     assert has_element?(view, "#home-count-#{first.id} .home-count-recent b", "7")
+    refute has_element?(view, ".mail-workspace-readout [phx-hook='ObservationTime']")
+    refute has_element?(view, ".mail-workspace-readout a", "Open account inbox")
 
     Application.put_env(:monolith, :home_test_unread, {:ok, %{total: 31, recent: 9}})
     assert %{error: nil} = poll(first)
     assert_receive {:home_fetch, ^token}
     assert has_element?(view, "#home-count-#{first.id} .sr-only", "31 total")
     assert has_element?(view, "#home-count-#{first.id} .home-count-recent b", "9")
-    assert has_element?(view, "#home-freshness-#{first.id}[data-failed=false]")
     assert has_element?(view, "#home-count-#{second.id} .sr-only", "19 total")
     assert has_element?(view, "#home-count-#{second.id} .home-count-recent b", "5")
 
@@ -234,13 +236,7 @@ defmodule MonolithWeb.HomeOverviewLiveTest do
     assert has_element?(view, "#home-count-#{first.id} .home-count-recent b", "9")
     assert has_element?(view, "#home-health-#{first.id}", "Update failed")
 
-    assert has_element?(
-             view,
-             "#home-freshness-#{first.id}[data-failed=true]" <>
-               "[data-observed-at='#{DateTime.to_iso8601(observed_at)}']"
-           )
-
-    assert has_element?(view, "#home-freshness-#{second.id}[data-failed=false]")
+    assert Mail.get_account!(first.id, actor: @owner).inbox_unread_at == observed_at
     refute has_element?(view, "#home-health-#{second.id}", "Update failed")
 
     Application.put_env(:monolith, :home_test_unread, {:ok, %{total: 0, recent: 0}})
@@ -248,7 +244,6 @@ defmodule MonolithWeb.HomeOverviewLiveTest do
     assert_receive {:home_fetch, ^token}
     assert has_element?(view, "#home-count-#{first.id} .sr-only", "0 total")
     assert has_element?(view, "#home-count-#{first.id} .home-count-recent b", "0")
-    assert has_element?(view, "#home-freshness-#{first.id}[data-failed=false]")
     refute has_element?(view, "#home-health-#{first.id}", "Update failed")
     refute_receive {:home_fetch, _}
   end
@@ -278,7 +273,6 @@ defmodule MonolithWeb.HomeOverviewLiveTest do
     {:ok, view, _html} = live(conn, ~p"/workspaces/#{workspace.id}")
     assert has_element?(view, "#home-count-#{account.id} .sr-only", "41 total")
     assert has_element?(view, "#home-count-#{account.id} .home-count-recent b", "6")
-    assert has_element?(view, "#home-freshness-#{account.id}[data-failed=true]")
     assert has_element?(view, "#home-health-#{account.id}", "Reconnect required")
 
     reconnected =
@@ -301,7 +295,6 @@ defmodule MonolithWeb.HomeOverviewLiveTest do
              "Last 24 hours unavailable"
            )
 
-    refute has_element?(view, "#home-freshness-#{account.id}")
     refute has_element?(view, "#home-health-#{account.id}", "Reconnect required")
     assert has_element?(view, "#home-unknown-#{account.id}", "No unread count observation")
     assert has_element?(view, "#home-count-#{other.id} .sr-only", "19 total")
@@ -310,7 +303,6 @@ defmodule MonolithWeb.HomeOverviewLiveTest do
     assert %{skipped: true} = poll(account)
     Operations.broadcast(account.id)
     assert has_element?(view, "#home-count-#{account.id} .sr-only", "Total unavailable")
-    refute has_element?(view, "#home-freshness-#{account.id}")
     refute_receive {:home_fetch, _}
 
     assert %{error: nil} = poll(reconnected)
@@ -318,7 +310,6 @@ defmodule MonolithWeb.HomeOverviewLiveTest do
     assert token == "synthetic-" <> account.id
     assert has_element?(view, "#home-count-#{account.id} .sr-only", "0 total")
     assert has_element?(view, "#home-count-#{account.id} .home-count-recent b", "0")
-    assert has_element?(view, "#home-freshness-#{account.id}[data-failed=false]")
     refute_receive {:home_fetch, _}
   end
 
@@ -460,7 +451,6 @@ defmodule MonolithWeb.HomeOverviewLiveTest do
 
     {:ok, view, _html} = live(conn, ~p"/")
     assert has_element?(view, "#home-count-#{account.id} .home-count b", "9")
-    assert has_element?(view, "#home-freshness-#{account.id}[data-failed=true]")
     assert has_element?(view, "#home-health-#{account.id}", "Reconnect required")
 
     assert has_element?(

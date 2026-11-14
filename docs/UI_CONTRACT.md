@@ -222,8 +222,8 @@ Use the same hierarchy on static setup/unlock pages and authenticated views.
   GitHub below; responsive composition, numbered headings, joined glass and semantic
   rhythm follow the design system. Keep timezone/context beside the corresponding
   heading and full account identity beside observations, wrapping without clipping.
-  Home omits routine successful-check statuses and Calendar Refresh controls. Keep loading, error and
-  locally aging stale warnings visible; workspace/Connections timestamps and refresh remain unchanged.
+  Home omits routine successful-check statuses and Calendar Refresh controls. Keep loading,
+  errors and Calendar stale warnings visible; detailed inbox/Connections timestamps and refresh remain unchanged.
   Unknown unread totals use a dash with an accessible unavailable label, never a fabricated zero.
   Calendar setup is a compact empty state linking directly to Connections → Calendar.
 - Gmail cards appear once per non-disconnected connection, including connections with no
@@ -232,9 +232,11 @@ Use the same hierarchy on static setup/unlock pages and authenticated views.
   The recent value uses Gmail received-time search over a fixed rolling 24-hour window,
   not a local calendar day or partial cached page. Both observations are committed together;
   incomplete paging/failures retain the previous pair as stale. See [GMAIL.md](GMAIL.md) for bounds.
-  Home shows stale warnings rather than routine successful-check timestamps; the underlying
-  observation still ages locally. Clicking a card opens only that account's read-only inbox
-  without attaching it anywhere.
+  Gmail account readouts on Home and workspaces omit age/stale indicators from the component;
+  underlying observations retain their timestamps. Clicking a card opens only that account's
+  read-only inbox without attaching it anywhere.
+  Home and workspace account readouts omit the redundant “Open account inbox” prompt;
+  the account identity remains the inbox navigation target for every account.
 - Unknown counts are not zero. Failed updates retain known counts as stale; elapsed time
   marks observations stale after three minutes, independent of unrelated mail-page success.
   Home rendering reads persisted metadata, never provider calls or cached message content.
@@ -465,9 +467,10 @@ Use the same hierarchy on static setup/unlock pages and authenticated views.
   signals with always-visible status labels, as specified in M07. No separate
   focusable signal or hover/focus-only status tooltip is required.
   Only loading implies an active read; unknown animation must not imply polling.
-  Errors, stale warnings, absent credentials and recovery instructions remain visible.
-  Home may omit routine healthy observations; Calendar/mail freshness and exact
-  timestamps retain their operational behavior. Key presence/readability never verifies Google.
+  Errors, absent credentials and recovery instructions remain visible. Shared Gmail
+  account summaries omit age/stale indicators; detailed inbox and Calendar stale warnings,
+  freshness and exact timestamps retain their operational behavior. Home may omit routine
+  healthy observations. Key presence/readability never verifies Google.
 - Mail loading uses an indeterminate signal on a transparent reserved status line,
   never a filled warning panel or invented percentage. Loading completion must not
   shift retained content. Reduced motion and forced colors retain complete static
