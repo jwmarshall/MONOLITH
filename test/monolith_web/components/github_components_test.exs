@@ -79,7 +79,7 @@ defmodule MonolithWeb.GitHubComponentsTest do
     end
   end
 
-  test "activity destinations include only the owner's attached workspaces" do
+  test "Home labels include only the owner's attached workspaces without navigation" do
     document =
       snapshot(%{},
         memberships: [
@@ -90,25 +90,199 @@ defmodule MonolithWeb.GitHubComponentsTest do
         workspace_options: [{"Studio", "studio"}, {"Personal", "personal"}, {"Other", "other"}]
       )
 
-    links = LazyHTML.query(document, ".github-home-links a")
+    labels = LazyHTML.query(document, ".github-home-workspaces")
 
-    assert LazyHTML.attribute(links, "href") == [
-             "/workspaces/studio/github/synthetic-owner",
-             "/workspaces/personal/github/synthetic-owner"
-           ]
+    assert LazyHTML.text(labels) =~ "Studio"
+    assert LazyHTML.text(labels) =~ "Personal"
+    refute LazyHTML.text(labels) =~ "Other"
+    assert Enum.empty?(LazyHTML.query(labels, "a"))
+    assert Enum.empty?(LazyHTML.query(document, ".home-section-heading p"))
 
-    assert LazyHTML.text(links) =~ "Studio"
-    assert LazyHTML.text(links) =~ "Personal"
-    assert Enum.empty?(LazyHTML.query(document, "button, details, .github-pr-list"))
+    assert LazyHTML.query(document, ".github-org-heading h4 button")
+           |> LazyHTML.attribute("aria-controls") == ["github-home-repositories-synthetic-owner"]
+
+    assert Enum.empty?(LazyHTML.query(document, ".github-pr-list, summary"))
+
+    assert LazyHTML.query(document, ".github-home-owner-toggle")
+           |> LazyHTML.attribute("aria-expanded") == ["false"]
+
+    assert LazyHTML.query(document, ".github-home-repository-disclosure[hidden]")
+           |> Enum.count() == 1
   end
 
   test "unattached owners offer workspace setup rather than an unrelated activity destination" do
     document = snapshot(%{}, workspace_options: [{"Unrelated", "other"}])
 
-    assert LazyHTML.query(document, ".github-home-links a") |> LazyHTML.attribute("href") ==
+    assert LazyHTML.query(document, ".github-home-setup") |> LazyHTML.attribute("href") ==
              ["/connections/github"]
 
     assert Enum.empty?(LazyHTML.query(document, "a[href^='/workspaces/']"))
+  end
+
+  test "Home expands catalog repositories and counts activity by immutable repository ID" do
+    document =
+      snapshot(%{
+        repositories: [
+          Monolith.TestGitHub.repository(%{"id" => "QUIET", "full_name" => "acme/quiet"}),
+          Monolith.TestGitHub.repository()
+        ],
+        total_count: 900,
+        pull_requests: [
+          Monolith.TestGitHub.row(%{"checks" => "FAILURE"}),
+          Monolith.TestGitHub.row(%{"repository_id" => "OUTSIDE_CATALOG"})
+        ],
+        issues: [Monolith.TestGitHub.issue()],
+        workflow_runs: [Monolith.TestGitHub.workflow_run(%{"conclusion" => "failure"})]
+      })
+
+    assert LazyHTML.query(document, ".github-home-repository-name") |> LazyHTML.text() =~
+             "acme/quiet"
+
+    active = LazyHTML.query(document, "[data-repository-id='REPO_SYNTHETIC']")
+    quiet = LazyHTML.query(document, "[data-repository-id='QUIET']")
+
+    for index <- 1..3 do
+      selector = ".github-home-metric:nth-child(#{index}) .github-home-total"
+      assert LazyHTML.query(active, selector) |> LazyHTML.text() == "1"
+      assert LazyHTML.query(quiet, selector) |> LazyHTML.text() == "0"
+    end
+
+    for index <- [1, 3] do
+      assert LazyHTML.query(
+               active,
+               ".github-home-metric:nth-child(#{index}) .github-home-attention"
+             )
+             |> LazyHTML.text() == "1"
+    end
+
+    refute LazyHTML.text(document) =~ "900"
+    assert Enum.count(LazyHTML.query(document, ".github-home-repository")) == 2
+  end
+
+  test "Home attention is unknown for unavailable status unless the other status confirms attention" do
+    for repositories <- [[], [Monolith.TestGitHub.repository()]],
+        {fields, attention} <- [
+          {%{"review_decision" => nil, "checks" => nil}, "—"},
+          {%{"review_decision" => "APPROVED", "checks" => nil}, "—"},
+          {%{"review_decision" => nil, "checks" => "SUCCESS"}, "—"},
+          {%{"review_decision" => nil, "checks" => "FAILURE"}, "1"},
+          {%{"review_decision" => "REVIEW_REQUIRED", "checks" => nil}, "1"},
+          {%{"review_decision" => "REVIEW_REQUIRED", "checks" => "FAILURE"}, "1"},
+          {%{"is_draft" => true, "review_decision" => nil, "checks" => "SUCCESS"}, "0"}
+        ] do
+      document =
+        snapshot(%{
+          repositories: repositories,
+          pull_requests: [Monolith.TestGitHub.row(fields)]
+        })
+
+      assert LazyHTML.query(
+               document,
+               ".github-home-owner-heading .github-home-metric:first-child .github-home-total"
+             )
+             |> LazyHTML.text() == "1"
+
+      assert LazyHTML.query(
+               document,
+               ".github-home-owner-heading .github-home-metric:first-child .github-home-attention"
+             )
+             |> LazyHTML.text() == attention
+    end
+  end
+
+  test "Home repository rows and header metrics respect deduplicated workspace selections" do
+    repositories =
+      for id <- ["first", "second", "third"],
+          do: Monolith.TestGitHub.repository(%{"id" => id, "full_name" => "acme/#{id}"})
+
+    selected = fn ids ->
+      %{organization_id: "synthetic-owner", workspace_id: "studio", repository_ids: ids}
+    end
+
+    other = %{organization_id: "other-owner", workspace_id: "elsewhere", repository_ids: []}
+
+    for {memberships, expected_ids} <- [
+          {[selected.(["first"]), other], ["first"]},
+          {[selected.(["first", "second"]), selected.(["second"])], ["first", "second"]},
+          {[selected.(["first"]), selected.([])], ["first", "second", "third"]},
+          {[other], ["first", "second", "third"]},
+          {[selected.(["removed"])], []}
+        ] do
+      document =
+        snapshot(
+          %{
+            repositories: repositories,
+            pull_requests:
+              Enum.map(repositories, &Monolith.TestGitHub.row(%{"repository_id" => &1["id"]})),
+            issues:
+              Enum.map(repositories, &Monolith.TestGitHub.issue(%{"repository_id" => &1["id"]})),
+            workflow_runs:
+              Enum.map(
+                repositories,
+                &Monolith.TestGitHub.workflow_run(%{"repository_id" => &1["id"]})
+              )
+          },
+          memberships: memberships
+        )
+
+      assert LazyHTML.query(document, ".github-home-repository")
+             |> LazyHTML.attribute("data-repository-id") == expected_ids
+
+      for index <- 1..3 do
+        assert LazyHTML.query(
+                 document,
+                 ".github-home-owner-heading .github-home-metric:nth-child(#{index}) .github-home-total"
+               )
+               |> LazyHTML.text() == Integer.to_string(length(expected_ids))
+      end
+
+      for id <- ["first", "second", "third"] -- expected_ids do
+        refute LazyHTML.text(document) =~ "acme/#{id}"
+      end
+    end
+  end
+
+  test "Home repository gaps remain unknown independently for partial and expired observations" do
+    for overrides <- [
+          %{truncated: true, issues_truncated: true, actions_truncated: true},
+          %{fetched_at: nil},
+          %{fetched_at: DateTime.add(@now, -86_400)}
+        ] do
+      document =
+        snapshot(
+          Map.merge(
+            %{
+              repositories: [
+                Monolith.TestGitHub.repository(%{"id" => "QUIET", "full_name" => "acme/quiet"}),
+                Monolith.TestGitHub.repository()
+              ],
+              pull_requests: [Monolith.TestGitHub.row()],
+              issues: [Monolith.TestGitHub.issue()],
+              workflow_runs: [Monolith.TestGitHub.workflow_run()]
+            },
+            overrides
+          )
+        )
+
+      quiet = LazyHTML.query(document, "[data-repository-id='QUIET']")
+      active = LazyHTML.query(document, "[data-repository-id='REPO_SYNTHETIC']")
+
+      for index <- 1..3 do
+        selector = ".github-home-metric:nth-child(#{index}) .github-home-total"
+        assert LazyHTML.query(quiet, selector) |> LazyHTML.text() == "—"
+
+        assert LazyHTML.query(active, selector) |> LazyHTML.text() ==
+                 if(Map.has_key?(overrides, :fetched_at), do: "—", else: "1")
+      end
+
+      for index <- [1, 3] do
+        assert LazyHTML.query(
+                 quiet,
+                 ".github-home-metric:nth-child(#{index}) .github-home-attention"
+               )
+               |> LazyHTML.text() == "—"
+      end
+    end
   end
 
   test "workspace empty results distinguish confirmed absence from unavailable details" do

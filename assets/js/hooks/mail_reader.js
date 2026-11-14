@@ -38,10 +38,16 @@ export default {
       // A new intentional control action must not lose focus to a pending load.
       if (!row && !event.target.closest("#mail-back")) this.cancelHandoff()
     }
+    this.onFocus = event => {
+      if (!this.handingOff && event.target.matches("a, button, input, select, textarea, summary, [tabindex]:not([data-workspace-heading])")) {
+        this.cancelHandoff()
+      }
+    }
     this.el.addEventListener("click", this.rememberPosition, true)
     this.el.ownerDocument.addEventListener("keydown", this.cancelHandoff, true)
     this.el.ownerDocument.addEventListener("pointerdown", this.cancelHandoff, true)
     this.el.ownerDocument.addEventListener("input", this.cancelHandoff, true)
+    this.el.ownerDocument.addEventListener("focusin", this.onFocus, true)
     this.updateReader()
   },
 
@@ -81,7 +87,7 @@ export default {
       this.schedule(() => {
         const heading = this.el.querySelector("#mail-heading")
         heading?.focus({preventScroll: true})
-        heading?.scrollIntoView({block: "start", behavior: "instant"})
+        this.scroller().scrollTop = 0
       })
     }
     if (loaded !== "true") return
@@ -92,9 +98,10 @@ export default {
         const heading = this.el.querySelector("#mail-conversation-heading")
         const latest = this.el.querySelector('[data-mail-latest="true"]')
         const target = latest?.querySelector(":scope > summary") || heading
-        // Begin at the latest reply and focus its visible disclosure, not the
-        // conversation heading above the viewport. Account/return stays nearby.
-        ;(latest || heading)?.scrollIntoView({block: "start", behavior: "instant"})
+        // Keep the subject and account context visible when the latest summary
+        // already fits. Long histories still bring that reply into view.
+        this.scroller().scrollTop = 0
+        target?.scrollIntoView({block: "nearest", behavior: "instant"})
         const context = this.el.querySelector(".mail-reader-context")
         if (context && target) {
           const overlap = context.getBoundingClientRect().bottom + 16 - target.getBoundingClientRect().top
@@ -105,7 +112,6 @@ export default {
     } else if (this.returnPending && this.el.querySelector("#mail-threads")) {
       this.returnPending = false
       const position = this.returnPosition
-      this.returnPosition = null
       this.schedule(() => {
         const row = this.el.ownerDocument.getElementById(position.id)
         const target = row && this.el.contains(row) ? row : this.el.querySelector("#mail-heading")
@@ -123,7 +129,10 @@ export default {
       const pane = this.el.ownerDocument.getElementById("workspace-pane")
       // A delayed mail load must never wake Escape/idle scenery mode.
       if (pane?.getAttribute("aria-pressed") === "false") return
-      if (this.el.dataset.mailContext === context && this.el.dataset.mailThread === thread) callback()
+      if (this.el.dataset.mailContext === context && this.el.dataset.mailThread === thread) {
+        this.handingOff = true
+        try { callback() } finally { this.handingOff = false }
+      }
     })
   },
 
@@ -133,6 +142,7 @@ export default {
     this.el.ownerDocument.removeEventListener("keydown", this.cancelHandoff, true)
     this.el.ownerDocument.removeEventListener("pointerdown", this.cancelHandoff, true)
     this.el.ownerDocument.removeEventListener("input", this.cancelHandoff, true)
+    this.el.ownerDocument.removeEventListener("focusin", this.onFocus, true)
     this.view.removeEventListener("popstate", this.beginNavigation, true)
     this.view.removeEventListener("phx:page-loading-start", this.beginNavigation)
     this.returnPosition = null

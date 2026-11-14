@@ -34,6 +34,8 @@ Scenery supplies atmosphere, never the reading surface. Join account-separated r
 
 Regular content uses `--card-surface: rgba(18,23,21,.71)`. Raised/hover surfaces use `.88`, inset controls `.72`. Outer boundaries use 1px `--line` at 23% opacity; inner separators use 1px `--line-interior` at 12%. A shared parent owns the glass and adjoining children are transparent; avoid doubled rules. Buttons, fields, focus indicators, selected controls and dialogs retain their own backgrounds/outlines. Native modal elevation is not permission to add content-card shadows.
 
+Gmail account inboxes and conversations follow the study's transparent-surface exception (`study.css` mail list/reader rules): no persistent fill on the list, toolbar, status region, reader or account/return header. Only the hovered inbox row gains `--inset`; neighboring rows stay transparent. The reader header stays in normal flow so scrolled correspondence cannot overlap transparent sticky controls. Preserve the shared scenery blur/shade, opaque text, horizontal dividers, visible keyboard focus and system-color backgrounds in forced colors. Do not turn this scoped exception into a global card-token change.
+
 ### M02 — One foundation, one owner per decision
 
 `tokens.css` is the approved annotated foundation, loaded before consumers. Reuse shared controls and semantic tokens before adding variants. In the application, integrate with its existing token/component owners; do not ship the designer's specimen sheets or maintain divergent copies of the same public decision.

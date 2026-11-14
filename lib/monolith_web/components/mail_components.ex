@@ -40,33 +40,30 @@ defmodule MonolithWeb.MailComponents do
         :if={@account}
         class={["mail-register-row page-header-row", @mail.thread_id && "mail-reader-context"]}
       >
-        <p :if={!@mail.thread_id} class="mail-eyebrow">01 / Email</p>
-        <h2 :if={@mail.thread_id} id="mail-heading" class="mail-reader-account">
-          {@account.email}
-          <span :if={@workspace} class="mail-muted">{@workspace.name}</span>
-        </h2>
+        <p :if={!@mail.thread_id} class="mail-eyebrow">
+          01 / Gmail / {if @workspace, do: @workspace.name, else: "Account"}
+        </p>
         <.link
           :if={@mail.thread_id}
           id="mail-back"
           patch={HomeNavigation.mail_path(@mail, %{thread_id: nil})}
           class="workspace-action workspace-action-link"
         >Back to results</.link>
+        <h2 :if={@mail.thread_id} id="mail-heading" class="mail-reader-account">
+          {@account.email}
+          <span :if={@workspace} class="mail-muted">{@workspace.name}</span>
+        </h2>
+        <.mail_tools :if={@mail.thread_id} mail={@mail} />
         <.link
-          :if={!@mail.thread_id}
-          patch={
-            if @mail.scope == :home, do: "/", else: HomeNavigation.workspace_path(@mail.workspace_id)
-          }
+          :if={!@mail.thread_id && @workspace}
+          patch={HomeNavigation.workspace_path(@mail.workspace_id)}
           class="workspace-action workspace-action-link"
-        >{if @mail.scope == :home, do: "Home", else: "All accounts"}</.link>
+        >All accounts</.link>
         <.lock_control />
       </div>
       <header :if={@account && !@mail.thread_id} class="mail-heading mail-inbox-heading">
         <div class="mail-account-identity">
-          <p class="mail-eyebrow">
-            Gmail / {if @workspace, do: @workspace.name, else: "Account"}
-          </p>
           <h1 id="mail-heading" tabindex="-1" data-workspace-heading>{@account.email}</h1>
-          <p class="mail-muted">Read-only Gmail</p>
         </div>
         <.form
           for={@mail.search_form}
@@ -131,7 +128,11 @@ defmodule MonolithWeb.MailComponents do
         <.add_panel :if={@mail.adding} mail={@mail} workspace={@workspace} />
       </div>
 
-      <div :if={@account} id="mail-account-view" class={if !@mail.thread_id, do: "mail-inbox-plane"}>
+      <div
+        :if={@account}
+        id="mail-account-view"
+        class={if @mail.thread_id, do: "mail-conversation-plane", else: "mail-inbox-plane"}
+      >
         <.connect
           :if={@workspace && (@account.status == :reconnect || @mail.error == :reconnect)}
           workspace={@workspace}
@@ -142,57 +143,24 @@ defmodule MonolithWeb.MailComponents do
           patch="/connections/gmail"
           class="workspace-action workspace-action-link"
         >Reconnect in Connections</.link>
-        <div class="mail-toolbar">
+        <div :if={!@mail.thread_id} class="mail-toolbar">
           <div class="mail-actions">
             <.link
               patch="/connections/gmail"
               class="workspace-action workspace-action-link"
               aria-label={"Manage connection for #{@account.email}"}
             >Manage connection</.link>
-            <span :if={@mail.thread_id} class="mail-muted">Read-only conversation</span>
+            <span class="mail-muted">Read-only</span>
             <span :if={@mail.command || @mail.loading} class="mail-muted">
               {if @mail.command, do: "Account update in progress.", else: "Read in progress."}
             </span>
             <.link
-              :if={!@mail.thread_id && (@mail.query || @mail.page_token)}
+              :if={@mail.query || @mail.page_token}
               patch={HomeNavigation.mail_path(@mail, %{page_token: nil})}
               class="workspace-action workspace-action-link"
             >First page</.link>
-            <span :if={!@mail.thread_id} class="mail-muted">{if @mail.query,
-              do: "Search results",
-              else: "Inbox"}</span>
           </div>
-          <div class="mail-tools">
-            <details :if={@mail.fetched_at} id="mail-observation" class="mail-observation">
-              <summary>
-                <span
-                  id="mail-freshness"
-                  phx-hook="MailFreshness"
-                  phx-update="ignore"
-                  data-fetched-at={DateTime.to_iso8601(@mail.fetched_at)}
-                  data-stale={to_string(@mail.stale || not is_nil(@mail.error))}
-                  data-cached={to_string(@mail.cached)}
-                >
-                  {if @mail.cached, do: "Local copy ·", else: "Fetched ·"}
-                  {Calendar.strftime(@mail.fetched_at, "%Y-%m-%d %H:%M:%S UTC")}
-                </span>
-              </summary>
-              <p>
-                Fetched ·
-                <time datetime={DateTime.to_iso8601(@mail.fetched_at)}>{Calendar.strftime(
-                  @mail.fetched_at,
-                  "%Y-%m-%d %H:%M:%S UTC"
-                )}</time>
-              </p>
-            </details>
-            <button
-              id="mail-refresh"
-              type="button"
-              class="workspace-action"
-              phx-click="mail:refresh"
-              disabled={@mail.loading || !!@mail.command}
-            >Refresh</button>
-          </div>
+          <.mail_tools mail={@mail} />
         </div>
 
         <div id="mail-status" class="mail-status" role="status" aria-live="polite" aria-atomic="true">
@@ -230,13 +198,11 @@ defmodule MonolithWeb.MailComponents do
           >
             <span class="mail-thread-marker" aria-hidden="true"></span>
             <span class="mail-thread-content">
-              <span class="mail-thread-meta">
-                <span class="mail-thread-sender">{present(thread["from"], "(Unknown sender)")}</span>
-                <.mail_date id={"thread-date-#{thread["id"]}"} value={thread["date"]} />
-              </span>
+              <span class="mail-thread-sender">{present(thread["from"], "(Unknown sender)")}</span>
               <span class="mail-thread-subject">{present(thread["subject"], "(No subject)")}</span>
               <span class="mail-thread-snippet">{thread["snippet"]}</span>
             </span>
+            <.mail_date id={"thread-date-#{thread["id"]}"} value={thread["date"]} />
             <span :if={thread["unread"] == true} class="sr-only">Unread in Gmail</span>
           </.link>
         </div>
@@ -249,15 +215,12 @@ defmodule MonolithWeb.MailComponents do
           aria-busy={to_string(@mail.loading)}
         >
           <header class="mail-conversation-header">
-            <p class="mail-eyebrow">Read-only conversation / {@account.email}</p>
+            <p class="mail-eyebrow">
+              {@account.email} / Read-only conversation
+            </p>
             <h1 id="mail-conversation-heading" tabindex="-1" data-workspace-heading>
               {@conversation_subject}
             </h1>
-            <p class="mail-muted">
-              {length(@messages)} {if length(@messages) == 1,
-                do: "message",
-                else: "messages"}
-            </p>
           </header>
           <p :if={@mail.data_loaded && !@payload_expired && @messages == []} class="mail-empty">
             No plain-text messages are available.
@@ -362,6 +325,44 @@ defmodule MonolithWeb.MailComponents do
         </div>
       </div>
     </section>
+    """
+  end
+
+  attr :mail, :map, required: true
+
+  defp mail_tools(assigns) do
+    ~H"""
+    <div class="mail-tools">
+      <details :if={@mail.fetched_at} id="mail-observation" class="mail-observation">
+        <summary>
+          <span
+            id="mail-freshness"
+            phx-hook="MailFreshness"
+            phx-update="ignore"
+            data-fetched-at={DateTime.to_iso8601(@mail.fetched_at)}
+            data-stale={to_string(@mail.stale || not is_nil(@mail.error))}
+            data-cached={to_string(@mail.cached)}
+          >
+            {if @mail.cached, do: "Local copy ·", else: "Fetched ·"}
+            {Calendar.strftime(@mail.fetched_at, "%Y-%m-%d %H:%M:%S UTC")}
+          </span>
+        </summary>
+        <p>
+          Fetched ·
+          <time datetime={DateTime.to_iso8601(@mail.fetched_at)}>{Calendar.strftime(
+            @mail.fetched_at,
+            "%Y-%m-%d %H:%M:%S UTC"
+          )}</time>
+        </p>
+      </details>
+      <button
+        id="mail-refresh"
+        type="button"
+        class="workspace-action"
+        phx-click="mail:refresh"
+        disabled={@mail.loading || !!@mail.command}
+      >Refresh</button>
+    </div>
     """
   end
 

@@ -28,13 +28,36 @@
 .github-home-organization:nth-child(-n+2) { border-top: 0; }
 .github-home-metrics { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; margin-block: 24px 16px; }
 .github-home-metric { min-width: 0; }
-.github-home-metric dt { font-size: 13px; line-height: 1.55; color: var(--muted); overflow-wrap: anywhere; }
+.github-home-metric dt { overflow-wrap: anywhere; }
 .github-home-number { margin: 8px 0 0; font-size: 32px; line-height: 1.2; font-weight: 400; font-variant-numeric: tabular-nums; }
 .github-home-total { color: var(--ink); }
 .github-home-separator { color: var(--muted); font-size: 18px; }
 .github-home-attention { color: var(--attention); }
-.github-home-links { display: flex; flex-wrap: wrap; gap: 8px 16px; }
-.github-home-links .workspace-action { font-size: 13px; overflow-wrap: anywhere; }
+.github-home-failure { color: var(--error); }
+.github-home-owner-toggle { display: inline-flex; align-items: center; gap: 8px; min-width: 44px; min-height: 44px; max-width: 100%; padding: 0; border: 0; background: transparent; color: inherit; font: inherit; text-align: start; overflow-wrap: anywhere; }
+.github-home-owner-toggle > span:last-child { min-width: 0; }
+.github-home-owner-toggle:hover { text-decoration: underline; text-underline-offset: 5px; }
+.github-home-owner-chevron { flex: none; }
+.github-home-owner-toggle[aria-expanded="true"] .github-home-owner-chevron { transform: rotate(90deg); }
+.github-home-workspaces { display: flex; flex-wrap: wrap; gap: 8px 16px; }
+/* Home keeps selected-snapshot totals visible beside owner-title repository toggles. */
+.github-home-repository-grid { grid-template-columns: minmax(0, 1fr); }
+.github-home-repository-grid > .github-home-organization { padding-block: 16px; }
+.github-home-repository-grid > .github-home-organization + .github-home-organization { border-top: 1px solid var(--line-interior); }
+.github-home-repository-grid .github-org-heading > div { display: flex; align-items: baseline; flex-wrap: wrap; gap: 8px 24px; width: 100%; }
+.github-home-repository-grid .github-home-workspaces { margin: 0; }
+.github-home-owner-heading { display: grid; grid-template-columns: minmax(0, 1fr) minmax(360px, 1fr); align-items: center; }
+.github-home-owner-heading .github-home-metrics { margin: 0; }
+.github-home-owner-heading .github-home-number { font-size: 23px; }
+.github-home-repository-disclosure { margin-top: 16px; }
+.github-home-repositories { list-style: none; padding: 0; margin: 0; }
+.github-home-repository { display: grid; grid-template-columns: minmax(0, 1fr) minmax(360px, 1fr); align-items: center; gap: 12px 24px; padding-block: 12px; border-top: 1px solid var(--line-interior); }
+.github-home-repository-name { min-width: 0; margin: 0; padding-inline-start: 48px; font-size: 16px; line-height: 1.55; font-weight: 400; overflow-wrap: anywhere; }
+.github-home-repository .github-home-metrics { margin: 0; }
+.github-home-repository .github-home-number { font-size: 23px; }
+.github-home-repository .github-home-separator { font-size: inherit; }
+.github-home-repository-empty > p { margin: 12px 0 0; font-size: 13px; }
+.github-connection-links { display: flex; flex-wrap: wrap; gap: 8px 16px; }
 .github-connections, .workspace-github { display: flex; flex-direction: column; min-width: 0; }
 .workspace-github > .connection-card { margin: 0; padding: 24px 0; border: 0; border-top: 1px solid var(--line-interior); border-radius: 0; background: transparent; box-shadow: none; }
 .workspace-github > .connection-card, .workspace-github > .github-section-heading, .workspace-github > .empty-state, .workspace-github > .connection-help, .workspace-github > .connection-warning { padding-inline: 24px; }
@@ -98,8 +121,13 @@
   .github-home-grid { grid-template-columns: minmax(0, 1fr); }
   .github-home-organization:nth-child(2) { border-top: 1px solid var(--line-interior); }
 }
+@media (min-width: 761px) and (max-width: 1080px) {
+  .workspace-shell[data-navigation="expanded"] .github-home-owner-heading,
+  .workspace-shell[data-navigation="expanded"] .github-home-repository { grid-template-columns: minmax(0, 1fr); }
+}
 @media (max-width: 600px) {
   .github-org-heading { align-items: stretch; flex-direction: column; }
+  .github-home-repository, .github-home-owner-heading { grid-template-columns: minmax(0, 1fr); }
   .github-org-heading > .mail-actions { justify-content: flex-end; }
   .github-pr { grid-template-columns: minmax(0, 1fr); }
   .github-pr-state { flex-direction: row; flex-wrap: wrap; align-items: baseline; justify-content: flex-start; gap: 8px 16px; }
@@ -124,15 +152,23 @@
 }
 @media (forced-colors: active) {
   .github-organization, .github-pr, .github-review-section, .github-authorized-accounts > .connection-card, .github-installation-row, .workspace-github > .connection-card, .github-connections .connection-help { border-color: CanvasText; }
+  .github-home-repository { border-color: CanvasText; }
   .github-readouts *, .github-connections *, .workspace-github *, .github-owner-activity * { color: CanvasText; }
   .github-pr-state .status-signal[data-state], .github-check-failed .status-signal { color: CanvasText; }
-  .github-home-links .workspace-action-link, .github-pr-title { color: LinkText; }
+  .github-org-heading a, .github-pr-title { color: LinkText; }
   .github-readouts :focus-visible, .github-connections :focus-visible, .workspace-github :focus-visible, .github-owner-activity :focus-visible { outline-color: Highlight; }
 }
 @media print {
   .github-readouts *, .github-connections *, .workspace-github *, .github-owner-activity * { color: #000; background: transparent; box-shadow: none; }
   .github-pr-state .status-signal[data-state], .github-check-failed .status-signal { color: #000; }
   .github-organization, .github-pr, .github-review-section, .github-account-plane, .github-provider-heading, .github-authorized-accounts, .github-state-message, .github-authorized-accounts > .connection-card, .installation-owner-list, .github-installation-row, .workspace-github > .connection-card { border-color: #777; }
+  .github-home-repository { break-inside: avoid; }
+  .github-home-repository { border-color: #777; }
+  /* Match Tailwind's base layer: important layered rules outrank unlayered ones. */
+  @layer base {
+    .github-home-repository-disclosure[hidden] { display: block !important; }
+  }
+  .github-home-owner-chevron { display: none; }
   .github-home-grid, .github-pr { grid-template-columns: minmax(0, 1fr); }
   .github-repository-choices { max-height: none; overflow: visible; }
   .github-review-heading { break-after: avoid; }

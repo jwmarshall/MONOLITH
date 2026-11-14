@@ -22,7 +22,7 @@ function reader(t) {
   const element = id => ({
     id,
     focus(options) { assert.equal(options.preventScroll, true); focused.push(id) },
-    scrollIntoView(options) { assert.equal(options.behavior, "instant"); scrolled.push(id) },
+    scrollIntoView(options) { assert.equal(options.behavior, "instant"); assert.equal(options.block, id === "latest-summary" ? "nearest" : "start"); scrolled.push(id) },
   })
   const row = element("mail-thread-first")
   const heading = element("mail-heading")
@@ -71,7 +71,8 @@ test("reader waits for content, opens latest once, and restores exact row and sc
   const r = reader(t)
   r.open()
   assert.deepEqual(r.focused, ["latest-summary"])
-  assert.deepEqual(r.scrolled, ["latest-message"])
+  assert.deepEqual(r.scrolled, ["latest-summary"])
+  assert.equal(r.scroller.scrollTop, 0)
   r.update({mailLoaded: "true"}) // refresh/PubSub patches must not move focus or scroll
   r.flush()
   assert.equal(r.focused.length, 1)
@@ -174,6 +175,60 @@ test("browser Back starts a fresh return handoff after reader interactions, whil
   assert.equal(r.viewListeners.size, 0)
 })
 
+test("focus-only control navigation supersedes a pending reader handoff", t => {
+  const r = reader(t)
+  r.click("row")
+  r.update({mailThread: "first", mailLoaded: "false"})
+  r.documentListeners.get("focusin")({target: {matches: () => true}})
+  r.elements.set("#mail-conversation-heading", {})
+  r.update({mailLoaded: "true"})
+  r.flush()
+  assert.deepEqual(r.focused, [])
+  assert.deepEqual(r.scrolled, [])
+  r.hook.destroyed()
+})
+
+test("Back Forward Back preserves the same bounded result position", t => {
+  const r = reader(t)
+  r.open()
+  const traverse = thread => {
+    r.viewListeners.get("popstate")({type: "popstate"})
+    if (thread) r.elements.delete("#mail-threads")
+    else r.elements.set("#mail-threads", {})
+    r.update({mailThread: thread, mailLoaded: "true"})
+    r.flush()
+  }
+  traverse("")
+  traverse("first")
+  traverse("")
+  assert.deepEqual(r.focused, ["latest-summary", "mail-thread-first", "latest-summary", "mail-thread-first"])
+  assert.equal(r.scroller.scrollTop, 250)
+  r.hook.destroyed()
+})
+
+test("latest-summary handoff clears sticky context overlap without canceling its own focus", t => {
+  const r = reader(t)
+  r.elements.set(".mail-reader-context", {getBoundingClientRect: () => ({bottom: 80})})
+  r.click("row")
+  r.update({mailThread: "first", mailLoaded: "false"})
+  r.elements.set("#mail-conversation-heading", {})
+  const summary = {
+    scrollIntoView() { r.scroller.scrollTop = 300 },
+    getBoundingClientRect: () => ({top: 50}),
+    focus() {
+      r.documentListeners.get("focusin")({target: {matches: () => true}})
+      r.focused.push("latest-summary")
+    },
+  }
+  r.elements.set('[data-mail-latest="true"]', {querySelector: () => summary})
+  r.update({mailLoaded: "true"})
+  r.flush()
+  assert.equal(r.scroller.scrollTop, 254)
+  assert.deepEqual(r.focused, ["latest-summary"])
+  assert.equal(r.hook.handoffCanceled, false)
+  r.hook.destroyed()
+})
+
 test("a late loading patch cannot wake scenery even if Escape happened before that patch", t => {
   const r = reader(t)
   r.click("row")
@@ -188,12 +243,13 @@ test("a late loading patch cannot wake scenery even if Escape happened before th
   r.hook.destroyed()
 })
 
-test("fresh inbox navigation focuses its new heading once, without waiting for provider data", t => {
+test("fresh inbox navigation preserves its top context and focuses the heading without waiting for provider data", t => {
   const r = reader(t)
   r.update({mailAccount: "account-a", mailContext: "account-a:list-1", mailLoaded: "false"})
   r.flush()
   assert.deepEqual(r.focused, ["mail-heading"])
-  assert.deepEqual(r.scrolled, ["mail-heading"])
+  assert.deepEqual(r.scrolled, [])
+  assert.equal(r.scroller.scrollTop, 0)
   r.update({mailLoaded: "true"})
   r.flush()
   assert.deepEqual(r.focused, ["mail-heading"])

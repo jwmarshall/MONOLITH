@@ -103,7 +103,14 @@ defmodule MonolithWeb.GitHubLiveTest do
            )
 
     refute has_element?(view, "#github-readouts .github-pr-title")
-    refute has_element?(view, "#github-readouts button, #github-readouts details")
+    refute has_element?(view, "#github-readouts button:not(.github-home-owner-toggle)")
+    refute has_element?(view, "#github-readouts summary")
+
+    for org <- [acme, beta] do
+      assert has_element?(view, "#github-home-toggle-#{org.id}[aria-expanded='false']")
+      assert has_element?(view, "#github-home-repositories-#{org.id}[hidden]")
+    end
+
     refute has_element?(view, "#github-readouts img")
     refute html =~ TestGitHub.bundle().access_token
     refute inspect(:sys.get_state(view.pid).socket.assigns) =~ TestGitHub.bundle().refresh_token
@@ -432,14 +439,32 @@ defmodule MonolithWeb.GitHubLiveTest do
     refute has_element?(view, "#workspace-github-readouts", "Issue in first")
 
     render_patch(view, "/")
-    assert has_element?(view, "#github-org-#{org.id} .github-home-number", "2")
+
+    for repository <- repositories do
+      row = "#github-org-#{org.id} [data-repository-id='#{repository["id"]}']"
+      assert has_element?(view, "#{row} .github-home-repository-name", repository["full_name"])
+      assert has_element?(view, "#{row} .github-home-metric:first-child .github-home-total", "1")
+    end
+
+    header_total =
+      "#github-org-#{org.id} .github-home-owner-heading .github-home-metric:first-child .github-home-total"
+
+    assert has_element?(view, header_total, "2")
+    GitHub.attach_repositories!(other.id, org.id, ["REPO_FIRST"], actor: @owner)
+    render(view)
+    assert has_element?(view, header_total, "1")
+    refute has_element?(view, "#github-org-#{org.id} [data-repository-id='REPO_SECOND']")
+    GitHub.attach_repositories!(other.id, org.id, ["REPO_SECOND"], actor: @owner)
+    render(view)
+    assert has_element?(view, header_total, "2")
+
     refute has_element?(view, "#github-org-#{org.id} .github-pr-list")
     destination = "/workspaces/#{workspace.id}/github/#{org.id}"
-    other_destination = "/workspaces/#{other.id}/github/#{org.id}"
-    assert has_element?(view, "#github-org-#{org.id} a[href='#{other_destination}']")
+    refute has_element?(view, "#github-org-#{org.id} .github-home-workspaces a")
+    render_patch(view, "/workspaces/#{workspace.id}")
 
     view
-    |> element("#github-org-#{org.id} a[href='#{destination}']")
+    |> element("#workspace-github a[href='#{destination}']")
     |> render_click()
 
     assert_patch(view, destination)
@@ -552,8 +577,16 @@ defmodule MonolithWeb.GitHubLiveTest do
     refute has_element?(view, "main", "Acme retained change")
 
     render_patch(view, "/")
-    assert has_element?(view, "#github-org-#{acme.id} a[href='#{retained_path}']")
-    assert has_element?(view, "#github-org-#{personal.id} a[href='#{personal_path}']")
+    assert has_element?(view, "#github-org-#{acme.id} .github-home-workspaces", other.name)
+    refute has_element?(view, "#github-org-#{acme.id} .github-home-workspaces", workspace.name)
+
+    assert has_element?(
+             view,
+             "#github-org-#{personal.id} .github-home-workspaces",
+             workspace.name
+           )
+
+    refute has_element?(view, "#github-readouts .github-home-workspaces a")
     render_patch(view, "/workspaces/#{workspace.id}")
     refute has_element?(view, "#workspace-github-#{acme.id}")
     assert has_element?(view, "#workspace-github-#{personal.id}")
