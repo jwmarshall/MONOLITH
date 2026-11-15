@@ -200,7 +200,7 @@ defmodule MonolithWeb.ConnectionComponents do
                 and have no daily cooldown. Automatic startup has a persisted 24-hour minimum.
               </p>
               <p>
-                Save startup opt-in in <.link patch="/settings">Settings</.link>.
+                Save startup opt-in in <.link patch="/settings/startup">Startup scenery settings</.link>.
                 Automatic startup also requires <code>MONOLITH_STAGE_ENABLED=true</code>
                 and an eligible restart. Saving the preference neither generates nor cancels work.
               </p>

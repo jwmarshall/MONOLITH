@@ -12,6 +12,7 @@ defmodule Monolith.GitHubTest do
     Organization,
     Polling,
     PollWorker,
+    Store,
     WorkspaceOrganization
   }
 
@@ -583,6 +584,160 @@ defmodule Monolith.GitHubTest do
     GitHub.poll!(org.id, org.generation, actor: @owner)
     assert current(org.id).total_count == nil
     assert current(org.id).last_error == :provider
+  end
+
+  test "retention changes expire observations without provider work or resurrection", c do
+    {org, _} = connect(c)
+    observed = DateTime.add(DateTime.utc_now(), -7200)
+    update_org(org, %{fetched_at: observed})
+    calls = TestGitHub.state().calls
+
+    Monolith.Caching.save_preferences!(:github, 5, 1, actor: @owner)
+    assert Store.get(org.id).pull_requests != []
+    assert TestGitHub.state().calls == calls
+    expired = current(org.id)
+    assert expired.pull_requests == []
+    assert expired.repositories == []
+    assert expired.total_count == nil
+    assert expired.fetched_at == observed
+    refute expired.cache_retained?
+    assert length(directory().memberships) == 1
+
+    # Even a not-yet-swept payload from another owner cannot revive on increase.
+    other = Enum.find(directory().organizations, &(&1.id != org.id))
+    update_org(other, %{fetched_at: observed, total_count: 7})
+    Monolith.Caching.save_preferences!(:github, 5, 24, actor: @owner)
+    assert current(org.id).total_count == nil
+    assert current(other.id).total_count == nil
+    assert TestGitHub.state().calls == calls
+  end
+
+  test "selected cadence controls stale flags and success and normal failure schedules", c do
+    Monolith.Caching.save_preferences!(:github, 30, 24, actor: @owner)
+    {org, _} = connect(c)
+    assert DateTime.diff(org.next_poll_at, org.last_poll_at) == 1800
+    update_org(org, %{fetched_at: DateTime.add(DateTime.utc_now(), -600)})
+    assert current(org.id).cache_fresh?
+    update_org(current(org.id), %{fetched_at: DateTime.add(DateTime.utc_now(), -1801)})
+    refute current(org.id).cache_fresh?
+
+    observed = current(org.id).fetched_at
+    TestGitHub.configure(response: {:error, :provider})
+    GitHub.refresh!(org.id, actor: @owner)
+    GitHub.poll!(org.id, org.generation, actor: @owner)
+    failed = current(org.id)
+    assert failed.fetched_at == observed
+    assert failed.last_error == :provider
+    assert DateTime.diff(failed.next_poll_at, failed.last_poll_at) == 1800
+  end
+
+  test "normal scheduling honors changed cadence but manual Refresh retains fixed cooldown", c do
+    {org, _} = connect(c)
+    attempted = DateTime.add(DateTime.utc_now(), -600)
+    update_org(org, %{last_poll_at: attempted, next_poll_at: DateTime.add(attempted, 300)})
+    calls = TestGitHub.state().calls
+    Monolith.Caching.save_preferences!(:github, 60, 24, actor: @owner)
+    assert GitHub.poll!(org.id, org.generation, actor: @owner).skipped
+    Monolith.Caching.save_preferences!(:github, 5, 24, actor: @owner)
+    assert :ok = Polling.sweep()
+
+    assert_enqueued(
+      worker: PollWorker,
+      args: %{organization_id: org.id, generation: org.generation}
+    )
+
+    assert TestGitHub.state().calls == calls
+    GitHub.poll!(org.id, org.generation, actor: @owner)
+    assert length(TestGitHub.state().calls) > length(calls)
+
+    Monolith.Caching.save_preferences!(:github, 60, 24, actor: @owner)
+    TestGitHub.configure(response: {:error, :rate_limited})
+    GitHub.refresh!(org.id, actor: @owner)
+    assert GitHub.poll!(org.id, org.generation, actor: @owner).last_error == :rate_limited
+    limited = current(org.id)
+    assert DateTime.diff(limited.cooldown_until, limited.last_poll_at) in 899..900
+    assert DateTime.diff(limited.next_poll_at, limited.last_poll_at) == 900
+    calls = TestGitHub.state().calls
+    GitHub.refresh!(org.id, actor: @owner)
+    assert GitHub.poll!(org.id, org.generation, actor: @owner).skipped
+    assert TestGitHub.state().calls == calls
+  end
+
+  test "cooldown sweeps do not enqueue otherwise overdue snapshots", c do
+    {org, _} = connect(c)
+    attempted = DateTime.add(DateTime.utc_now(), -600)
+
+    update_org(org, %{
+      last_poll_at: attempted,
+      next_poll_at: DateTime.add(attempted, 300),
+      cooldown_until: DateTime.add(DateTime.utc_now(), 300),
+      last_error: :rate_limited
+    })
+
+    calls = TestGitHub.state().calls
+    assert :ok = Polling.sweep()
+
+    refute_enqueued(
+      worker: PollWorker,
+      args: %{organization_id: org.id, generation: org.generation}
+    )
+
+    assert TestGitHub.state().calls == calls
+  end
+
+  test "normal sweep expires cache payloads without losing workspace repository selections", c do
+    {org, _} = connect(c)
+    GitHub.attach_repositories!(c.a.id, org.id, ["REPO_SYNTHETIC"], actor: @owner)
+    Monolith.Caching.save_preferences!(:github, 5, 1, actor: @owner)
+    update_org(org, %{fetched_at: DateTime.add(DateTime.utc_now(), -3601)})
+    calls = TestGitHub.state().calls
+    assert :ok = Polling.sweep()
+    stored = Store.get(org.id)
+    assert stored.repositories == []
+    assert stored.pull_requests == []
+    assert stored.total_count == nil
+    assert TestGitHub.state().calls == calls
+
+    assert Enum.find(directory().memberships, &(&1.organization_id == org.id)).repository_ids ==
+             ["REPO_SYNTHETIC"]
+  end
+
+  test "observed legacy schedules retune in both due queries and admission", c do
+    {org, _} = connect(c)
+    observed = DateTime.add(DateTime.utc_now(), -600)
+
+    update_org(org, %{
+      fetched_at: observed,
+      last_poll_at: nil,
+      next_poll_at: DateTime.add(observed, 300)
+    })
+
+    due_ids = fn policy ->
+      Organization
+      |> Ash.Query.for_read(
+        :due,
+        %{refresh_cutoff: DateTime.add(DateTime.utc_now(), -policy.refresh_seconds)},
+        actor: @service
+      )
+      |> Ash.read!()
+      |> Enum.map(& &1.id)
+    end
+
+    calls = TestGitHub.state().calls
+    Monolith.Caching.save_preferences!(:github, 60, 24, actor: @owner)
+    refute org.id in due_ids.(Monolith.Caching.policy!(:github))
+    assert GitHub.poll!(org.id, org.generation, actor: @owner).skipped
+    assert TestGitHub.state().calls == calls
+
+    Monolith.Caching.save_preferences!(:github, 5, 24, actor: @owner)
+    assert org.id in due_ids.(Monolith.Caching.policy!(:github))
+    GitHub.poll!(org.id, org.generation, actor: @owner)
+    assert current(org.id).last_poll_at != nil
+
+    Monolith.Caching.save_preferences!(:github, 60, 24, actor: @owner)
+    update_org(current(org.id), %{last_poll_at: nil, next_poll_at: current(org.id).fetched_at})
+    assert org.id in due_ids.(Monolith.Caching.policy!(:github))
+    refute Map.get(GitHub.poll!(org.id, org.generation, actor: @owner), :skipped, false)
   end
 
   test "revoked installation fails closed rather than publishing a zero count", c do

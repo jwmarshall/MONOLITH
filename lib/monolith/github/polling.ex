@@ -2,6 +2,7 @@ defmodule Monolith.GitHub.Polling do
   @moduledoc "Installation snapshot admission, fenced publication and bounded cache freshness."
   import Monolith.GitHub.Store
   import Monolith.GitHub.Coordination, only: [state: 1]
+  alias Monolith.Caching
   alias Monolith.GitHub.{Connection, Credentials, Organization, PollWorker}
   alias Monolith.Security.Vault
   @service %{role: :github_service}
@@ -37,13 +38,15 @@ defmodule Monolith.GitHub.Polling do
   end
 
   defp admit(args) do
+    policy = Caching.policy!(:github)
+
     case get(args.organization_id) do
       %Organization{status: :ready, generation: generation} = org
       when generation == args.generation ->
-        if future?(org.next_poll_at) or future?(org.cooldown_until) or future?(org.claimed_until) do
+        if not due?(org, policy) or future?(org.cooldown_until) or future?(org.claimed_until) do
           {:error, :changed}
         else
-          {:ok, update!(expire(org), %{claim_id: uuid(), claimed_until: later(120)})}
+          {:ok, update!(expire(org, policy), %{claim_id: uuid(), claimed_until: later(120)})}
         end
 
       _ ->
@@ -100,7 +103,8 @@ defmodule Monolith.GitHub.Polling do
   end
 
   defp enqueue_refresh(org) do
-    current = update!(org, %{next_poll_at: now()})
+    requested_at = now()
+    current = update!(org, %{next_poll_at: requested_at, last_poll_at: requested_at})
 
     case PollWorker.enqueue(current) do
       {:ok, _} -> {:ok, metadata(current)}
@@ -109,6 +113,9 @@ defmodule Monolith.GitHub.Polling do
   end
 
   defp snapshot({:ok, data}, _) do
+    policy = Caching.policy!(:github)
+    observed_at = now()
+
     missing =
       []
       |> missing_snapshot_reason(data, :issues, "issues_unavailable")
@@ -141,30 +148,38 @@ defmodule Monolith.GitHub.Polling do
     ])
     |> Map.put(:partial_reasons, Enum.uniq(Map.get(data, :partial_reasons, []) ++ missing))
     |> Map.merge(%{
-      fetched_at: now(),
+      fetched_at: observed_at,
+      last_poll_at: observed_at,
       last_error: nil,
-      next_poll_at: later(300),
+      next_poll_at: DateTime.add(observed_at, policy.refresh_seconds),
       cooldown_until: nil
     })
   end
 
   defp snapshot({:error, reason}, previous) do
     error = safe_error(reason)
+    policy = Caching.policy!(:github)
+    attempted_at = now()
 
     previous
-    |> cached_snapshot()
+    |> cached_snapshot(policy)
     |> Map.merge(%{
       fetched_at: if(previous, do: previous.fetched_at),
       last_error: error,
-      next_poll_at: later(if(error == :rate_limited, do: 900, else: 300)),
+      last_poll_at: attempted_at,
+      next_poll_at:
+        DateTime.add(
+          attempted_at,
+          if(error == :rate_limited, do: 900, else: policy.refresh_seconds)
+        ),
       cooldown_until: if(error == :rate_limited, do: later(900))
     })
   end
 
   defp snapshot(_, previous), do: snapshot({:error, :provider}, previous)
 
-  defp cached_snapshot(previous) do
-    if previous && recent?(previous.fetched_at) do
+  defp cached_snapshot(previous, policy) do
+    if previous && Caching.retained?(policy, previous.fetched_at) do
       Map.take(previous, [
         :pull_requests,
         :repositories,
@@ -196,10 +211,11 @@ defmodule Monolith.GitHub.Polling do
   defp missing_snapshot_reason(reasons, data, key, reason),
     do: if(Map.has_key?(data, key), do: reasons, else: [reason | reasons])
 
-  def expire(%Organization{fetched_at: nil} = org), do: org
+  def expire(org, policy \\ Caching.policy!(:github))
+  def expire(%Organization{fetched_at: nil} = org, _), do: org
 
-  def expire(org) do
-    if not recent?(org.fetched_at) and
+  def expire(org, policy) do
+    if not Caching.retained?(policy, org.fetched_at) and
          (org.repositories != [] or org.pull_requests != [] or org.issues != [] or
             org.workflow_runs != [] or not is_nil(org.total_count) or not is_nil(org.issue_count)) do
       current =
@@ -224,16 +240,54 @@ defmodule Monolith.GitHub.Polling do
     end
   end
 
-  def sweep do
-    safely(fn ->
-      Vault.with_access(fn ->
-        Organization
-        |> Ash.Query.for_read(:due, %{}, actor: @service)
-        |> Ash.read!()
-        |> Enum.each(&PollWorker.enqueue/1)
+  @doc false
+  def read_model(org, policy, observed_at \\ now()) do
+    org
+    |> Map.put(:cache_retained?, Caching.retained?(policy, org.fetched_at, observed_at))
+    |> Map.put(:cache_fresh?, Caching.fresh?(policy, org.fetched_at, observed_at))
+  end
 
-        :ok
-      end)
+  defp due?(org, policy) do
+    case org.last_poll_at || org.fetched_at do
+      %DateTime{} = at ->
+        DateTime.compare(org.next_poll_at, at) != :gt or
+          not future?(DateTime.add(at, policy.refresh_seconds))
+
+      _ ->
+        not future?(org.next_poll_at)
+    end
+  end
+
+  def sweep do
+    safely(fn -> Vault.with_access(&sweep_current/0) end)
+  end
+
+  defp sweep_current do
+    policy = Caching.policy!(:github)
+
+    Organization
+    |> Ash.Query.for_read(:expired, %{cutoff: Caching.cutoff(policy)}, actor: @service)
+    |> Ash.read!()
+    |> Enum.each(&expire_current(&1.id, policy))
+
+    Organization
+    |> Ash.Query.for_read(
+      :due,
+      %{refresh_cutoff: DateTime.add(now(), -policy.refresh_seconds)},
+      actor: @service
+    )
+    |> Ash.read!()
+    |> Enum.each(&PollWorker.enqueue/1)
+
+    :ok
+  end
+
+  defp expire_current(id, policy) do
+    state(fn ->
+      case get(id) do
+        %Organization{} = current -> expire(current, policy)
+        _ -> :ok
+      end
     end)
   end
 end

@@ -132,9 +132,14 @@ defmodule MonolithWeb.HomeComponents do
     """
   end
 
+  attr :view, :atom, required: true, values: [:index, :focus, :startup, :cache]
   attr :startup_preference, :map, default: nil
   attr :startup_error, :boolean, default: false
   attr :startup_status, :string, default: ""
+  attr :cache_forms, :map, default: %{}
+  attr :cache_errors, :map, default: %{}
+  attr :cache_status, :map, default: %{}
+  attr :cache_load_error, :boolean, default: false
 
   def settings(assigns) do
     assigns =
@@ -146,8 +151,55 @@ defmodule MonolithWeb.HomeComponents do
 
     ~H"""
     <section id="settings-panel" aria-labelledby="directory-heading">
-      <div class="settings-panel">
-        <section class="settings-section" aria-labelledby="idle-heading">
+      <nav
+        :if={@view == :index}
+        id="settings-overview"
+        class="connections-overview"
+        aria-label="Settings"
+      >
+        <.link
+          :for={
+            {view, label, scope, description} <- [
+              {:focus, "Visual focus", "This browser", "Choose when inactivity reveals the scenery."},
+              {:startup, "Startup scenery", "App-wide",
+               "Choose whether an eligible startup can request a paid scene."},
+              {:cache, "Caching and refresh", "Per integration",
+               "Choose refresh timing and retention for Gmail, Calendar and GitHub."}
+            ]
+          }
+          id={"open-setting-#{view}"}
+          patch={"/settings/#{view}"}
+          class="connection-provider"
+        >
+          <span class="connection-provider-register">{scope}</span>
+          <span class="connection-provider-copy">
+            <span class="connection-provider-name">{label}</span>
+            <span class="mail-muted">{description}</span>
+          </span>
+        </.link>
+      </nav>
+      <nav
+        :if={@view != :index}
+        id="settings-subnav"
+        class="connections-subnav"
+        aria-label="Settings sections"
+      >
+        <.link
+          :for={
+            {view, label} <- [
+              focus: "Visual focus",
+              startup: "Startup scenery",
+              cache: "Caching and refresh"
+            ]
+          }
+          id={"settings-#{view}"}
+          patch={"/settings/#{view}"}
+          class="workspace-nav-link"
+          aria-current={if @view == view, do: "page"}
+        >{label}</.link>
+      </nav>
+      <div :if={@view != :index} class="settings-panel">
+        <section :if={@view == :focus} class="settings-section" aria-labelledby="idle-heading">
           <header class="card-section-heading">
             <p class="mail-eyebrow">Visual focus</p>
             <h2 id="idle-heading">Scenery after inactivity</h2>
@@ -173,7 +225,7 @@ defmodule MonolithWeb.HomeComponents do
                   aria-describedby="idle-help"
                   class="workspace-name-input"
                 /><p id="idle-help" class="settings-help">
-                  1–60 minutes. Default: 3 minutes. Saved in this browser.
+                  1–60 minutes. Default: {@default_minutes} minutes. Saved in this browser.
                 </p>
               </div>
               <button type="submit" class="workspace-action workspace-action-primary">Save preference</button>
@@ -181,7 +233,7 @@ defmodule MonolithWeb.HomeComponents do
             </form>
           </div>
         </section>
-        <section class="settings-section" aria-labelledby="startup-heading">
+        <section :if={@view == :startup} class="settings-section" aria-labelledby="startup-heading">
           <header class="card-section-heading">
             <p class="mail-eyebrow">Scene generation</p>
             <h2 id="startup-heading">Automatic startup scenery</h2>
@@ -217,13 +269,168 @@ defmodule MonolithWeb.HomeComponents do
             </p>
           </div>
         </section>
+        <section
+          :if={@view == :cache}
+          class="settings-section settings-cache"
+          aria-labelledby="cache-heading"
+        >
+          <header class="card-section-heading">
+            <p class="mail-eyebrow">Local data</p>
+            <h2 id="cache-heading">Caching and refresh</h2>
+          </header>
+          <div class="settings-section-content">
+            <p>
+              Saved for MONOLITH, across browsers and all accounts in each integration.
+              Saving doesn’t fetch data. New timing applies as normal work is next evaluated.
+            </p>
+            <p :if={@cache_load_error} role="alert">
+              Cache preferences couldn’t be read. Reload Settings to try again.
+            </p>
+            <div class="settings-cache-forms">
+              <.cache_preference
+                :for={
+                  {integration, label, minimum, maximum} <- [
+                    {:gmail, "Gmail", 3, 168},
+                    {:calendar, "Calendar", 3, 24},
+                    {:github, "GitHub", 5, 24}
+                  ]
+                }
+                :if={Map.has_key?(@cache_forms, integration)}
+                integration={integration}
+                label={label}
+                minimum={minimum}
+                maximum={maximum}
+                form={@cache_forms[integration]}
+                error={Map.get(@cache_errors, integration)}
+                status={Map.get(@cache_status, integration, "")}
+              />
+            </div>
+            <div class="settings-cache-guidance">
+              <p>
+                Refresh targets apply only while MONOLITH is running and unlocked.
+                Sleep, queue delays and provider rate limits can delay updates.
+                Manual Refresh still respects provider cooldowns.
+              </p>
+              <p>
+                Shorter retention hides older observations on the next read; normal unlocked
+                cleanup removes expired cache data. Increasing retention won’t restore expired
+                observations. Removal isn’t secure erasure of backups, SQLite pages or browser copies.
+              </p>
+              <p>
+                Gmail keeps at most 120 entries / 25 MiB per account; attachments aren’t cached.
+                Calendar keeps one browser-day context, not calendar history. GitHub keeps bounded
+                activity snapshots. Credentials and security lifetimes aren’t changed here.
+              </p>
+            </div>
+          </div>
+        </section>
       </div>
-      <section class="settings-accessibility" aria-labelledby="accessibility-heading">
+      <section
+        :if={@view == :focus}
+        class="settings-accessibility"
+        aria-labelledby="accessibility-heading"
+      >
         <h2 id="accessibility-heading">Accessibility preferences</h2><p>
           Reduced motion and forced colors follow your browser or system setting. Mouse movement neither wakes the working plane nor extends visual focus.
         </p>
       </section>
     </section>
+    """
+  end
+
+  attr :integration, :atom, required: true
+  attr :label, :string, required: true
+  attr :minimum, :integer, required: true
+  attr :maximum, :integer, required: true
+  attr :form, :any, required: true
+  attr :error, :map, default: nil
+  attr :status, :string, required: true
+
+  defp cache_preference(assigns) do
+    fields = if assigns.error, do: assigns.error.fields, else: []
+
+    assigns =
+      assign(assigns,
+        refresh_error: :refresh_minutes in fields,
+        retention_error: :retention_hours in fields
+      )
+
+    ~H"""
+    <.form
+      for={@form}
+      id={"cache-#{@integration}"}
+      phx-submit="settings:cache"
+      phx-change="settings:cache-draft"
+    >
+      <fieldset>
+        <legend>{@label}</legend>
+        <input type="hidden" name="integration" value={@integration} />
+        <p :if={@error} id={"cache-#{@integration}-error"} role="alert">
+          <%= if @error.fields == [] do %>
+            Settings couldn’t be saved. Your saved preferences haven’t changed. Try again.
+          <% else %>
+            Settings couldn’t be saved. Review the highlighted fields, then try again.
+            <a :if={@refresh_error} href={"#cache-#{@integration}-refresh"}>Review refresh frequency</a>
+            <a :if={@retention_error} href={"#cache-#{@integration}-retention"}>Review retention</a>
+          <% end %>
+        </p>
+        <div class="field">
+          <label for={"cache-#{@integration}-refresh"}>Refresh frequency (minutes)</label>
+          <input
+            id={"cache-#{@integration}-refresh"}
+            name={@form[:refresh_minutes].name}
+            value={@form[:refresh_minutes].value}
+            type="number"
+            min={@minimum}
+            max="60"
+            step="1"
+            required
+            class="workspace-name-input"
+            aria-invalid={to_string(@refresh_error)}
+            aria-describedby={"cache-#{@integration}-refresh-help#{if @refresh_error, do: " cache-#{@integration}-refresh-error"}"}
+          />
+          <p id={"cache-#{@integration}-refresh-help"} class="settings-help">
+            {@minimum}–60 minutes. Default: {@minimum} minutes.
+          </p>
+          <p :if={@refresh_error} id={"cache-#{@integration}-refresh-error"} role="alert">
+            Use a whole number from {@minimum} to 60 minutes.
+          </p>
+        </div>
+        <div class="field">
+          <label for={"cache-#{@integration}-retention"}>Keep cached data (hours)</label>
+          <input
+            id={"cache-#{@integration}-retention"}
+            name={@form[:retention_hours].name}
+            value={@form[:retention_hours].value}
+            type="number"
+            min="1"
+            max={@maximum}
+            step="1"
+            required
+            class="workspace-name-input"
+            aria-invalid={to_string(@retention_error)}
+            aria-describedby={"cache-#{@integration}-retention-help#{if @retention_error, do: " cache-#{@integration}-retention-error"}"}
+          />
+          <p id={"cache-#{@integration}-retention-help"} class="settings-help">
+            1–{@maximum} hours. Default: {@maximum} hours.
+          </p>
+          <p :if={@retention_error} id={"cache-#{@integration}-retention-error"} role="alert">
+            Use a whole number from 1 to {@maximum} hours.
+          </p>
+        </div>
+        <button type="submit" class="workspace-action workspace-action-primary">
+          Save {@label} cache settings
+        </button>
+        <p
+          :if={@status != ""}
+          id={"cache-#{@integration}-status"}
+          class="settings-status"
+          role="status"
+        >
+          {@status}
+        </p>
+      </fieldset>
+    </.form>
     """
   end
 

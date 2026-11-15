@@ -672,6 +672,15 @@ defmodule MonolithWeb.MailLiveTest do
     )
     |> Ash.create!()
 
+    Mail.update_account!(
+      context.first,
+      %{
+        expected_generation: context.first.generation,
+        last_success_at: DateTime.add(DateTime.utc_now(), -181)
+      },
+      actor: @owner
+    )
+
     Monolith.TestMail.response({:error, :rate_limited})
 
     assert :ok =

@@ -100,6 +100,13 @@ defmodule Monolith.MailWorkersTest do
          a: a
        } do
     assert :ok = PollWorker.perform(job(a))
+    now = DateTime.utc_now()
+
+    set_status(a, %{
+      last_success_at: DateTime.add(now, -181),
+      next_poll_at: DateTime.add(now, -1)
+    })
+
     Monolith.TestMail.response({:error, :rate_limited})
     before = DateTime.utc_now()
     assert :ok = PollWorker.perform(job(a))

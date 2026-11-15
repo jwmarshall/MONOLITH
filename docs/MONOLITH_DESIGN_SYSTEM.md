@@ -56,6 +56,8 @@ Both use locally hosted Space Grotesk, weight 500, line-height 1.2. Display clea
 
 Local Space Grotesk is the reading/UI face; system monospace serves registers and technical metadata. Body is 16px/1.55, supporting text 13px. Normal prose uses sentence case and normal tracking; uppercase/tracked registers and the wordmark are deliberate exceptions.
 
+Supporting copy, metric labels and metadata use the opaque near-white `--muted: #dce1d8` over transparent scenery, not reduced text opacity. Preserve the darker muted foreground on light dialogs, menus and notices; forced colors and print retain their own reading polarity.
+
 Metric labels default to Space Grotesk 400 at 13px/1.55, uppercase with normal tracking.
 Use the shared `metric-label` primitive and an 8px label/value gap when stacked above counts.
 Gmail and GitHub metrics share this default; section registers and technical metadata retain their own presets.
@@ -84,7 +86,13 @@ Product links are 01 Home, 02 Workspaces, 03 Connections, 04 Scenes, 05 Settings
 
 Working content has no added top padding. Default working max width is 1440px, 1600px at ≥1700px; desktop outer gutter 32px and content separation 36px. Main Home/workspace readouts stack at ≤1200px; secondary dense grids simplify at ≤1080px and ≤440px. The ≤760px shell transition is not a ban on other content-fit thresholds: connection headers stack at ≤600px, status right-aligned above title/metadata.
 
+Workspace, Connections and Settings index cards share a joined three-column plane, reducing to two columns at ≤1080px and one at ≤440px. Interior rules follow the active column count; each complete card remains its destination link.
+
+Caching and refresh settings prioritize the independent Gmail, Calendar and GitHub forms: three equal columns above 1080px, stacked integration rows with paired fields at ≤1080px, and single-column fields at ≤600px. Keep a short scope explanation before the forms and persistent timing, retention and storage guidance after them; never collapse warnings to save space.
+
 The shared shell owns the outer top inset: 24px, or 20px at ≤950px. Top-level numbered registers occupy a 44px row centered with the sidebar mark; content itself adds no top padding. Lock stays right-aligned beside the register/account context; at ≤760px return links wrap onto a following row. Home places **01 / Home** above the entire date/focus hero. The hero has no top or bottom hairline; its interior date divider and separate readout boundaries remain. Its Gmail empty state retains the decorative mail service icon; omit the redundant “Separate inboxes” label. The GitHub activity header has one bottom interior hairline, without doubled first-row borders.
+
+Subpage registers retain the full parent path: **02 / Workspaces / Workspace name**, **03 / Connections / Provider**, and **05 / Settings / Section**. Nested workspace integration, Gmail and GitHub views append their task/account/owner context after the workspace name. Top-level pages keep their shorter numbered registers. Workspace index cards use the unnumbered **Workspace** label, not **02 / Workspace**; the index page still has **02 / Workspaces**.
 
 Home's date stacks the weekday above the large day number, with month/year below at every viewport. The weekday uses responsive 24–32px uppercase type and month/year uses 16px, with 8px gaps. The date container fits its contents within the available column width. Keep the browser-local date, midnight/resume updates and accessible full-date label.
 
@@ -111,7 +119,7 @@ Production deliberately omits account-letter register codes rather than introduc
 
 Native links navigate; native buttons act. One filled primary action per coherent task, neutral supporting actions, no decorative arrows on ordinary navigation. Destructive labels name scope: **Remove from workspace** is not **Disconnect everywhere**. Disabled controls retain a visible associated reason. Minimum action target is 44px; interactive focus uses a visible 2px ring with appropriate clearance (5px exterior, 3px dense inset).
 
-Workspace cards have a separate, always-visible, bordered ≥44×44px Rename text button at top right aligned with the number and named for that workspace; it opens the dialog directly. The workspace detail Rename uses the same bordered control. Do not hide the single action in a menu, make it hover-only or nest it inside the destination link. Subview return links sit at the right of the numbered label row above the title.
+Each workspace directory tile is one full-area destination: its number, name and integration metadata share the same container and light hover frosting, matching the Connections overview. Directory tiles have no Rename action. Workspace detail retains an always-visible, bordered ≥44×44px Rename text button named for that workspace; it opens the dialog directly. Do not hide it in a menu or make it hover-only. Subview return links sit at the right of the numbered label row above the title.
 
 Fields keep persistent labels, associated errors, useful nonsecret input and a route from rejection summary to field. Native modal dialogs have labelled headings, deliberate initial focus, modal containment and opener restoration. Modal Escape/Cancel closes only the modal, preserves drafts and does not enter scenery. Pause visual idle while modal; sidebar-origin dialogs restore the mark. Ordinary navigation never traps focus.
 

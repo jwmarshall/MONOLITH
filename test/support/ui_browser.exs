@@ -370,7 +370,7 @@ try do
 
   shared_workspace = Monolith.Workspaces.create_workspace!("Synthetic space 1", actor: owner)
 
-  for number <- 2..14,
+  for number <- 2..20,
       do: Monolith.Workspaces.create_workspace!("Synthetic space #{number}", actor: owner)
 
   account =

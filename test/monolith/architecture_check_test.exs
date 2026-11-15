@@ -127,6 +127,33 @@ defmodule Monolith.ArchitectureCheckTest do
     )
   end
 
+  test "cache policy stays in the application and persistence stays behind its capability" do
+    assert_rule(
+      check("""
+      defmodule Monolith.Integrations.Example do
+        def policy, do: Monolith.Caching.policy!(:gmail)
+      end
+      """),
+      :adapter_to_orchestration
+    )
+
+    assert_rule(
+      check("""
+      defmodule MonolithWeb.Example do
+        def preferences, do: Ash.read!(Monolith.Caching.Preference)
+      end
+      """),
+      :private_domain_persistence
+    )
+
+    assert [] ==
+             check("""
+             defmodule Monolith.Mail.Example do
+               def policy, do: Monolith.Caching.policy!(:gmail)
+             end
+             """)
+  end
+
   test "UI cannot escape into provider work through a helper and local function" do
     violations =
       check("""

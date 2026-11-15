@@ -29,6 +29,7 @@ defmodule MonolithWeb.HomeNavigation do
   def path(%{action: :index}), do: "/"
   def path(%{action: :workspaces}), do: "/workspaces"
   def path(%{action: :settings}), do: "/settings"
+  def path(%{action: :setting, section: section}), do: "/settings/#{section}"
   def path(%{action: :connections}), do: connections_path()
   def path(%{action: :connection, provider: provider}), do: connections_path(provider)
 
@@ -66,7 +67,8 @@ defmodule MonolithWeb.HomeNavigation do
     Phoenix.Component.assign(socket,
       destination: destination,
       home: action == :index,
-      settings: action == :settings,
+      settings: action in [:settings, :setting],
+      settings_view: if(action == :setting, do: destination.section, else: :index),
       scenes: action == :scenes,
       github_activity: action == :workspace_github,
       connections: action in [:connections, :connection],
@@ -144,6 +146,7 @@ defmodule MonolithWeb.HomeNavigation do
     params = Map.take(params, keys(action))
 
     with {:ok, provider} <- provider(params),
+         {:ok, section} <- section(params),
          {:ok, page} <- page(params),
          {:ok, attempt_page} <- attempt_page(params),
          {:ok, query} <- text(params["q"], 1024),
@@ -156,6 +159,7 @@ defmodule MonolithWeb.HomeNavigation do
        %{
          action: action,
          provider: if(action == :connections, do: :index, else: provider),
+         section: section,
          page: page,
          attempt_page: attempt_page,
          workspace_id: workspace,
@@ -169,6 +173,7 @@ defmodule MonolithWeb.HomeNavigation do
   end
 
   defp keys(:connection), do: ["provider"]
+  defp keys(:setting), do: ["section"]
   defp keys(:scenes), do: ["page", "attempt_page"]
   defp keys(action) when action in [:workspace, :integration_add], do: ["workspace_id"]
   defp keys(:workspace_github), do: ["workspace_id", "organization_id"]
@@ -195,6 +200,12 @@ defmodule MonolithWeb.HomeNavigation do
 
   defp provider(%{"provider" => _}), do: :error
   defp provider(_), do: {:ok, :gmail}
+
+  defp section(%{"section" => section}) when section in ["focus", "startup", "cache"],
+    do: {:ok, Map.fetch!(%{"focus" => :focus, "startup" => :startup, "cache" => :cache}, section)}
+
+  defp section(%{"section" => _}), do: :error
+  defp section(_), do: {:ok, :index}
 
   defp page(%{"page" => page}) when is_binary(page) and byte_size(page) <= 8 do
     case Integer.parse(page) do

@@ -581,11 +581,23 @@ not selected-repository totals. Unknown counts are not zero. Home and workspaces
 escaped text, explicit review/check/run states, UTC update times and constructed GitHub links.
 Missing optional permissions cannot become a successful empty readout.
 
-Polling runs approximately every five minutes while unlocked/running (minute sweep).
-Core rate-limit failures persist a 15-minute cooldown that Refresh cannot bypass.
-Failures retain the observation timestamp; cached activity/counts expire after 24 hours.
-Sleep/offline cannot deliver live updates. Tests and browser smoke use synthetic
-providers/keychains; the production connector is disabled in test builds.
+Settings → Caching selects GitHub's app-wide refresh interval in integer minutes
+(5–60; default 5) and observation retention in integer hours (1–24; default 24).
+The minute sweep evaluates the selected interval while unlocked/running, including
+already scheduled installations; successful reads and ordinary failures use that cadence.
+Manual Refresh bypasses the selected interval, but core rate-limit failures retain their
+fixed 15-minute cooldown. Freshness labels follow the selected interval; failures preserve
+the original observation timestamp and show stale/error states rather than inventing zeroes.
+Cached activity, counts and repository catalogs are not served after selected retention.
+Expiry preserves owner identities and workspace/repository selections.
+
+Saving preferences neither contacts GitHub nor forces immediate refresh or purging.
+Shortening applies on the next read and normal cleanup; increasing retention cannot revive
+previously expired observations, even when cleanup has not yet run, because a permanent
+expiration watermark is retained. Normal cleanup is logical deletion, not forensic erasure
+from SQLCipher pages/WAL, backups, snapshots or existing browser copies. Cleanup and provider
+work run only while unlocked. Sleep/offline cannot deliver live updates. Tests and browser
+smoke use synthetic providers/keychains; the production connector is disabled in test builds.
 
 ## Saved workspaces
 
@@ -644,8 +656,8 @@ covers those lifecycle contracts; LiveView tests cover server search/page/contex
 clean up timers/resume listeners. Default navigation is Home; the in-flow sidebar contains
 Home, Workspaces, Connections, Scenes and Settings. Its mark toggles expansion, and Escape/idle
 preserve the current destination. Browser history/reload/deep links restore meaningful views,
-including submitted mail searches/pages, Conversations and Connections providers. Only navigation
-URLs, not drafts/dialogs/scenery focus, enter history. Direct
+including submitted mail searches/pages, Conversations, Connections providers and Settings
+sections. Only navigation URLs, not drafts/dialogs/scenery focus, enter history. Direct
 Home inbox reads use explicit owner-only account actions, not relaxed workspace membership
 checks.
 
@@ -812,12 +824,32 @@ with the application's semantic tokens; consumers must not introduce a second co
 There is no theme picker or browser-local palette bootstrap. Canonical decorative status
 signals accompany visible labels rather than hover/focus-only status tooltips.
 
+`/settings` is a form-free overview. Its focused sections are Visual focus at
+`/settings/focus`, Startup scenery at `/settings/startup`, and Caching and refresh at
+`/settings/cache`. Each section has native patch navigation and an All settings return
+link; reload, history and unlock return preserve the URL. Unknown sections return to
+the overview. Startup and cache reads/saves are scoped to their owning section.
+
 Settings saves visual inactivity (1–60 minutes) in this browser under
 `monolith:idle-minutes`; this is not Lock, an account preference or provider work.
 Automatic startup scenery is a separate Ash-persisted opt-in, off when absent and
 subject to the environment veto described above. Neither preference save generates scenery.
 Account-letter register codes are omitted; numbered sections retain adjacent full identity.
 Browser and Node coverage remain separate evidence; see the UI contract verification map.
+
+Settings also saves application-wide per-integration cache preferences through
+`Monolith.Caching` Ash actions in protected storage. Refresh uses whole minutes:
+Gmail/Calendar 3–60 (default 3), GitHub 5–60 (default 5). Retention uses whole hours:
+Gmail 1–168 (default 168), Calendar/GitHub 1–24 (default 24).
+Saves perform no provider calls, enqueue no refreshes and leave credentials, fixed
+payload/account limits, context/security lifetimes and provider cooldowns unchanged.
+Normal work evaluates the current policy; manual Refresh can request earlier work
+but never bypasses cooldowns. Shortened retention applies on the next read and normal
+unlocked cleanup, not just to new records. A persisted, monotonic expiration watermark
+prevents increasing retention from reviving observations that expired under a previous
+policy, even before cleanup. Deletion is logical, not forensic erasure.
+Apply the additive cache-preference migration before running the updated app; do not
+reset private storage. Verification uses disposable synthetic test storage only.
 
 ## Test conventions
 

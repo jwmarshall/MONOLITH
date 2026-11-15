@@ -4,6 +4,8 @@ defmodule Monolith.GitHub.Operations do
   import Monolith.GitHub.Store
   import Monolith.GitHub.Coordination, only: [state: 1]
 
+  alias Monolith.Caching
+
   alias Monolith.GitHub.{
     ClientCredentials,
     Connection,
@@ -72,7 +74,12 @@ defmodule Monolith.GitHub.Operations do
 
   defp execute(:directory, _) do
     state(fn ->
-      organizations = Enum.map(organizations(), &Polling.expire/1)
+      policy = Caching.policy!(:github)
+
+      organizations =
+        Enum.map(organizations(), fn org ->
+          org |> Polling.expire(policy) |> Polling.read_model(policy)
+        end)
 
       {:ok,
        %{
@@ -388,7 +395,7 @@ defmodule Monolith.GitHub.Operations do
   defp valid_selection?(_org, []), do: true
 
   defp valid_selection?(org, selected) do
-    recent?(org.fetched_at) and
+    Caching.retained?(Caching.policy!(:github), org.fetched_at) and
       Enum.all?(selected, fn id -> Enum.any?(org.repositories, &(&1["id"] == id)) end)
   end
 

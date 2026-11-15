@@ -29,6 +29,7 @@ defmodule Monolith.Architecture.Check do
     {"Elixir.Monolith.Security.Bootstrap", "Elixir.MonolithWeb.Endpoint"}
   ]
   @private_resources [
+    "Elixir.Monolith.Caching.Preference",
     "Elixir.Monolith.Calendar.State",
     "Elixir.Monolith.Mail.CacheEntry",
     "Elixir.Monolith.Mail.ReadRequest",
@@ -219,6 +220,7 @@ defmodule Monolith.Architecture.Check do
          "Elixir.Monolith.Mail",
          "Elixir.Monolith.Calendar",
          "Elixir.Monolith.GitHub",
+         "Elixir.Monolith.Caching",
          "Elixir.Monolith.StageDesigner",
          "Elixir.Monolith.Google",
          "Elixir.Monolith.Onboarding",

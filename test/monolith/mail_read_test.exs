@@ -1,9 +1,10 @@
 defmodule Monolith.MailReadTest do
   use Monolith.DataCase, async: false
   use Oban.Testing, repo: Monolith.Repo, engine: Oban.Engines.Lite
+  alias Monolith.Caching
   alias Monolith.Google.Access
   alias Monolith.Mail
-  alias Monolith.Mail.{ReadRequest, ReadWorker, RequestOwners, ViewData}
+  alias Monolith.Mail.{CacheEntry, ReadRequest, ReadWorker, RequestOwners, ViewData}
   alias Monolith.Repo
   @owner %{role: :local_owner}
 
@@ -64,6 +65,54 @@ defmodule Monolith.MailReadTest do
 
     assert ViewData.get(ref) == nil
     assert %{state: :expired} = Mail.read_status!(id, actor: @owner)
+  end
+
+  test "failed reads cannot publish cache that expires while credentials are pending", context do
+    for boundary <- [:persisted_expiry, :selected_retention] do
+      Monolith.TestMail.response(:ok)
+      Mail.account_thread!(context.account.id, "same-id", %{force: true}, actor: @owner)
+
+      entry =
+        CacheEntry
+        |> Ash.Query.for_read(:read, %{account_id: context.account.id}, actor: @owner)
+        |> Ash.read_one!()
+
+      attrs =
+        entry
+        |> Map.take([:account_id, :generation, :key, :payload, :bytes, :expires_at])
+        |> Map.put(:fetched_at, DateTime.add(DateTime.utc_now(), -7200))
+
+      CacheEntry |> Ash.Changeset.for_create(:store, attrs, actor: @owner) |> Ash.create!()
+      id = request(context, :thread, %{thread_id: "same-id", force: true})
+      Monolith.TestMail.response({:wait, self(), {:error, :offline}})
+      observer = self()
+
+      worker =
+        spawn(fn -> send(observer, {:finished, perform_job(ReadWorker, %{operation_id: id})}) end)
+
+      assert_receive {:provider_waiting, ^worker}, 2_000
+
+      case boundary do
+        :persisted_expiry ->
+          CacheEntry
+          |> Ash.Changeset.for_create(
+            :store,
+            Map.put(attrs, :expires_at, DateTime.add(DateTime.utc_now(), -1)),
+            actor: @owner
+          )
+          |> Ash.create!()
+
+        :selected_retention ->
+          Caching.save_preferences!(:gmail, 3, 1, actor: @owner)
+      end
+
+      send(worker, :continue)
+      assert_receive {:finished, :ok}, 2_000
+      assert %{state: :complete, result: {:ok, result}} = Mail.read_status!(id, actor: @owner)
+      assert result.error == :unavailable
+      assert result.data == nil
+      refute Map.has_key?(result, :data_ref)
+    end
   end
 
   test "view exit makes queued read unavailable without provider access", context do

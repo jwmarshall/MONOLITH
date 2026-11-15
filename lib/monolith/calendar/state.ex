@@ -23,12 +23,24 @@ defmodule Monolith.Calendar.State do
     end
 
     read :due do
-      filter expr(next_poll_at <= now() and context_at > ago(24, :hour) and to_at > now())
+      argument :refresh_cutoff, :utc_datetime_usec, allow_nil?: false
+
+      filter expr(
+               context_at > ago(24, :hour) and to_at > now() and
+                 ((is_nil(last_poll_at) and
+                     ((is_nil(fetched_at) and next_poll_at <= now()) or
+                        (not is_nil(fetched_at) and
+                           (fetched_at <= ^arg(:refresh_cutoff) or next_poll_at <= fetched_at)))) or
+                    (not is_nil(last_poll_at) and
+                       (last_poll_at <= ^arg(:refresh_cutoff) or next_poll_at <= last_poll_at)))
+             )
+
       prepare build(sort: [next_poll_at: :asc], limit: 100)
     end
 
     read :expired do
-      filter expr(fetched_at <= ago(24, :hour) or catalog_at <= ago(24, :hour))
+      argument :cutoff, :utc_datetime_usec, allow_nil?: false
+      filter expr(fetched_at <= ^arg(:cutoff) or catalog_at <= ^arg(:cutoff))
       prepare build(limit: 100)
     end
 
@@ -50,6 +62,7 @@ defmodule Monolith.Calendar.State do
         :catalog_at,
         :error,
         :next_poll_at,
+        :last_poll_at,
         :cooldown_until,
         :loading,
         :truncated,
@@ -75,6 +88,7 @@ defmodule Monolith.Calendar.State do
         :catalog_at,
         :error,
         :next_poll_at,
+        :last_poll_at,
         :cooldown_until,
         :loading,
         :truncated,
@@ -112,6 +126,7 @@ defmodule Monolith.Calendar.State do
       constraints: [one_of: [:unavailable, :provider, :rate_limited, :reconnect, :keychain]]
 
     attribute :next_poll_at, :utc_datetime_usec, allow_nil?: false
+    attribute :last_poll_at, :utc_datetime_usec
     attribute :cooldown_until, :utc_datetime_usec
     attribute :loading, :boolean, default: false, allow_nil?: false
     attribute :truncated, :boolean, default: false, allow_nil?: false

@@ -12,7 +12,7 @@ defmodule Monolith.GitHub.Provider do
   and 2 MiB response limit. Snapshots retain the newest 50 PRs/issues and 50 Actions
   runs, not a mirror. Optional/limited reads set truncation flags and safe partial
   reasons; unknown counts remain nil rather than becoming zero. The application adds
-  publication freshness and expires private cache contents after 24 hours.
+  publication freshness and expires private cache contents within the configured 1–24 hours.
   """
 
   @type error :: :configuration | :denied | :expired | :reconnect | :rate_limited | :provider

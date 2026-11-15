@@ -218,6 +218,11 @@ Use the same hierarchy on static setup/unlock pages and authenticated views.
   usable `href`s for copying/new tabs; current destinations use `aria-current`.
   Connections always opens global `/connections`, without workspace query or return
   context. Browser Back retraces the origin. Gmail inboxes have no redundant Home button.
+- Settings opens an overview at `/settings`, without preference forms. Focused subviews
+  `/settings/focus`, `/settings/startup` and `/settings/cache` expose only their own
+  controls, with section links, a current-page label and an All settings return link.
+  Direct links, reload, browser history and unlock return preserve the selected section.
+  Unknown sections return safely to the overview. Saves are accepted only in their owning subview.
 - Home opens with **A day in focus.** and a browser-local date updated across
   midnight/resume. Primary views share the directory alignment and width.
   Keep copy functional, without repeated greetings, clocks, message previews,
@@ -346,9 +351,10 @@ Use the same hierarchy on static setup/unlock pages and authenticated views.
   and app settings stay in the dedicated keychain. Failed deletion and retained legacy
   PATs remain reachable for explicit cleanup. See [GitHub setup](DEVELOPMENT.md#github).
 
-- Workspaces represent areas of life. Destination links and always-visible Rename
-  text buttons are siblings, never nested controls. Rename opens its dialog directly,
-  not through a workspace menu. Integration management menus remain separately scoped.
+- Workspaces represent areas of life. Each directory tile is one destination link,
+  including its numbered label, name and metadata in one full-area hover target.
+  Rename lives on workspace detail, not the directory, and opens its dialog directly.
+  Integration management menus remain separately scoped.
   Create/rename use native modal dialogs with contained focus, labelled headings and inline
   validation. Cancel/Escape closes only the dialog, restoring focus without entering scenery
   mode. Unrelated patches preserve the draft; invalid submissions keep the dialog open.
@@ -358,7 +364,7 @@ Use the same hierarchy on static setup/unlock pages and authenticated views.
   locally. They retain browser-only unsaved drafts through dismissal and unrelated patches;
   native protected POSTs never return stored secrets. Inactivity pauses only while open,
   and removing a closed editor during navigation must not steal destination focus.
-- Workspace cards pair their destination and Rename with truthful integration metadata.
+- Workspace cards pair their destination with truthful integration metadata.
   Workspace detail exposes **Add integration** and Rename as page actions. The focused
   integration page has one heading and a named return to its workspace, not a duplicate
   workspace editor. Account readouts remain independent and follow current observations.
@@ -522,11 +528,18 @@ Use the same hierarchy on static setup/unlock pages and authenticated views.
   or unknown outcomes, and that there are no automatic retries. Cancel/Escape restores trigger focus and
   does not request generation. Confirmed work survives navigation; startup opt-in remains
   independent. Preserve modal idle/focus behavior and gallery selection during scenery wake.
-- Settings saves startup opt-in through Ash; an absent preference is off.
+- Startup scenery settings saves startup opt-in through Ash; an absent preference is off.
   Environment configuration must also allow new automatic work:
   `MONOLITH_STAGE_ENABLED=false` vetoes it without cancelling authorized jobs.
   Saving never generates, probes credentials or changes cooldowns. Manual generation
   remains independent and freshly confirmed.
+- Caching and refresh settings saves independent, application-wide Gmail, Calendar and GitHub cache
+  preferences through owner-authorized Ash actions. Each form has its own save,
+  field-specific validation and preserved drafts; saved values survive reload.
+  Saves never contact providers or queue refreshes. Retention reductions affect
+  existing observations on subsequent reads and normal unlocked cleanup; increases
+  never restore expired observations. Explain logical deletion, unchanged safety
+  limits and cooldowns, and that refresh timing depends on the running/unlocked app.
 - Meaningful views have URLs: `/workspaces`, `/workspaces/:workspace_id`, its `/integrations`
   setup panel, `/workspaces/:workspace_id/github/:organization_id`,
   `/accounts/:account_id/mail`, and workspace-scoped
@@ -550,7 +563,7 @@ Use the same hierarchy on static setup/unlock pages and authenticated views.
 
 ## Images, accessibility and preferences
 
-- Settings offers a browser-local 1–60 minute visual inactivity preference under
+- Visual focus settings offers a browser-local 1–60 minute visual inactivity preference under
   `monolith:idle-minutes`, with a three-minute default (or configured default).
   Storage failure must not claim persistence. This preference neither locks the app
   nor generates imagery. Startup opt-in is separately persisted through Ash.

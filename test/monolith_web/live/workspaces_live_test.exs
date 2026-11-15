@@ -26,9 +26,10 @@ defmodule MonolithWeb.WorkspacesLiveTest do
     view |> element("#show-workspaces") |> render_click()
     assert has_element?(view, "#open-#{workspace.id}", "Reading room")
 
-    view |> element("#rename-#{workspace.id}") |> render_click()
+    view |> element("#open-#{workspace.id}") |> render_click()
+    view |> element("#rename-current-workspace") |> render_click()
     view |> form("#workspace-form", workspace: %{name: "My quiet corner"}) |> render_submit()
-    assert has_element?(view, "#open-#{workspace.id}", "My quiet corner")
+    assert has_element?(view, "#directory-heading", "My quiet corner")
 
     {:ok, reopened, _html} = live(conn, ~p"/")
     assert has_element?(reopened, "#home-overview")
@@ -210,25 +211,30 @@ defmodule MonolithWeb.WorkspacesLiveTest do
     refute has_element?(view, "#workspace-modal")
     assert Workspaces.list_workspaces!(actor: @owner) |> length() == 1
 
-    view |> element("#rename-#{workspace.id}") |> render_click()
+    view |> element("#open-#{workspace.id}") |> render_click()
+    view |> element("#rename-current-workspace") |> render_click()
     view |> form("#workspace-form", workspace: %{name: "Rename draft"}) |> render_change()
     view |> element("#workspace-form button[type=button]") |> render_click()
-    assert has_element?(view, "#open-#{workspace.id}", "Studio")
+    assert has_element?(view, "#directory-heading", "Studio")
+    view |> element("#back-to-workspaces") |> render_click()
 
     view |> element("#new-workspace") |> render_click()
     assert has_element?(view, "#workspace-name[value='New draft']")
     view |> form("#workspace-form", workspace: %{name: "New workspace"}) |> render_submit()
 
-    view |> element("#rename-#{workspace.id}") |> render_click()
+    view |> element("#open-#{workspace.id}") |> render_click()
+    view |> element("#rename-current-workspace") |> render_click()
     assert has_element?(view, "#workspace-name[value='Rename draft']")
     view |> form("#workspace-form", workspace: %{name: "Renamed studio"}) |> render_submit()
-    assert has_element?(view, "#open-#{workspace.id}", "Renamed studio")
+    assert has_element?(view, "#directory-heading", "Renamed studio")
+    view |> element("#back-to-workspaces") |> render_click()
 
     view |> element("#new-workspace") |> render_click()
     refute has_element?(view, "#workspace-name[value='New draft']")
     view |> element("#workspace-form button[type=button]") |> render_click()
 
-    view |> element("#rename-#{workspace.id}") |> render_click()
+    view |> element("#open-#{workspace.id}") |> render_click()
+    view |> element("#rename-current-workspace") |> render_click()
     assert has_element?(view, "#workspace-name[value='Renamed studio']")
     assert Workspaces.list_workspaces!(actor: @owner) |> length() == 2
   end

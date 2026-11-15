@@ -18,8 +18,31 @@ defmodule Monolith.GitHub.Organization do
     end
 
     read :due do
-      filter expr(status == :ready and next_poll_at <= now())
+      argument :refresh_cutoff, :utc_datetime_usec, allow_nil?: false
+
+      filter expr(
+               status == :ready and (is_nil(cooldown_until) or cooldown_until <= now()) and
+                 ((is_nil(last_poll_at) and
+                     ((is_nil(fetched_at) and next_poll_at <= now()) or
+                        (not is_nil(fetched_at) and
+                           (fetched_at <= ^arg(:refresh_cutoff) or next_poll_at <= fetched_at)))) or
+                    (not is_nil(last_poll_at) and
+                       (last_poll_at <= ^arg(:refresh_cutoff) or next_poll_at <= last_poll_at)))
+             )
+
       prepare build(sort: [next_poll_at: :asc], limit: 100)
+    end
+
+    read :expired do
+      argument :cutoff, :utc_datetime_usec, allow_nil?: false
+
+      filter expr(
+               fetched_at <= ^arg(:cutoff) and
+                 (repositories != [] or pull_requests != [] or issues != [] or workflow_runs != [] or
+                    not is_nil(total_count) or not is_nil(issue_count))
+             )
+
+      prepare build(sort: [fetched_at: :asc], limit: 100)
     end
 
     create :connect do
@@ -45,6 +68,7 @@ defmodule Monolith.GitHub.Organization do
         :total_count,
         :partial_reasons,
         :next_poll_at,
+        :last_poll_at,
         :last_error,
         :cooldown_until,
         :claim_id,
@@ -76,6 +100,7 @@ defmodule Monolith.GitHub.Organization do
         :total_count,
         :partial_reasons,
         :next_poll_at,
+        :last_poll_at,
         :cooldown_until,
         :claimed_until,
         :claim_id
@@ -166,6 +191,7 @@ defmodule Monolith.GitHub.Organization do
     attribute :total_count, :integer, public?: true
     attribute :partial_reasons, {:array, :string}, default: [], allow_nil?: false, public?: true
     attribute :next_poll_at, :utc_datetime_usec, allow_nil?: false, public?: true
+    attribute :last_poll_at, :utc_datetime_usec
     attribute :cooldown_until, :utc_datetime_usec
     attribute :claimed_until, :utc_datetime_usec
     attribute :claim_id, :uuid

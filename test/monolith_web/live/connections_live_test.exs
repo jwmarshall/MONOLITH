@@ -489,7 +489,8 @@ defmodule MonolithWeb.ConnectionsLiveTest do
     assert FakeIO.calls() == []
   end
 
-  test "workspace cards expose their own problem metadata and a separate visible Rename", ctx do
+  test "workspace destinations include their label and scoped metadata without directory actions",
+       ctx do
     {:ok, view, _} = live(ctx.conn, ~p"/")
     view |> element("#show-workspaces") |> render_click()
     alpha = "#workspaces-#{ctx.workspace.id}"
@@ -500,13 +501,10 @@ defmodule MonolithWeb.ConnectionsLiveTest do
              "#{alpha}.workspace-card > a#open-#{ctx.workspace.id}[href='/workspaces/#{ctx.workspace.id}'][data-phx-link=patch]"
            )
 
-    assert has_element?(
-             view,
-             "#{alpha} button#rename-#{ctx.workspace.id}[aria-label='Rename #{ctx.workspace.name}']",
-             "Rename"
-           )
-
-    refute has_element?(view, "#{alpha} > a details, #{alpha} > a button")
+    assert has_element?(view, "#open-#{ctx.workspace.id} .section-register", "Workspace")
+    refute has_element?(view, "#workspace-list .section-register", "02 /")
+    assert has_element?(view, "#open-#{ctx.workspace.id} h2", ctx.workspace.name)
+    refute has_element?(view, "#workspace-list button, #workspace-list details")
 
     assert has_element?(
              view,
@@ -523,10 +521,10 @@ defmodule MonolithWeb.ConnectionsLiveTest do
     refute has_element?(view, "#workspace-list", ctx.available.email)
     assert FakeIO.calls() == []
 
-    view |> element("#rename-#{ctx.workspace.id}") |> render_click()
-    assert has_element?(view, "#workspace-modal-title", "Rename workspace")
-    refute has_element?(view, "#workspace-landing")
-    assert socket(view).assigns.selected == nil
+    view |> element("#open-#{ctx.workspace.id}") |> render_click()
+    assert has_element?(view, "#workspace-landing")
+    assert has_element?(view, "#rename-current-workspace", "Rename")
+    assert socket(view).assigns.selected.id == ctx.workspace.id
   end
 
   test "account PubSub updates refresh card problems without healthy or cross-workspace leakage",

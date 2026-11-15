@@ -282,12 +282,15 @@ test("message dates are browser-local, year-aware, and preserve invalid provider
 
 test("mail freshness ages independently and never presents failed cached reads as fresh", () => {
   const at = "2026-11-02T09:00:00Z", now = Date.parse(at)
-  assert.equal(mailFreshnessText(at, false, false, now), "Fetched just now")
-  assert.equal(mailFreshnessText(at, true, false, now), "Local copy · fetched just now")
-  assert.equal(mailFreshnessText(at, false, false, now + 179_000), "Fetched 2 min ago")
-  assert.equal(mailFreshnessText(at, false, false, now + 180_000), "Stale · fetched 3 min ago")
-  assert.equal(mailFreshnessText(at, true, true, now), "Stale · fetched just now")
-  assert.equal(mailFreshnessText("invalid", false, false, now), "Fetch time unavailable")
+  assert.equal(mailFreshnessText(at, false, false, 180, now), "Fetched just now")
+  assert.equal(mailFreshnessText(at, true, false, 180, now), "Local copy · fetched just now")
+  assert.equal(mailFreshnessText(at, false, false, 180, now + 179_000), "Fetched 2 min ago")
+  assert.equal(mailFreshnessText(at, false, false, 180, now + 180_000), "Stale · fetched 3 min ago")
+  assert.equal(mailFreshnessText(at, false, false, 600, now + 180_000), "Fetched 3 min ago")
+  assert.equal(mailFreshnessText(at, false, false, 600, now + 600_000), "Stale · fetched 10 min ago")
+  assert.equal(mailFreshnessText(at, true, true, 600, now), "Stale · fetched just now")
+  assert.equal(mailFreshnessText(at, false, false, 600, now - 1000), "Stale · fetched just now")
+  assert.equal(mailFreshnessText("invalid", false, false, 180, now), "Fetch time unavailable")
 })
 
 test("date and freshness hooks use patched attributes and clean up timers and resume listeners", t => {
@@ -300,7 +303,7 @@ test("date and freshness hooks use patched attributes and clean up timers and re
   for (const definition of [MailDate, MailFreshness]) {
     const listeners = new Map(), attrs = new Map()
     const el = {
-      dataset: {mailDate: new Date().toISOString(), fetchedAt: new Date().toISOString(), cached: "false", stale: "false"},
+      dataset: {mailDate: new Date().toISOString(), fetchedAt: new Date().toISOString(), cached: "false", stale: "false", refreshSeconds: "600"},
       ownerDocument: {
         addEventListener: (name, fn) => listeners.set(name, fn),
         removeEventListener: (name, fn) => { assert.equal(listeners.get(name), fn); listeners.delete(name) },

@@ -3,6 +3,7 @@ defmodule Monolith.Mail.Operations do
   use Ash.Resource.Actions.Implementation
   require Ash.Query
 
+  alias Monolith.Caching
   alias Monolith.Google.Access
   alias Monolith.Mail
   alias Monolith.Mail.{Account, CacheEntry, Disconnects, Reads}
@@ -10,7 +11,6 @@ defmodule Monolith.Mail.Operations do
 
   @max_entries 120
   @max_bytes 25 * 1024 * 1024
-  @ttl 7 * 24 * 60 * 60
 
   @impl true
   def run(input, _, context) do
@@ -157,7 +157,10 @@ defmodule Monolith.Mail.Operations do
   end
 
   defp attachment_metadata(account, thread_id, message_id, attachment_id, actor) do
-    with %{payload: %{"messages" => messages}} <- cache(account, "thread:" <> thread_id, actor),
+    policy = Caching.policy!(:gmail)
+
+    with %{payload: %{"messages" => messages}} <-
+           cache(account, "thread:" <> thread_id, actor, policy),
          message when is_map(message) <- Enum.find(messages, &(&1["id"] == message_id)),
          attachment when is_map(attachment) <-
            Enum.find(Map.get(message, "attachments", []), &(&1["attachment_id"] == attachment_id)) do
@@ -187,21 +190,22 @@ defmodule Monolith.Mail.Operations do
       "page:" <> Base.encode16(:crypto.hash(:sha256, :erlang.term_to_binary({query || "", page})))
 
   defp fetch(account, key, request, force, actor) do
-    prune(account.id, actor)
-    cached = cache(account, key, actor)
+    policy = Caching.policy!(:gmail)
+    prune(account.id, actor, policy)
+    cached = cache(account, key, actor, policy)
 
     case current_account(account, actor) do
       {:ok, current} ->
         cond do
           cooldown?(current) ->
-            cached_failure(cached, :rate_limited)
+            cached_failure(cached, :rate_limited, actor)
 
           cached && !force && !legacy_thread_cache?(key, cached) &&
-              DateTime.diff(DateTime.utc_now(), cached.fetched_at) < 180 ->
-            cached_result(cached, true, current)
+              Caching.fresh?(policy, cached.fetched_at) ->
+            cached_result(cached, true, current, policy)
 
           true ->
-            fetch_remote(current, key, request, cached, actor)
+            fetch_remote(current, key, request, cached, actor, policy)
         end
 
       _ ->
@@ -209,17 +213,17 @@ defmodule Monolith.Mail.Operations do
     end
   end
 
-  defp fetch_remote(account, key, request, cached, actor) do
+  defp fetch_remote(account, key, request, cached, actor, policy) do
     with {:ok, token} <- Access.access_token(account),
          :ok <- admit_request(account, actor),
          {:ok, payload} <- request.(token),
-         {:ok, entry} <- publish(account, key, payload, actor),
+         {:ok, entry} <- publish(account, key, payload, actor, policy),
          {:ok, current} <- current_account(account, actor) do
-      cached_result(entry, false, current)
+      cached_result(entry, false, current, policy)
     else
       # Admission refusal is not a fresh provider 429. In particular, if its
       # deadline expires before this branch runs, do not create a new cooldown.
-      {:error, :cooldown} -> cached_failure(cached, :rate_limited)
+      {:error, :cooldown} -> cached_failure(cached, :rate_limited, actor)
       {:error, reason} -> failed_fetch(account, cached, reason, actor)
       _ -> failed_fetch(account, cached, :unavailable, actor)
     end
@@ -342,15 +346,23 @@ defmodule Monolith.Mail.Operations do
 
   defp cooldown?(account), do: Access.cooldown?(account)
 
-  defp cached_result(entry, cached, %{last_error: error}) when not is_nil(error),
-    do: Map.merge(result(entry, cached), %{error: error, stale: true})
+  defp cached_result(entry, cached, %{last_error: error}, policy) when not is_nil(error),
+    do: Map.merge(result(entry, cached, policy), %{error: error, stale: true})
 
-  defp cached_result(entry, cached, _), do: result(entry, cached)
+  defp cached_result(entry, cached, _, policy), do: result(entry, cached, policy)
 
-  defp cached_failure(nil, reason), do: failure(reason)
+  defp cached_failure(nil, reason, _actor), do: failure(reason)
 
-  defp cached_failure(entry, reason),
-    do: Map.merge(result(entry, true), %{error: reason, stale: true})
+  defp cached_failure(entry, reason, actor) do
+    # Provider/credential work may outlast retention, or Settings may shorten it.
+    policy = Caching.policy!(:gmail)
+    account = %{id: entry.account_id, generation: entry.generation}
+
+    case cache(account, entry.key, actor, policy) do
+      nil -> failure(reason)
+      retained -> Map.merge(result(retained, true, policy), %{error: reason, stale: true})
+    end
+  end
 
   defp failed_fetch(account, cached, reason, actor) do
     reason = safe_reason(reason)
@@ -358,7 +370,7 @@ defmodule Monolith.Mail.Operations do
     # Keep the latest failure/cooldown read and its write in one short SQLite
     # transaction, so a concurrent failure cannot overwrite a newer rate limit.
     Ash.transact(Account, fn -> persist_failure(account, reason, actor) end)
-    cached_failure(cached, reason)
+    cached_failure(cached, reason, actor)
   end
 
   defp persist_failure(account, reason, actor) do
@@ -391,17 +403,19 @@ defmodule Monolith.Mail.Operations do
     end
   end
 
-  defp publish(account, key, payload, actor) do
+  defp publish(account, key, payload, actor, policy) do
     json = Jason.encode!(payload)
 
     if byte_size(json) > 5 * 1024 * 1024 do
       {:error, :provider}
     else
-      Ash.transact([Account, CacheEntry], fn -> publish_current(account, key, json, actor) end)
+      Ash.transact([Account, CacheEntry], fn ->
+        publish_current(account, key, json, actor, policy)
+      end)
     end
   end
 
-  defp publish_current(account, key, json, actor) do
+  defp publish_current(account, key, json, actor, policy) do
     case current_account(account, actor) do
       {:ok, current} ->
         now = DateTime.utc_now()
@@ -418,7 +432,7 @@ defmodule Monolith.Mail.Operations do
               bytes: byte_size(json),
               generation: account.generation,
               fetched_at: now,
-              expires_at: DateTime.add(now, @ttl)
+              expires_at: DateTime.add(now, policy.retention_seconds)
             },
             actor: actor
           )
@@ -430,12 +444,16 @@ defmodule Monolith.Mail.Operations do
             expected_generation: account.generation,
             last_success_at: now,
             last_error: if(limited, do: :rate_limited, else: nil),
-            next_poll_at: if(limited, do: current.next_poll_at, else: DateTime.add(now, 180))
+            next_poll_at:
+              if(limited,
+                do: current.next_poll_at,
+                else: DateTime.add(now, policy.refresh_seconds)
+              )
           },
           actor: actor
         )
 
-        prune(account.id, actor)
+        prune(account.id, actor, policy)
         entry
 
       _ ->
@@ -443,12 +461,13 @@ defmodule Monolith.Mail.Operations do
     end
   end
 
-  defp result(entry, cached),
+  defp result(entry, cached, policy),
     do: %{
       data: entry.payload,
       fetched_at: entry.fetched_at,
       cached: cached,
-      stale: DateTime.diff(DateTime.utc_now(), entry.fetched_at) >= 180,
+      stale: not Caching.fresh?(policy, entry.fetched_at),
+      refresh_seconds: policy.refresh_seconds,
       error: nil
     }
 
@@ -466,17 +485,20 @@ defmodule Monolith.Mail.Operations do
 
   defp legacy_thread_cache?(_, _), do: false
 
-  defp cache(account, key, actor) do
-    CacheEntry
-    |> Ash.Query.for_read(:read, %{account_id: account.id}, actor: actor)
-    |> Ash.Query.filter(
-      key == ^key and generation == ^account.generation and expires_at > ^DateTime.utc_now()
-    )
-    |> Ash.read_one!()
+  defp cache(account, key, actor, policy) do
+    entry =
+      CacheEntry
+      |> Ash.Query.for_read(:read, %{account_id: account.id}, actor: actor)
+      |> Ash.Query.filter(
+        key == ^key and generation == ^account.generation and expires_at > ^DateTime.utc_now()
+      )
+      |> Ash.read_one!()
+
+    if entry && Caching.retained?(policy, entry.fetched_at), do: entry
   end
 
   @doc false
-  def prune(account_id, actor) do
+  def prune(account_id, actor, policy \\ Caching.policy!(:gmail)) do
     entries =
       CacheEntry
       |> Ash.Query.for_read(:read, %{account_id: account_id}, actor: actor)
@@ -487,6 +509,7 @@ defmodule Monolith.Mail.Operations do
     _retained =
       Enum.reduce(entries, {0, 0}, fn entry, {count, bytes} = retained ->
         if DateTime.compare(entry.expires_at, DateTime.utc_now()) != :gt or
+             not Caching.retained?(policy, entry.fetched_at) or
              count >= @max_entries or bytes + entry.bytes > @max_bytes do
           entry |> Ash.Changeset.for_destroy(:evict, %{}, actor: actor) |> Ash.destroy!()
           retained
@@ -494,6 +517,34 @@ defmodule Monolith.Mail.Operations do
           {count + 1, bytes + entry.bytes}
         end
       end)
+
+    prune_unread(account_id, actor, policy)
+
+    :ok
+  end
+
+  defp prune_unread(account_id, actor, policy) do
+    Ash.transact(Account, fn -> prune_current_unread(account_id, actor, policy) end)
+    :ok
+  end
+
+  defp prune_current_unread(account_id, actor, policy) do
+    with {:ok, account} <- scoped_account(account_id, actor),
+         true <- not is_nil(account.inbox_unread_at),
+         false <- Caching.retained?(policy, account.inbox_unread_at),
+         true <-
+           not is_nil(account.inbox_unread_count) or
+             not is_nil(account.inbox_unread_recent_count) do
+      Mail.update_account!(
+        account,
+        %{
+          expected_generation: account.generation,
+          inbox_unread_count: nil,
+          inbox_unread_recent_count: nil
+        },
+        actor: actor
+      )
+    end
 
     :ok
   end

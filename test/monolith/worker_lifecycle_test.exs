@@ -144,6 +144,7 @@ defmodule Monolith.WorkerLifecycleTest.Calendar do
 
     for response <- [:raise, :throw, :unexpected_provider_reply] do
       CalendarProvider.response(response)
+      Calendar.refresh!(c.a.id, actor: @owner)
       assert :ok = PollWorker.perform(job(prepared))
       failed = snapshot(c, c.a)
       assert failed.events == good.events
@@ -155,6 +156,7 @@ defmodule Monolith.WorkerLifecycleTest.Calendar do
     end
 
     CalendarProvider.response(:ok)
+    Calendar.refresh!(c.a.id, actor: @owner)
     assert :ok = PollWorker.perform(job(prepared))
     assert snapshot(c, c.a).error == nil
     refute snapshot(c, c.a).stale

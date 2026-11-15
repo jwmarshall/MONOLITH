@@ -103,7 +103,10 @@ defmodule MonolithWeb.OwnerAuthTest do
           "/onboarding",
           "/onboarding/audience",
           "/scenes",
-          "/settings"
+          "/settings",
+          "/settings/focus",
+          "/settings/startup",
+          "/settings/cache"
         ] do
       destination = path <> "?q=quiet%20morning&page=2"
       assert OwnerReturnPath.safe(destination) == destination

@@ -10,14 +10,15 @@ defmodule Monolith.Mail.SweepWorker do
   end
 
   defp sweep do
+    policy = Monolith.Caching.policy!(:gmail)
+
     # Internal coordinator has no credentials and emits jobs containing only IDs.
     Monolith.Mail.list_accounts!(actor: %{role: :local_owner})
     |> Enum.each(fn account ->
       actor = %{role: :mail_service, account_id: account.id}
-      Operations.prune(account.id, actor)
+      Operations.prune(account.id, actor, policy)
 
-      if account.status == :ready &&
-           DateTime.compare(account.next_poll_at, DateTime.utc_now()) != :gt do
+      if PollWorker.due?(account, policy) do
         PollWorker.enqueue(account)
       end
     end)

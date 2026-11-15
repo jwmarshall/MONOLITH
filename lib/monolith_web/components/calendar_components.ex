@@ -450,6 +450,7 @@ defmodule MonolithWeb.CalendarComponents do
         phx-hook="ObservationTime"
         phx-update="ignore"
         data-observed-at={iso(@snapshot.fetched_at)}
+        data-refresh-seconds={@snapshot.refresh_seconds}
         data-failed={to_string(not is_nil(@snapshot.error) || @snapshot.truncated || @snapshot.stale)}
       >Last checked · {iso(@snapshot.fetched_at)}</span>
     </div>
@@ -534,6 +535,7 @@ defmodule MonolithWeb.CalendarComponents do
           for(calendar <- calendars, Map.get(calendar, :selected, false), do: calendar.id),
       events: Enum.map(Map.get(data, :events, []) || [], &normalize_event/1),
       fetched_at: fetched_at,
+      refresh_seconds: Map.get(data, :refresh_seconds),
       error: error,
       truncated: Map.get(data, :truncated, false) == true,
       selection_truncated: Map.get(data, :selection_truncated, false) == true,

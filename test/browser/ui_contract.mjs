@@ -770,11 +770,11 @@ async function verifySidebar() {
   await waitFor("location.pathname === '/workspaces' && document.querySelector('#sidebar-content').hidden && document.activeElement.matches('[data-workspace-heading]')", 'destination collapses navigation and focuses real heading')
   await expandSidebar()
   // A modal wins Escape over expanded navigation; its draft and opener survive.
-  await click(`#rename-${workspaceId}`)
-  await waitFor("document.querySelector('#workspace-modal')?.matches(':modal')", 'rename while sidebar expanded')
+  await click("#new-workspace")
+  await waitFor("document.querySelector('#workspace-modal')?.matches(':modal')", 'create while sidebar expanded')
   await send('Input.insertText', {text: ' synthetic draft'})
   await key('Escape')
-  await waitFor(`!document.querySelector('#workspace-modal') && document.activeElement.id === 'rename-${workspaceId}'`, 'modal Escape restores visible Rename')
+  await waitFor("!document.querySelector('#workspace-modal') && document.activeElement.id === 'new-workspace'", 'modal Escape restores New workspace')
   assert.equal(await evaluate("document.querySelector('#sidebar-toggle').getAttribute('aria-expanded')"), 'true', 'modal Escape does not also collapse sidebar')
   await key('Escape')
   await waitFor("document.querySelector('#sidebar-content').hidden && document.activeElement.id === 'sidebar-toggle'", 'next Escape collapses navigation only')
@@ -786,41 +786,139 @@ async function verifyPreferences() {
   await scenesLoaded()
   const before = await sceneManifest()
   await click('#show-settings')
-  await waitFor("location.pathname === '/settings' && !!document.querySelector('#idle-preference') && !!document.querySelector('#startup-preference')", 'real Settings preferences')
+  await waitFor("location.pathname === '/settings' && !!document.querySelector('#settings-overview')", 'Settings overview')
+  assert.equal(await evaluate("!!document.querySelector('#settings-panel form')"), false, 'overview does not mount preference forms')
   await screenshot('settings-desktop')
   assert.equal(await evaluate("!!document.querySelector('#theme-picker')"), false, 'working UI has no alternate palette')
   assert.equal(await evaluate("document.documentElement.dataset.theme"), 'charcoal', 'Charcoal is the single working foundation')
-  assert.equal(await evaluate("document.querySelector('#startup-preference input[type=checkbox]').checked"), false, 'startup is opt-in by default')
+  await send('Emulation.setDeviceMetricsOverride', {width: 320, height: 1000, deviceScaleFactor: 1, mobile: false})
+  assert.equal(await evaluate("document.documentElement.scrollWidth > innerWidth"), false, 'Settings overview fits 320px')
+  await screenshot('settings-overview-320')
+  await send('Emulation.setDeviceMetricsOverride', {width: 1440, height: 1000, deviceScaleFactor: 1, mobile: false})
+  await click('#open-setting-focus')
+  await waitFor("location.pathname === '/settings/focus' && !!document.querySelector('#idle-preference')", 'Visual focus section')
+  assert.equal(await evaluate("document.querySelector('#settings-focus').getAttribute('aria-current')"), 'page')
+  assert.equal(await evaluate("!!document.querySelector('#startup-preference, #cache-gmail')"), false, 'Visual focus has no unrelated forms')
+  await screenshot('settings-focus-desktop')
   await evaluate("document.querySelector('#idle-minutes').value = '7'; document.querySelector('#idle-preference').requestSubmit()")
   await waitFor("localStorage.getItem('monolith:idle-minutes') === '7' && document.querySelector('[data-idle-status]').textContent.includes('saved')", 'idle preference persisted in browser')
+  await click('#settings-startup')
+  await waitFor("location.pathname === '/settings/startup' && !!document.querySelector('#startup-preference')", 'Startup scenery section')
+  assert.equal(await evaluate("document.querySelector('#startup-preference input[type=checkbox]').checked"), false, 'startup is opt-in by default')
+  assert.equal(await evaluate("!!document.querySelector('#idle-preference, #cache-gmail')"), false, 'Startup scenery has no unrelated forms')
   await click('#startup-preference input[type=checkbox]')
   await click('#startup-preference button[type=submit]')
   await waitFor("!!document.querySelector('#startup-status')", 'Ash startup preference save acknowledged')
   await send('Page.reload')
-  await waitFor("!!document.querySelector('#startup-preference') && window.liveSocket?.getSocket().isConnected()", 'Settings reloaded from persisted state')
+  await waitFor("location.pathname === '/settings/startup' && !!document.querySelector('#startup-preference') && window.liveSocket?.getSocket().isConnected()", 'Startup section reloaded from persisted state')
   await click('#workspace-pane')
   await focused()
-  assert.equal(await evaluate("document.querySelector('#idle-minutes').value"), '7')
-  assert.equal(await evaluate("document.documentElement.dataset.theme"), 'charcoal')
   assert.equal(await evaluate("document.querySelector('#startup-preference input[type=checkbox]').checked"), true, 'startup opt-in survives actual reload')
   assert.match(await evaluate("document.querySelector('#startup-preference').textContent"), /blocked by the terminal configuration/)
-  await click('#show-scenes')
-  await scenesLoaded()
-  assert.deepEqual(await sceneManifest(), before, 'saving preferences and reload never submit generation, reserve attempts or replace scenery')
-  await click('#show-settings')
-  await waitFor("!!document.querySelector('#startup-preference')", 'Settings before restore')
+  await screenshot('settings-startup-desktop')
+  await click('#settings-cache')
+  await waitFor("location.pathname === '/settings/cache' && !!document.querySelector('#cache-gmail')", 'Caching and refresh section')
+  assert.equal(await evaluate("!!document.querySelector('#idle-preference, #startup-preference')"), false, 'Caching and refresh has no unrelated forms')
+  for (const integration of ['gmail', 'calendar', 'github']) {
+    await evaluate(`(() => {
+      document.querySelector('#cache-${integration}-refresh').value = '15';
+      document.querySelector('#cache-${integration}-retention').value = '6';
+      document.querySelector('#cache-${integration}').requestSubmit();
+    })()`)
+    await waitFor(`!!document.querySelector('#cache-${integration}-status')`, `${integration} cache preference saved`)
+  }
+  await click('#back-to-settings')
+  await waitFor("location.pathname === '/settings' && !!document.querySelector('#settings-overview')", 'All settings return')
+  await evaluate('history.back()')
+  await waitFor("location.pathname === '/settings/cache' && !!document.querySelector('#cache-gmail') && document.activeElement.id === 'directory-heading' && document.title === 'Caching and refresh · MONOLITH'", 'Back restores focused Settings section and heading focus')
+  await evaluate('history.forward()')
+  await waitFor("location.pathname === '/settings' && !!document.querySelector('#settings-overview') && document.activeElement.id === 'directory-heading' && document.title === 'Settings · MONOLITH'", 'Forward restores Settings overview and heading focus')
+  await click('#open-setting-cache')
+  await waitFor("location.pathname === '/settings/cache' && !!document.querySelector('#cache-gmail')", 'Cache section before reload')
+  await send('Page.reload')
+  await waitFor("location.pathname === '/settings/cache' && !!document.querySelector('#cache-gmail') && window.liveSocket?.getSocket().isConnected()", 'Cache section reloaded from persisted state')
+  await click('#workspace-pane')
+  await focused()
+  await screenshot('settings-cache-desktop')
+  for (const width of [1700, 1440, 1081, 1080, 601, 600, 390, 320]) {
+    await send('Emulation.setDeviceMetricsOverride', {width, height: 1000, deviceScaleFactor: 1, mobile: false})
+    const layout = await evaluate(`(() => {
+      const rect = node => {
+        const {top, bottom, left, right, width, height} = node.getBoundingClientRect();
+        return {top, bottom, left, right, width, height};
+      };
+      return {
+        forms: [...document.querySelectorAll('.settings-cache-forms > form')].map(rect),
+        fields: [...document.querySelectorAll('#cache-gmail .field')].map(rect),
+        controlsFit: [...document.querySelectorAll('.settings-cache-forms input[type=number], .settings-cache-forms button')]
+          .every(node => {
+            const control = rect(node), form = rect(node.closest('form'));
+            return control.left >= form.left && control.right <= form.right && control.height >= 44;
+          }),
+        guidanceTop: rect(document.querySelector('.settings-cache-guidance')).top,
+        fits: document.documentElement.scrollWidth <= innerWidth
+      };
+    })()`)
+    assert.equal(layout.fits && layout.controlsFit, true, `cache labels and controls fit at ${width}px`)
+    if (width > 1080) {
+      assert.ok(layout.forms.every(form => Math.abs(form.top - layout.forms[0].top) < 1),
+        `all three integration forms share one desktop row at ${width}px`)
+      assert.ok(layout.forms[1].left >= layout.forms[0].right && layout.forms[2].left >= layout.forms[1].right,
+        'desktop integration forms do not overlap')
+    } else {
+      assert.ok(layout.forms[1].top >= layout.forms[0].bottom && layout.forms[2].top >= layout.forms[1].bottom,
+        `integration forms stack without overlap at ${width}px`)
+    }
+    assert.ok(width > 600 && width <= 1080 ?
+      Math.abs(layout.fields[0].top - layout.fields[1].top) < 1 :
+      layout.fields[1].top >= layout.fields[0].bottom,
+    `paired fields reflow to a single column on mobile at ${width}px`)
+    assert.ok(layout.guidanceTop >= Math.max(...layout.forms.map(form => form.bottom)),
+      'persistent guidance follows the cache controls')
+    if ([1440, 1080, 390, 320].includes(width)) {
+      await evaluate("document.querySelector('#cache-gmail').scrollIntoView({block: 'start'})")
+      await screenshot(`cache-settings-${width}`)
+    }
+  }
+  await evaluate("document.querySelector('#cache-gmail-refresh').focus()")
+  for (const id of ['cache-gmail-retention', '#cache-gmail button', 'cache-calendar-refresh']) {
+    await key('Tab')
+    assert.equal(await evaluate(id.startsWith('#') ?
+      `document.activeElement.matches(${JSON.stringify(id)})` :
+      `document.activeElement.id === ${JSON.stringify(id)}`), true, 'keyboard follows integration form order')
+  }
+  await send('Emulation.setDeviceMetricsOverride', {width: 1440, height: 1000, deviceScaleFactor: 1, mobile: false})
+  for (const integration of ['gmail', 'calendar', 'github']) {
+    assert.equal(await evaluate(`document.querySelector('#cache-${integration}-refresh').value`), '15', `${integration} refresh survives reload`)
+    assert.equal(await evaluate(`document.querySelector('#cache-${integration}-retention').value`), '6', `${integration} retention survives reload`)
+    await evaluate(`(() => {
+      document.querySelector('#cache-${integration}-refresh').value = '${integration === 'github' ? 5 : 3}';
+      document.querySelector('#cache-${integration}-retention').value = '${integration === 'gmail' ? 168 : 24}';
+      document.querySelector('#cache-${integration}').requestSubmit();
+    })()`)
+    await waitFor(`!!document.querySelector('#cache-${integration}-status')`, `${integration} cache defaults restored`)
+  }
+  await click('#settings-focus')
+  await waitFor("!!document.querySelector('#idle-preference')", 'Visual focus before restore')
+  assert.equal(await evaluate("document.querySelector('#idle-minutes').value"), '7', 'browser preference survives section changes and reload')
+  await evaluate("document.querySelector('#idle-minutes').value = '3'; document.querySelector('#idle-preference').requestSubmit()")
+  await waitFor("localStorage.getItem('monolith:idle-minutes') === '3'", 'idle preference restored')
+  await click('#settings-startup')
+  await waitFor("!!document.querySelector('#startup-preference')", 'Startup scenery before restore')
   await click('#startup-preference input[type=checkbox]')
   await click('#startup-preference button[type=submit]')
   await waitFor("!!document.querySelector('#startup-status')", 'startup restored off')
-  await evaluate("document.querySelector('#idle-minutes').value = '3'; document.querySelector('#idle-preference').requestSubmit()")
   await send('Page.reload')
-  await waitFor("!!document.querySelector('#startup-preference') && window.liveSocket?.getSocket().isConnected()", 'restored startup preference reload')
+  await waitFor("location.pathname === '/settings/startup' && !!document.querySelector('#startup-preference') && window.liveSocket?.getSocket().isConnected()", 'restored startup preference reload')
   assert.equal(await evaluate("document.querySelector('#startup-preference input[type=checkbox]').checked"), false)
   await click('#workspace-pane')
   await focused()
+  await click('#show-scenes')
+  await scenesLoaded()
+  assert.deepEqual(await sceneManifest(), before, 'saving preferences and reload never submit generation, reserve attempts or replace scenery')
   await click('#home-link')
   await home()
-  console.log('PASS real idle and startup persistence, environment veto and no generation on save')
+  console.log('PASS focused Settings URLs, history, isolated forms, idle/startup/cache persistence, environment veto and no generation on save')
 }
 
 async function verifyDisconnect() {
@@ -1495,7 +1593,9 @@ try {
   await waitFor(`!!document.querySelector('#open-${workspaceId}') && document.activeElement.matches('[data-workspace-heading]')`, "explicit workspace directory navigation")
   console.log("PASS local daily orientation, per-account counts/memberships, Home inbox, Escape/idle preservation and mouse/keyboard Home")
 
-  await click(`#rename-${workspaceId}`)
+  await click(`#open-${workspaceId}`)
+  await waitFor("!!document.querySelector('#rename-current-workspace')", "workspace detail Rename")
+  await click("#rename-current-workspace")
   await waitFor("document.querySelector('#workspace-modal')?.matches(':modal') && document.activeElement.id === 'workspace-name'", "native rename modal and field focus")
   assert.equal(await evaluate("document.querySelector('#workspace-modal').getAttribute('aria-labelledby')"), "workspace-modal-title")
   assert.equal(await evaluate("(() => { document.querySelector('#sidebar-toggle').focus(); return document.activeElement.id === 'workspace-name'; })()"), true, "native modal makes outside controls inert")
@@ -1512,12 +1612,14 @@ try {
   assert.equal(await evaluate("document.querySelector('#workspace-pane').getAttribute('aria-pressed')"), "true", "idle must not reset a modal")
   assert.equal(await evaluate("document.querySelector('#workspace-name').value"), before, "modal idle preserves draft")
   await key("Escape")
-  await waitFor(`!document.querySelector('#workspace-modal') && document.activeElement === document.querySelector('#rename-${workspaceId}')`, "Escape closes only modal and restores Rename focus")
+  await waitFor("!document.querySelector('#workspace-modal') && document.activeElement.id === 'rename-current-workspace'", "Escape closes only modal and restores Rename focus")
   await focused()
-  await click(`#rename-${workspaceId}`)
+  await click("#rename-current-workspace")
   await waitFor("document.querySelector('#workspace-modal')?.matches(':modal') && document.activeElement.id === 'workspace-name'", "reopened rename modal")
   await click("#workspace-form button[type=button]")
-  await waitFor(`!document.querySelector('#workspace-modal') && document.activeElement === document.querySelector('#rename-${workspaceId}')`, "Cancel restores Rename focus")
+  await waitFor("!document.querySelector('#workspace-modal') && document.activeElement.id === 'rename-current-workspace'", "Cancel restores Rename focus")
+  await click("#back-to-workspaces")
+  await waitFor(`!!document.querySelector('#open-${workspaceId}')`, "directory scroll preservation")
   await evaluate("document.querySelector('#workspace-content').scrollTop = 100")
   const scroll = await evaluate("document.querySelector('#workspace-content').scrollTop")
   assert.ok(scroll > 0, "fixture must actually scroll")
@@ -1789,16 +1891,58 @@ try {
       assert.ok(Math.abs(workspaceBounds.width - homeDimensions.contentWidth) < 1 && Math.abs(workspaceBounds.left - homeDimensions.contentLeft) < 1,
         `Home and Workspaces share the content width and alignment: ${JSON.stringify({home: homeDimensions, workspaces: workspaceBounds})}`)
       assert.equal(await evaluate("document.documentElement.scrollWidth <= innerWidth"), true, "directory has no horizontal overflow")
+      if (width === 1440) {
+        for (const viewport of [1440, 1081, 1080, 441, 440, 320]) {
+          await send("Emulation.setDeviceMetricsOverride", {width: viewport, height: 1000, deviceScaleFactor: 1, mobile: false})
+          const layout = await evaluate(`(() => {
+            const cards = [...document.querySelectorAll('#workspace-list > .workspace-card')].slice(0, 4);
+            return {
+              cards: cards.map(card => {
+                const {top, left, width} = card.getBoundingClientRect();
+                return {top, left, width};
+              }),
+              fits: document.documentElement.scrollWidth <= innerWidth
+            };
+          })()`)
+          const columns = viewport <= 440 ? 1 : viewport <= 1080 ? 2 : 3
+          assert.equal(layout.cards.length, 4, "fixture spans more than one workspace row")
+          assert.equal(layout.fits, true, `workspace cards fit ${viewport}px (forced colors: ${forced})`)
+          for (let index = 1; index < columns; index++) {
+            assert.ok(Math.abs(layout.cards[index].top - layout.cards[0].top) < 1 &&
+              layout.cards[index].left > layout.cards[index - 1].left,
+            `workspace index has ${columns} cards across at ${viewport}px (forced colors: ${forced})`)
+          }
+          assert.ok(layout.cards[columns].top > layout.cards[0].top &&
+            Math.abs(layout.cards[columns].left - layout.cards[0].left) < 1,
+          `next workspace row starts after ${columns} cards at ${viewport}px (forced colors: ${forced})`)
+          if (!forced && [1080, 320].includes(viewport)) await screenshot(`workspaces-${viewport}`)
+        }
+        await send("Emulation.setDeviceMetricsOverride", {width, height: 1000, deviceScaleFactor: 1, mobile: false})
+      }
       const dimensions = await evaluate(`(() => {
         const card = document.querySelector('#open-${workspaceId}').getBoundingClientRect();
-        const menu = document.querySelector('#rename-${workspaceId}').getBoundingClientRect();
+        const tile = document.querySelector('#open-${workspaceId}').parentElement.getBoundingClientRect();
         const lock = document.querySelector('#sidebar-toggle').getBoundingClientRect();
-        return {card: card.width, cardHeight: card.height, menu: menu.width, menuHeight: menu.height, lock: lock.height};
+        return {card: card.width, cardHeight: card.height, tile: tile.width, tileHeight: tile.height, lock: lock.height};
       })()`)
-      assert.ok(dimensions.card > 200 && dimensions.menu >= 44 && dimensions.menuHeight >= 44 && dimensions.lock >= 44,
-        `usable card/menu/Lock targets at ${width}px (forced colors: ${forced}): ${JSON.stringify(dimensions)}`)
+      assert.ok(dimensions.card > 200 && dimensions.cardHeight >= 44 && dimensions.lock >= 44,
+        `usable directory and sidebar targets at ${width}px (forced colors: ${forced}): ${JSON.stringify(dimensions)}`)
+      assert.ok(Math.abs(dimensions.card - dimensions.tile) <= 1 && Math.abs(dimensions.cardHeight - dimensions.tileHeight) <= 1,
+        "workspace destination covers the entire tile, including its header and padding")
+      assert.equal(await evaluate("!!document.querySelector('#workspace-list button')"), false, "no directory Rename buttons")
+      const registerPoint = await evaluate(`(() => {
+        const rect = document.querySelector('#open-${workspaceId} .section-register').getBoundingClientRect();
+        return {x: rect.left + 1, y: rect.top + rect.height / 2};
+      })()`)
+      await send("Input.dispatchMouseEvent", {type: "mouseMoved", ...registerPoint})
+      assert.equal(await evaluate(`document.querySelector('#open-${workspaceId}').matches(':hover')`), true,
+        "numbered workspace header shares the destination hover target")
+      if (!forced) {
+        assert.equal(await evaluate(`getComputedStyle(document.querySelector('#open-${workspaceId}')).backgroundColor`), "rgba(255, 255, 255, 0.08)",
+          "hovering the workspace header frosts the complete destination")
+      }
       if (!forced) await screenshot(`workspaces-${width}`)
-      await click(`#rename-${workspaceId}`)
+      await click("#new-workspace")
       await waitFor("document.querySelector('#workspace-modal')?.matches(':modal')", "light control contrast dialog")
       const primaryPoint = await evaluate(`(() => {
         const rect = document.querySelector('#workspace-form button[type=submit]').getBoundingClientRect();
@@ -1827,8 +1971,8 @@ try {
         assert.ok(ratio >= 4.5, `${label} remains readable at ${width}px (forced colors: ${forced}): ${ratio}`)
       }
       await click("#workspace-form button[type=button]")
-      await waitFor(`!document.querySelector('#workspace-modal') && document.activeElement.id === 'rename-${workspaceId}'`,
-        "contrast dialog cancelled and Rename focus restored without saving")
+      await waitFor("!document.querySelector('#workspace-modal') && document.activeElement.id === 'new-workspace'",
+        "contrast dialog cancelled and New workspace focus restored without saving")
       // Native close can restore the opener before the hook's own focus frame.
       // Let that handoff finish before the following Escape/scenery assertion.
       await evaluate("new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve(true))))")

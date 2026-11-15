@@ -3,6 +3,7 @@ defmodule MonolithWeb.GitHubComponentsTest do
 
   import Phoenix.LiveViewTest
 
+  alias Monolith.GitHub.Polling
   alias MonolithWeb.GitHubComponents
 
   @now ~U[2026-11-05 12:00:00Z]
@@ -77,6 +78,31 @@ defmodule MonolithWeb.GitHubComponentsTest do
                |> LazyHTML.text() == "—"
       end
     end
+  end
+
+  test "domain expiration watermark prevents expired Home snapshot counts" do
+    policy =
+      Monolith.Caching.policy(:github, %{
+        refresh_minutes: 30,
+        retention_hours: 1,
+        expired_before: nil
+      })
+
+    observation = %{
+      fetched_at: DateTime.add(@now, -600),
+      total_count: 1,
+      pull_requests: [Monolith.TestGitHub.row()]
+    }
+
+    fresh = snapshot(observation, cache_policy: policy)
+
+    assert LazyHTML.query(fresh, ".github-home-metric:nth-child(1) .github-home-total")
+           |> LazyHTML.text() == "1"
+
+    expired = snapshot(observation, cache_policy: %{policy | expired_before: @now})
+
+    assert LazyHTML.query(expired, ".github-home-metric:nth-child(1) .github-home-total")
+           |> LazyHTML.text() == "—"
   end
 
   test "Home labels include only the owner's attached workspaces without navigation" do
@@ -728,6 +754,13 @@ defmodule MonolithWeb.GitHubComponentsTest do
           actions_truncated: false
         },
         overrides
+      )
+
+    organization =
+      Polling.read_model(
+        organization,
+        Keyword.get(options, :cache_policy, Monolith.Caching.policy(:github, nil)),
+        @now
       )
 
     render_component(&GitHubComponents.dashboard/1,

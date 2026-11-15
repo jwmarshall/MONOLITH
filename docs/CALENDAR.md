@@ -80,16 +80,22 @@ new dependency is required. The day is rechecked on a timer and visibility/resum
 
 A connection retains one browser-day context at a time. Browsers in different timezones
 may replace that context; a view never presents a different context's events as its own.
-Polling targets three minutes via Calendar's independent minute Oban sweep while MONOLITH runs
-unlocked. Both Calendar workers use the dedicated `:calendar` queue at concurrency one;
+Settings → Caching selects the app-wide Calendar refresh interval in integer minutes
+(3–60; default 3). Calendar's independent minute Oban sweep evaluates that interval while
+MONOLITH runs unlocked, including already scheduled contexts after a preference change.
+Successful reads and ordinary failures schedule the next attempt at that interval.
+Both Calendar workers use the dedicated `:calendar` queue at concurrency one;
 Calendar recovery does not wait for Gmail's sweep to complete. Each sweep examines at most
 100 expired and 100 due contexts. It stops requesting an expired day until a browser supplies the next day.
+Browser context and selection eligibility retain their independent 24-hour security bound;
+short data retention does not stop polling an otherwise current browser-day context.
 Explicit global **Lock** stops Repo, Oban and provider work; startup stays locked until
 owner unlock. Visual idle/Escape is not a lock and keeps authorized background work
 running. Sleep, network failures and queue backlog delay updates; nothing runs with
 the computer/app stopped.
-Manual Refresh requests another bounded read, not instant or push delivery. Known rate
-limits impose a five-minute Calendar cooldown, including manual Refresh.
+Manual Refresh bypasses the selected interval and requests another bounded read, not instant
+or push delivery. Known rate limits impose a fixed five-minute Calendar cooldown, including
+manual Refresh.
 
 Work is bounded to 100 listed calendars, 20 selected calendars, 100 expanded events per
 calendar and 500 retained agenda events, within a 512 KiB payload bound. Provider pages
@@ -102,9 +108,15 @@ API time bounds are widened before exact local-day filtering to account for all-
 entries whose calendar timezone differs from the browser's.
 
 The account-scoped cache contains minimal event text in **SQLCipher-encrypted SQLite**,
-retained for at most 24 hours and never served after expiry. Its independently generated
-database key lives in the dedicated MONOLITH keychain. Cleanup runs only while unlocked;
-logical deletion is not forensic erasure from SQLite pages/WAL/backups or browser copies.
+retained according to the app-wide Settings → Caching preference in integer hours
+(1–24; default 24) and never served after expiry. This applies to both catalog and event
+observations; expiration preserves selected calendar IDs and explicit-selection preferences.
+Saving does not contact Google, force a refresh or immediately purge data. Shorter retention
+takes effect on the next read and normal cleanup. Increasing retention cannot revive
+previously expired observations: a permanent expiration watermark applies even before cleanup.
+Its independently generated database key lives in the dedicated MONOLITH keychain.
+Cleanup runs only while unlocked; logical deletion is not forensic erasure from SQLite
+pages/WAL/backups or browser copies.
 Retained legacy plaintext databases, sidecars and login-keychain secrets remain exposed
 under their old protections until explicitly deleted during terminal migration; deletion
 does not guarantee APFS snapshot or backup erasure. Protect OS permissions, FileVault and
@@ -121,8 +133,10 @@ Calendar destinations and are followed only by an explicit click.
 
 `Monolith.Calendar.catalog/2` is the authorized, provider-free catalog capability used by
 onboarding. It selects only catalog metadata from protected storage, never cached events
-or an event-bearing agenda. Calendar owns the catalog's 24-hour freshness, loading/error
-states, independent bounded-result/selection warnings, selection limit and cooldown deadline.
+or an event-bearing agenda. Calendar owns the catalog's selected retention (at most 24 hours),
+loading/error states, independent bounded-result/selection warnings, selection limit and
+cooldown deadline. Catalog data must remain retained as well as within the independent
+24-hour selection-eligibility bound before a selection mutation is allowed.
 Onboarding adds its workspace/account/generation fence and uses Calendar actions for every
 mutation; it does not query Calendar persistence or reconstruct Calendar policy.
 

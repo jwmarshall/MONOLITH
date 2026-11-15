@@ -122,6 +122,13 @@ defmodule MonolithWeb.NavigationLiveTest do
 
     view |> element("#open-#{ctx.workspace.id}") |> render_click()
     assert_patch(view, "/workspaces/#{ctx.workspace.id}")
+
+    assert has_element?(
+             view,
+             ".page-register-row .page-register",
+             "02 / Workspaces / #{ctx.workspace.name}"
+           )
+
     view |> element("#show-connections") |> render_click()
     assert_patch(view, "/connections")
     assert has_element?(view, "#connections-overview")
@@ -138,7 +145,7 @@ defmodule MonolithWeb.NavigationLiveTest do
     refute has_element?(view, "#back-from-connections")
   end
 
-  test "Settings is an exclusive patch destination with idle and startup controls", ctx do
+  test "Settings overview is an exclusive directory of native child patch links", ctx do
     {:ok, view, _} = live(ctx.conn, "/")
 
     view |> element("#show-settings") |> render_click()
@@ -146,21 +153,22 @@ defmodule MonolithWeb.NavigationLiveTest do
     assert_push_event(view, "workspace:focus-heading", %{})
     assert has_element?(view, "#show-settings[aria-current=page]")
     assert has_element?(view, "#directory-heading", "Settings")
+    assert has_element?(view, "#settings-panel #settings-overview")
+    assert state(view).settings_view == :index
 
-    assert has_element?(
+    refute has_element?(
              view,
-             "#settings-panel #idle-preference input[name=minutes][type=number][min='1'][max='60'][required]"
+             "#idle-preference, #startup-preference, #cache-gmail, #cache-calendar, #cache-github"
            )
 
-    assert has_element?(view, "#idle-preference label[for=idle-minutes]")
-    assert has_element?(view, "#idle-preference button[type=submit]", "Save preference")
+    refute has_element?(view, "#settings-panel [role=alert], #settings-subnav, #back-to-settings")
 
-    assert has_element?(
-             view,
-             "#startup-preference input[type=checkbox][name=enabled]:not([checked])"
-           )
-
-    assert has_element?(view, "#startup-preference button[type=submit]", "Save startup choice")
+    for section <- ["focus", "startup", "cache"] do
+      assert has_element?(
+               view,
+               "#settings-overview a#open-setting-#{section}[href='/settings/#{section}'][data-phx-link=patch]"
+             )
+    end
 
     refute has_element?(
              view,
@@ -186,20 +194,124 @@ defmodule MonolithWeb.NavigationLiveTest do
   end
 
   test "startup opt-in persists across reload and can be switched off again", ctx do
-    {:ok, view, _} = live(ctx.conn, "/settings")
+    {:ok, view, _} = live(ctx.conn, "/settings/startup")
     assert has_element?(view, "#startup-preference input[type=checkbox]:not([checked])")
 
     view |> form("#startup-preference", %{enabled: "true"}) |> render_submit()
     assert has_element?(view, "#startup-preference input[type=checkbox][checked]")
     assert has_element?(view, "#startup-status[role=status]", "No generation was started")
 
-    {:ok, reloaded, _} = live(ctx.conn, "/settings")
+    {:ok, reloaded, _} = live(ctx.conn, "/settings/startup")
     assert has_element?(reloaded, "#startup-preference input[type=checkbox][checked]")
     reloaded |> form("#startup-preference", %{enabled: "false"}) |> render_submit()
     assert has_element?(reloaded, "#startup-preference input[type=checkbox]:not([checked])")
 
-    {:ok, disabled, _} = live(ctx.conn, "/settings")
+    {:ok, disabled, _} = live(ctx.conn, "/settings/startup")
     assert has_element?(disabled, "#startup-preference input[type=checkbox]:not([checked])")
+  end
+
+  test "forged startup saves outside its child cannot change the persisted choice", ctx do
+    {:ok, view, _} = live(ctx.conn, "/settings/startup")
+    view |> form("#startup-preference", %{enabled: "true"}) |> render_submit()
+
+    for path <- ["/settings", "/settings/focus", "/settings/cache", "/"] do
+      render_patch(view, path)
+      refute has_element?(view, "#startup-preference")
+      render_submit(view, "settings:startup", %{"enabled" => "false"})
+
+      assert %{enabled: true} =
+               Monolith.StageDesigner.get_startup_preference!(1,
+                 actor: %{role: :stage_designer}
+               )
+
+      render_patch(view, "/settings/startup")
+      assert has_element?(view, "#startup-preference input[type=checkbox][checked]")
+    end
+  end
+
+  test "Settings children isolate controls through direct entry, reload and history patches",
+       ctx do
+    children = [
+      {"focus", :focus, "Visual focus", "#idle-preference"},
+      {"startup", :startup, "Startup scenery", "#startup-preference"},
+      {"cache", :cache, "Caching and refresh", "#cache-gmail"}
+    ]
+
+    for {section, projection, heading, form_selector} <- children do
+      path = "/settings/#{section}"
+      response = get(ctx.conn, path)
+      assert response.status == 200
+      {:ok, view, _} = live(ctx.conn, path)
+      assert state(view).destination.action == :setting
+      assert state(view).settings_view == projection
+      assert state(view).navigation_path == path
+      assert has_element?(view, "#directory-heading", heading)
+      assert has_element?(view, ".page-register-row .page-register", "05 / Settings / #{heading}")
+      assert has_element?(view, "#show-settings[aria-current=page]")
+      assert has_element?(view, "#settings-panel #{form_selector}")
+      assert has_element?(view, "#settings-subnav #settings-#{section}[aria-current=page]")
+      assert has_element?(view, "#back-to-settings[href='/settings'][data-phx-link=patch]")
+
+      for {other, _, _, selector} <- children, other != section do
+        refute has_element?(view, selector)
+        refute has_element?(view, "#settings-#{other}[aria-current=page]")
+      end
+
+      if section == "cache" do
+        assert has_element?(view, "#cache-calendar")
+        assert has_element?(view, "#cache-github")
+      end
+
+      if section == "focus" do
+        assert has_element?(
+                 view,
+                 "#idle-preference input[name=minutes][type=number][min='1'][max='60'][required]"
+               )
+
+        assert has_element?(view, "#idle-preference label[for=idle-minutes]")
+        assert has_element?(view, "#idle-preference button[type=submit]", "Save preference")
+        assert has_element?(view, "#accessibility-heading")
+      else
+        refute has_element?(view, "#accessibility-heading")
+      end
+
+      render_patch(view, path <> "?workspace=ignored&q=discard&page=2")
+      assert_patch(view, path)
+      assert state(view).navigation_path == path
+      view |> element("#back-to-settings") |> render_click()
+      assert_patch(view, "/settings")
+      assert state(view).settings_view == :index
+      refute has_element?(view, form_selector)
+      view |> element("#open-setting-#{section}") |> render_click()
+      assert_patch(view, path)
+      assert has_element?(view, form_selector)
+      render_patch(view, "/settings")
+      render_patch(view, path)
+      assert state(view).settings_view == projection
+      assert has_element?(view, form_selector)
+
+      {:ok, reloaded, _} = live(ctx.conn, path)
+      assert state(reloaded).settings_view == projection
+      assert has_element?(reloaded, form_selector)
+    end
+  end
+
+  test "unknown Settings sections return safely to the overview", ctx do
+    for section <- ["unknown", "Focus"] do
+      {:ok, view, _} = live(ctx.conn, "/settings/#{section}")
+      assert state(view).navigation_path == "/settings"
+      assert state(view).settings_view == :index
+      assert has_element?(view, "#settings-overview")
+      assert has_element?(view, "[role=alert]")
+      refute has_element?(view, "#idle-preference, #startup-preference, #cache-gmail")
+    end
+
+    {:ok, view, _} = live(ctx.conn, "/settings/cache")
+    render_patch(view, "/settings/unknown")
+    assert_patch(view, "/settings")
+    assert has_element?(view, "#settings-overview")
+    assert has_element?(view, "[role=alert]")
+    refute has_element?(view, "#cache-gmail")
   end
 
   test "Settings deep entry and reload discard unrelated context without restoring mail", ctx do
@@ -246,7 +358,13 @@ defmodule MonolithWeb.NavigationLiveTest do
   end
 
   test "obsolete provider queries are removed without restoring workspace context", ctx do
-    for provider <- ["gmail", "calendar", "gemini"] do
+    for {provider, label} <- [
+          {"google", "Google"},
+          {"gmail", "Gmail"},
+          {"calendar", "Calendar"},
+          {"gemini", "Gemini"},
+          {"github", "GitHub"}
+        ] do
       {:ok, view, _} =
         live(ctx.conn, "/connections/#{provider}?workspace=missing&q=obsolete&page=2")
 
@@ -254,6 +372,13 @@ defmodule MonolithWeb.NavigationLiveTest do
       assert state(view).navigation_path == "/connections/#{provider}"
       assert state(view).selected == nil
       assert has_element?(view, "#back-to-connections[href='/connections']")
+
+      assert has_element?(
+               view,
+               ".page-register-row .page-register",
+               "03 / Connections / #{label}"
+             )
+
       view |> element("#show-connections") |> render_click()
       assert_patch(view, "/connections")
       assert has_element?(view, "#connections-overview")
@@ -283,6 +408,13 @@ defmodule MonolithWeb.NavigationLiveTest do
     path = "/workspaces/#{ctx.workspace.id}/integrations"
     {:ok, view, _} = live(ctx.conn, path)
     assert has_element?(view, "#integration-add-panel")
+
+    assert has_element?(
+             view,
+             ".page-register-row .page-register",
+             "02 / Workspaces / #{ctx.workspace.name} / Add integration"
+           )
+
     view |> element("#close-add-integration") |> render_click()
     assert_patch(view, "/workspaces/#{ctx.workspace.id}")
     refute has_element?(view, "#integration-add-panel")
@@ -298,12 +430,26 @@ defmodule MonolithWeb.NavigationLiveTest do
     {:ok, view, _} = live(ctx.conn, thread)
     BackgroundWork.complete(view)
     assert has_element?(view, "#mail-conversation", "Synthetic reader")
+
+    assert has_element?(
+             view,
+             ".mail-conversation-header .mail-eyebrow",
+             "02 / Workspaces / #{ctx.workspace.name} / Gmail / #{ctx.account.email} / Read-only conversation"
+           )
+
     assert has_element?(view, "#mail-back[href='#{results}']")
     refute has_element?(view, "#mail-threads")
     view |> element("#mail-back") |> render_click()
     assert_patch(view, results)
     BackgroundWork.complete(view)
     assert has_element?(view, "#mail-search input[value='#{query}']")
+
+    assert has_element?(
+             view,
+             ".mail-register-row .mail-eyebrow",
+             "02 / Workspaces / #{ctx.workspace.name} / Gmail / #{ctx.account.email}"
+           )
+
     assert has_element?(view, "#mail-thread-deep-thread", "#{query} second")
     key = state(view).mail.list_key
     render_patch(view, thread)
@@ -448,6 +594,9 @@ defmodule MonolithWeb.NavigationLiveTest do
            "#integration-add-panel"},
           {"/connections", :connections, "#connections-overview"},
           {"/settings", :settings, "#settings-panel"},
+          {"/settings/focus", :setting, "#idle-preference"},
+          {"/settings/startup", :setting, "#startup-preference"},
+          {"/settings/cache", :setting, "#cache-gmail"},
           {"/", :index, "#home-overview"},
           {"/workspaces", :workspaces, "#workspace-list"}
         ] do

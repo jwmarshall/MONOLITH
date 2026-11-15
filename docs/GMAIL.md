@@ -343,11 +343,18 @@ interpreted as an absent credential during rollback.
 
 - Fetch only requested pages and opened threads. Pages contain at most 20 conversation
   summaries. No full mailbox download, local search index, history cursor or push service.
-- Persist fetched data for at most seven days, bounded to **120 entries / 25 MiB per
-  account**; individual cached results are capped at 5 MiB. Oldest fetched entries are
-  evicted first. Expiry is enforced on reads and the minute sweep while the app runs;
-  no cleanup occurs while the app is stopped. This is logical record deletion, **not
-  forensic erasure** of SQLite pages, WAL files, backups or browser-rendered copies.
+- **Settings → Caching** controls Gmail app-wide: refresh every **3–60 whole minutes**
+  (default **3**) and retain observations for **1–168 whole hours** (default **168**).
+  Accounts keep separate caches and paired unread observations. Cached results remain
+  bounded to **120 entries / 25 MiB per account**, and **5 MiB per result**. Oldest fetched
+  entries are evicted first. Shorter retention takes effect on the next read and normal
+  minute cleanup; saving neither purges records immediately nor contacts Gmail.
+  Increasing retention never revives observations already expired under a prior setting.
+  Existing expiry timestamps remain an additional upper bound. Failed reads recheck
+  current retention and persisted expiry before publishing any cached fallback.
+  No cleanup occurs while stopped. Logical record deletion is **not forensic erasure**
+  of SQLite pages, WAL files, backups or browser-rendered copies. View-result, OAuth
+  and security lifetimes are unchanged.
 - The business-data cache is encrypted in SQLCipher SQLite using the independently
   generated key held in the dedicated vault. The `.vault` directory also contains the
   keychain and an empty plaintext infrastructure-lock SQLite file, not business data.
@@ -363,7 +370,10 @@ interpreted as an absent credential during rollback.
   Attachment bytes are not retained in SQLite. Oversized files/threads fail
   safely instead of rendering partial content. Current MIME text expects UTF-8.
 - Oban **2.24.2**, Apache-2.0, uses its bundled SQLite Lite engine. A minute cron sweep
-  queues overdue per-account polls, targeting a three-minute interval, queue concurrency 1.
+  queues overdue per-account polls using the chosen refresh interval, queue concurrency 1.
+  Normal sweep/worker evaluation rechecks successful observation age against current
+  settings, rather than relying on a deadline saved with an older interval. Existing
+  bounded failure retries and provider cooldowns are unchanged; saving schedules no work.
   It refreshes the first inbox page and independently reads the INBOX label's unread
   conversation count; open account-scoped views refresh through PubSub.
   Other cached searches/pages/threads refetch on demand. This is polling, not a complete
@@ -380,8 +390,10 @@ interpreted as an absent credential during rollback.
   retry; a durable remote-revocation claim prohibits replay of an unknown revoke.
 - Count observations are generation-fenced and cleared on reconnect/disconnect. Their
   separate errors preserve known values and observation times; a failed count read does
-  not masquerade as a successful count update. Home's freshness label ages locally and
-  marks counts stale after three minutes, including across hidden tabs/system sleep.
+  not masquerade as a successful count update. Expired paired counts become unavailable
+  together, retaining honest observation timestamps/errors; page reads cannot renew them.
+  The mail reader's locally aging freshness label uses the chosen refresh interval,
+  including across hidden tabs/system sleep.
 - Cache and errors show timestamps and stale status. **Refresh** explicitly requests
   another read. Explicit global **Lock** revokes sessions and stops Repo, Oban and
   provider work; no polling or cache cleanup runs while locked. Visual idle/Escape

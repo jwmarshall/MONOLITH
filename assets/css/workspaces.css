@@ -1,21 +1,19 @@
-/* One joined directory plane. Workspace Rename is a sibling of its destination. */
-.workspace-list { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 0; align-items: stretch; background: var(--card-surface); border-top: 1px solid var(--line); }
-.workspace-card { min-width: 0; display: flex; flex-direction: column; border-bottom: 1px solid var(--line); }
-.workspace-card:nth-child(odd):not(:last-child) { border-right: 1px solid var(--line-interior); }
-.workspace-card:has(~ .workspace-card:nth-child(2n+1)) { border-bottom-color: var(--line-interior); }
-.workspace-card-head { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 16px 16px 0 28px; }
+/* One joined directory plane with a full-area destination for each workspace. */
+.workspace-list { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 0; align-items: stretch; background: var(--card-surface); border-block: 1px solid var(--line); }
+.workspace-card { min-width: 0; display: flex; flex-direction: column; }
+.workspace-card:not(:nth-child(3n)) { border-inline-end: 1px solid var(--line-interior); }
+.workspace-card:nth-child(n+4) { border-block-start: 1px solid var(--line-interior); }
 .workspace-rename { flex: none; min-width: 44px; min-height: 44px; font-size: 13px; }
-.workspace-card-open { display: flex; flex: 1; flex-direction: column; gap: 16px; min-width: 0; min-height: 140px; padding: 8px 28px 28px; text-decoration: none; }
+.workspace-card-open { display: flex; flex: 1; flex-direction: column; gap: 12px; min-width: 0; min-height: 44px; padding: 24px; text-decoration: none; }
 .workspace-card-open:hover { background: var(--surface); }
-.workspace-card-name { font-size: 30px; line-height: 1.25; letter-spacing: -.04em; }
+.workspace-card-name { font-size: 23px; line-height: 1.25; letter-spacing: -.03em; }
 .workspace-card-health { display: flex; flex-direction: column; gap: 8px; color: var(--muted); font-size: 13px; line-height: 1.6; }
 .connection-warning { color: var(--ink); }
 .workspace-landing { min-width: 0; }
 .workspace-landing > .mail-panel { margin-top: 0; padding-top: 0; }
 .workspace-landing > .mail-workspace-panel { padding: 0; }
 .mail-workspace-panel > .mail-notice { margin: 24px; }
-/* Integration actions retain their independent scopes. Unlike workspace Rename,
-   these menus contain multiple choices and remain native disclosures. */
+/* Integration management menus retain their independent scopes and native disclosures. */
 .integration-grid { display: grid; grid-template-columns: 1fr; gap: 0; }
 .integration-tile { position: relative; min-width: 0; background: transparent; border-bottom: 1px solid var(--line-interior); }
 .integration-tile-open { display: grid; grid-template-columns: 24px minmax(0,1fr); gap: 8px 16px; min-height: 120px; padding: 24px; text-align: left; text-decoration: none; }
@@ -71,16 +69,20 @@
 .empty-state-body > .connection-help { width: 100%; }
 .empty-state-body > .mail-account-identity { display: flex; flex-direction: column; gap: 12px; }
 .workspace-detail-grid .empty-state { border: 0; background: transparent; }
+@media (max-width:1080px) {
+  .workspace-list { grid-template-columns: repeat(2,minmax(0,1fr)); }
+  .workspace-card:nth-child(n) { border-inline-end: 0; border-block-start: 0; }
+  .workspace-card:nth-child(odd) { border-inline-end: 1px solid var(--line-interior); }
+  .workspace-card:nth-child(n+3) { border-block-start: 1px solid var(--line-interior); }
+}
 @media (max-width:760px) {
-  .workspace-list { grid-template-columns: 1fr; }
-  .workspace-card:nth-child(odd):not(:last-child) { border-right: 0; }
-  .workspace-card:not(:last-child) { border-bottom-color: var(--line-interior); }
-  .workspace-card-head { padding: 12px 12px 0 24px; }
-  .workspace-card-open { padding: 8px 24px 24px; }
   .connection-row { flex-direction: column; align-items: start; }
   .connections-panel .mail-oauth > div { flex: 1; min-width: 0; }
 }
 @media (max-width:440px) {
+  .workspace-list { grid-template-columns: minmax(0,1fr); }
+  .workspace-card:nth-child(n) { border-inline-end: 0; border-block-start: 0; }
+  .workspace-card + .workspace-card { border-block-start: 1px solid var(--line-interior); }
   .gmail-connection-card { padding: 16px; }
   .connections-panel > p, .connections-panel > .mail-notice, .mail-workspace-panel > .mail-notice { margin: 16px; }
   .connections-panel > .connection-help { margin: 16px; }

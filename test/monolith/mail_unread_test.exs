@@ -195,7 +195,7 @@ defmodule Monolith.MailUnreadTest do
     poll(a)
     observed = current(a)
     Monolith.TestMail.unread_response({:error, :rate_limited})
-    assert :ok = PollWorker.perform(job(a))
+    assert :ok = PollWorker.perform(%{job(a) | attempt: 2})
     limited = current(a)
     assert limited.inbox_unread_count == observed.inbox_unread_count
     assert limited.inbox_unread_recent_count == observed.inbox_unread_recent_count

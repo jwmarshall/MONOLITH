@@ -65,6 +65,36 @@ defmodule MonolithWeb.HomeNavigationTest do
     assert HomeNavigation.path(provider) == "/connections/calendar"
   end
 
+  test "Settings children have strict canonical destinations and reset their projection" do
+    socket = %Phoenix.LiveView.Socket{assigns: %{__changed__: %{}}}
+
+    for section <- [:focus, :startup, :cache] do
+      assert {:ok, destination} =
+               HomeNavigation.destination(:setting, %{
+                 "section" => Atom.to_string(section),
+                 "q" => "discard",
+                 "workspace" => Ash.UUID.generate()
+               })
+
+      assert HomeNavigation.path(destination) == "/settings/#{section}"
+      child = HomeNavigation.put(socket, destination)
+      assert child.assigns.settings
+      assert child.assigns.settings_view == section
+      refute child.assigns.home || child.assigns.connections || child.assigns.scenes
+      assert HomeNavigation.current(child) == "/settings/#{section}"
+      overview = HomeNavigation.put(child, :settings)
+      assert overview.assigns.settings_view == :index
+      assert HomeNavigation.current(overview) == "/settings"
+      other = HomeNavigation.put(child, :connections)
+      refute other.assigns.settings
+      assert other.assigns.settings_view == :index
+    end
+
+    for section <- [nil, "", "unknown", "Focus", "../startup", :startup, %{}] do
+      assert :error = HomeNavigation.destination(:setting, %{"section" => section})
+    end
+  end
+
   test "destination changes replace every derived page flag in one projection" do
     socket = %Phoenix.LiveView.Socket{assigns: %{__changed__: %{}}}
 

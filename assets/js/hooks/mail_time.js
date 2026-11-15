@@ -15,15 +15,17 @@ export function mailDate(value, now = new Date(), locale) {
   }
 }
 
-export function mailFreshnessText(timestamp, cached, stale, now = Date.now()) {
+export function mailFreshnessText(timestamp, cached, stale, refreshSeconds, now = Date.now()) {
   const at = Date.parse(timestamp)
   if (!Number.isFinite(at)) return "Fetch time unavailable"
-  const seconds = Math.max(0, Math.floor((now - at) / 1000))
+  const elapsed = Math.floor((now - at) / 1000)
+  const seconds = Math.max(0, elapsed)
   const age = seconds < 60 ? "just now"
     : seconds < 3600 ? `${Math.floor(seconds / 60)} min ago`
     : seconds < 86400 ? `${Math.floor(seconds / 3600)} hr ago`
     : `${Math.floor(seconds / 86400)} ${seconds < 172800 ? "day" : "days"} ago`
-  const prefix = stale || seconds >= 180 ? "Stale · fetched" : cached ? "Local copy · fetched" : "Fetched"
+  const prefix = stale || elapsed < 0 || !Number.isFinite(refreshSeconds) || seconds >= refreshSeconds
+    ? "Stale · fetched" : cached ? "Local copy · fetched" : "Fetched"
   return `${prefix} ${age}`
 }
 
@@ -56,8 +58,8 @@ export const MailDate = {
 export const MailFreshness = {
   mounted() {
     observe(this, () => {
-      const {fetchedAt, cached, stale} = this.el.dataset
-      this.el.textContent = mailFreshnessText(fetchedAt, cached === "true", stale === "true")
+      const {fetchedAt, cached, stale, refreshSeconds} = this.el.dataset
+      this.el.textContent = mailFreshnessText(fetchedAt, cached === "true", stale === "true", Number(refreshSeconds))
       this.el.title = mailDate(fetchedAt).title
     })
   },

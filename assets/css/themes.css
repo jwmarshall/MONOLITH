@@ -5,7 +5,8 @@
   color-scheme: dark;
   /* Semantic color: reading, structural rules and bounded observed signals. */
   --ink: #f3f1e9;
-  --muted: #bdc3bc;
+  /* Supporting copy stays opaque and near-white over transparent scenery. */
+  --muted: #dce1d8;
   --line: rgba(239,242,229,.23);
   --line-interior: rgba(239,242,229,.12);
   --accent: #d9ddd0;

@@ -630,7 +630,12 @@ defmodule Monolith.CalendarTest do
     before = Monolith.TestMail.calls()
     assert :ok = SweepWorker.perform(%Oban.Job{})
     assert state(c.a).loading
-    assert DateTime.compare(state(c.a).next_poll_at, DateTime.utc_now()) == :gt
+
+    assert_enqueued(
+      worker: PollWorker,
+      args: %{account_id: c.a.id, generation: c.a.generation, revision: prepared.revision}
+    )
+
     assert Monolith.TestMail.calls() == before
 
     update_state(c.a, %{
@@ -643,6 +648,177 @@ defmodule Monolith.CalendarTest do
     assert state(c.a).calendars == []
     assert state(c.a).fetched_at == nil
     assert state(c.a).catalog_at == nil
+  end
+
+  test "shorter retention hides both accounts without purging on save or reviving on increase",
+       c do
+    for account <- [c.a, c.b] do
+      prepared = prepare(c, account)
+      poll(account, prepared.revision)
+      observed = DateTime.add(DateTime.utc_now(), -7200)
+
+      update_state(account, %{
+        fetched_at: observed,
+        catalog_at: observed,
+        context_at: observed,
+        last_poll_at: observed,
+        next_poll_at: DateTime.add(observed, 180),
+        explicit_selection: true
+      })
+    end
+
+    calls = Monolith.TestMail.calls()
+    Monolith.Caching.save_preferences!(:calendar, 3, 1, actor: @owner)
+    assert Monolith.TestMail.calls() == calls
+    assert state(c.a).events != []
+    assert state(c.b).calendars != []
+
+    for account <- [c.a, c.b] do
+      assert snapshot(c, account).events == []
+      assert snapshot(c, account).pending
+      refute Calendar.catalog!(account.id, actor: @owner).available?
+
+      assert {:error, _} =
+               Calendar.select_calendars(account.id, account.generation, ["shared"],
+                 actor: @owner
+               )
+    end
+
+    Monolith.Caching.save_preferences!(:calendar, 3, 24, actor: @owner)
+    assert snapshot(c, c.a).events == []
+    refute Calendar.catalog!(c.a.id, actor: @owner).available?
+    assert :ok = SweepWorker.perform(%Oban.Job{})
+
+    for account <- [c.a, c.b] do
+      assert state(account).events == []
+      assert state(account).calendars == []
+      assert state(account).selected_ids == ["primary"]
+      assert state(account).explicit_selection
+      assert state(account).loading
+    end
+
+    # The independent 24-hour context is still eligible, despite expired data.
+    Calendar.refresh!(c.a.id, actor: @owner)
+    assert state(c.a).loading
+    assert Monolith.TestMail.calls() == calls
+    poll(c.a, state(c.a).revision)
+    assert snapshot(c, c.a).events != []
+    assert snapshot(c, c.b).events == []
+  end
+
+  test "selected cadence controls freshness and successful and failed schedules", c do
+    Monolith.Caching.save_preferences!(:calendar, 30, 24, actor: @owner)
+    prepared = prepare(c, c.a)
+    poll(c.a, prepared.revision)
+    observed = state(c.a)
+    assert DateTime.diff(observed.next_poll_at, observed.last_poll_at) == 1800
+    assert snapshot(c, c.a).refresh_seconds == 1800
+
+    update_state(c.a, %{fetched_at: DateTime.add(DateTime.utc_now(), -600)})
+    refute snapshot(c, c.a).stale
+    update_state(c.a, %{fetched_at: DateTime.add(DateTime.utc_now(), -1801)})
+    assert snapshot(c, c.a).stale
+
+    Agent.update(Provider, &%{&1 | response: {:error, :provider}})
+    poll(c.a, prepared.revision)
+    failed = state(c.a)
+    assert DateTime.diff(failed.next_poll_at, failed.last_poll_at) == 1800
+    assert failed.fetched_at != failed.last_poll_at
+    assert snapshot(c, c.a).stale
+  end
+
+  test "normal evaluation retunes existing schedules without provider work on save", c do
+    prepared = prepare(c, c.a)
+    poll(c.a, prepared.revision)
+    attempted = DateTime.add(DateTime.utc_now(), -600)
+    update_state(c.a, %{last_poll_at: attempted, next_poll_at: DateTime.add(attempted, 180)})
+    calls = Monolith.TestMail.calls()
+
+    Monolith.Caching.save_preferences!(:calendar, 60, 24, actor: @owner)
+    assert :ok = SweepWorker.perform(%Oban.Job{})
+    refute state(c.a).loading
+    Monolith.Caching.save_preferences!(:calendar, 3, 24, actor: @owner)
+    assert :ok = SweepWorker.perform(%Oban.Job{})
+    assert state(c.a).loading
+    assert Monolith.TestMail.calls() == calls
+
+    # Manual requests bypass even the longest selected frequency.
+    poll(c.a, prepared.revision)
+    Monolith.Caching.save_preferences!(:calendar, 60, 24, actor: @owner)
+    Calendar.refresh!(c.a.id, actor: @owner)
+    assert state(c.a).loading
+    Agent.update(Provider, &%{&1 | response: {:error, :rate_limited}})
+    poll(c.a, prepared.revision)
+    assert DateTime.diff(state(c.a).cooldown_until, state(c.a).last_poll_at) in 299..300
+    calls = Monolith.TestMail.calls()
+    Calendar.refresh!(c.a.id, actor: @owner)
+    assert poll(c.a, prepared.revision).skipped
+    assert Monolith.TestMail.calls() == calls
+  end
+
+  test "queued automatic work reevaluates cadence while manual refresh remains explicit", c do
+    prepared = prepare(c, c.a)
+    poll(c.a, prepared.revision)
+    attempted = DateTime.add(DateTime.utc_now(), -600)
+
+    update_state(c.a, %{
+      last_poll_at: attempted,
+      fetched_at: attempted,
+      next_poll_at: DateTime.add(attempted, 180)
+    })
+
+    assert :ok = SweepWorker.perform(%Oban.Job{})
+    assert state(c.a).loading
+    calls = Monolith.TestMail.calls()
+    Monolith.Caching.save_preferences!(:calendar, 60, 24, actor: @owner)
+
+    job = %Oban.Job{
+      args: %{
+        "account_id" => c.a.id,
+        "generation" => c.a.generation,
+        "revision" => prepared.revision
+      }
+    }
+
+    assert :ok = PollWorker.perform(job)
+    assert Monolith.TestMail.calls() == calls
+    refute state(c.a).loading
+    assert state(c.a).fetched_at == attempted
+
+    Calendar.refresh!(c.a.id, actor: @owner)
+    assert :ok = PollWorker.perform(job)
+    assert length(Monolith.TestMail.calls()) > length(calls)
+    assert DateTime.compare(state(c.a).fetched_at, attempted) == :gt
+  end
+
+  test "observed legacy schedules use selected cadence and explicit due markers remain forced",
+       c do
+    prepared = prepare(c, c.a)
+    poll(c.a, prepared.revision)
+    observed = DateTime.add(DateTime.utc_now(), -600)
+
+    update_state(c.a, %{
+      fetched_at: observed,
+      last_poll_at: nil,
+      next_poll_at: DateTime.add(observed, 180)
+    })
+
+    calls = Monolith.TestMail.calls()
+    Monolith.Caching.save_preferences!(:calendar, 60, 24, actor: @owner)
+    assert :ok = SweepWorker.perform(%Oban.Job{})
+    refute state(c.a).loading
+
+    Monolith.Caching.save_preferences!(:calendar, 3, 24, actor: @owner)
+    assert :ok = SweepWorker.perform(%Oban.Job{})
+    assert state(c.a).loading
+    assert Monolith.TestMail.calls() == calls
+    poll(c.a, prepared.revision)
+
+    Monolith.Caching.save_preferences!(:calendar, 60, 24, actor: @owner)
+    observed = state(c.a).fetched_at
+    update_state(c.a, %{last_poll_at: nil, next_poll_at: observed})
+    prepare(c, c.a)
+    assert state(c.a).loading
   end
 
   test "generation changes and disabling Calendar discard delayed results", c do

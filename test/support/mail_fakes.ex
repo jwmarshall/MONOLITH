@@ -72,6 +72,13 @@ defmodule Monolith.TestGoogle do
       {:wait_attachment, _} ->
         {:ok, %{access_token: "access:" <> token, expires_in: 3600}}
 
+      {:wait, pid, result} ->
+        send(pid, {:provider_waiting, self()})
+
+        receive do
+          :continue -> result
+        end
+
       {:wait, pid} ->
         send(pid, {:provider_waiting, self()})
 

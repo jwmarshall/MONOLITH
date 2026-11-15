@@ -1,5 +1,5 @@
 defmodule MonolithWeb.WorkspaceComponents do
-  @moduledoc "Joined workspace destinations with always-visible, separately scoped Rename controls."
+  @moduledoc "Full-area workspace destinations and a detail-page Rename control."
   use MonolithWeb, :html
 
   attr :id, :string, required: true
@@ -9,9 +9,6 @@ defmodule MonolithWeb.WorkspaceComponents do
   def card(assigns) do
     ~H"""
     <article id={@id} class="workspace-card">
-      <header class="workspace-card-head">
-        <p class="section-register">02 / Workspace</p><.rename_button workspace={@workspace} />
-      </header>
       <.link
         id={"open-#{@workspace.id}"}
         patch={MonolithWeb.HomeNavigation.workspace_path(@workspace.id)}
@@ -19,6 +16,7 @@ defmodule MonolithWeb.WorkspaceComponents do
         aria-label={"Open #{@workspace.name}"}
         aria-describedby={"workspace-health-#{@workspace.id}"}
       >
+        <p class="section-register">Workspace</p>
         <h2 class="workspace-card-name">{@workspace.name}</h2>
         <span id={"workspace-health-#{@workspace.id}"} class="workspace-card-health">
           <span class="workspace-card-memberships">{membership_summary(@health)}</span>
@@ -43,12 +41,11 @@ defmodule MonolithWeb.WorkspaceComponents do
   end
 
   attr :workspace, :map, required: true
-  attr :current, :boolean, default: false
 
   def rename_button(assigns) do
     ~H"""
     <button
-      id={if @current, do: "rename-current-workspace", else: "rename-#{@workspace.id}"}
+      id="rename-current-workspace"
       type="button"
       class="workspace-action workspace-rename"
       phx-click="rename_workspace"

@@ -59,6 +59,10 @@ defmodule MonolithWeb.HomeLive do
         startup_preference: nil,
         startup_error: false,
         startup_status: "",
+        cache_forms: %{},
+        cache_errors: %{},
+        cache_status: %{},
+        cache_load_error: false,
         form_failed: false,
         workspaces_error: false,
         loading: not connected?(socket),
@@ -195,11 +199,14 @@ defmodule MonolithWeb.HomeLive do
        form: nil,
        page_title: "Settings"
      )
-     |> load_startup_preference()
      |> focus_heading()}
   end
 
-  defp event("settings:startup", %{"enabled" => enabled}, %{assigns: %{settings: true}} = socket)
+  defp event(
+         "settings:startup",
+         %{"enabled" => enabled},
+         %{assigns: %{settings: true, settings_view: :startup}} = socket
+       )
        when enabled in ["true", "false"] do
     case Monolith.StageDesigner.save_startup_preference(%{enabled: enabled == "true"},
            actor: @owner
@@ -218,6 +225,72 @@ defmodule MonolithWeb.HomeLive do
   end
 
   defp event("settings:startup", _, socket), do: {:noreply, socket}
+
+  defp event(
+         "settings:cache",
+         %{"integration" => name, "cache" => params},
+         %{assigns: %{settings: true, settings_view: :cache}} = socket
+       )
+       when name in ["gmail", "calendar", "github"] and is_map(params) do
+    integration = %{"gmail" => :gmail, "calendar" => :calendar, "github" => :github}[name]
+    draft = Map.take(params, ["refresh_minutes", "retention_hours"])
+
+    case Monolith.Caching.save_preferences(
+           integration,
+           draft["refresh_minutes"],
+           draft["retention_hours"],
+           actor: @owner
+         ) do
+      {:ok, preference} ->
+        {:noreply,
+         socket
+         |> assign(
+           :cache_forms,
+           Map.put(socket.assigns.cache_forms, integration, cache_form(preference))
+         )
+         |> assign(:cache_errors, Map.delete(socket.assigns.cache_errors, integration))
+         |> assign(
+           :cache_status,
+           Map.put(
+             socket.assigns.cache_status,
+             integration,
+             "Cache settings saved. No provider request was started."
+           )
+         )}
+
+      {:error, error} ->
+        {:noreply,
+         socket
+         |> assign(
+           :cache_forms,
+           Map.put(socket.assigns.cache_forms, integration, to_form(draft, as: "cache"))
+         )
+         |> assign(
+           :cache_errors,
+           Map.put(socket.assigns.cache_errors, integration, cache_error(error))
+         )
+         |> assign(:cache_status, Map.delete(socket.assigns.cache_status, integration))}
+    end
+  end
+
+  defp event("settings:cache", _, socket), do: {:noreply, socket}
+
+  defp event(
+         "settings:cache-draft",
+         %{"integration" => name, "cache" => params},
+         %{assigns: %{settings: true, settings_view: :cache}} = socket
+       )
+       when name in ["gmail", "calendar", "github"] and is_map(params) do
+    integration = %{"gmail" => :gmail, "calendar" => :calendar, "github" => :github}[name]
+    draft = to_form(Map.take(params, ["refresh_minutes", "retention_hours"]), as: "cache")
+
+    {:noreply,
+     socket
+     |> assign(:cache_forms, Map.put(socket.assigns.cache_forms, integration, draft))
+     |> assign(:cache_status, Map.delete(socket.assigns.cache_status, integration))}
+  end
+
+  defp event("settings:cache-draft", _, socket), do: {:noreply, socket}
 
   defp event("show_home", _params, socket) do
     {:noreply,
@@ -478,8 +551,16 @@ defmodule MonolithWeb.HomeLive do
 
   defp visit(socket, params) do
     case HomeNavigation.destination(socket.assigns.live_action, params) do
-      {:ok, destination} -> visit_destination(socket, destination)
-      _ -> unavailable_destination(socket, "This link is invalid. Choose a view from navigation.")
+      {:ok, destination} ->
+        visit_destination(socket, destination)
+
+      _ when socket.assigns.live_action == :setting ->
+        socket
+        |> transition("show_settings")
+        |> put_flash(:error, "This Settings page is unavailable. Choose an option.")
+
+      _ ->
+        unavailable_destination(socket, "This link is invalid. Choose a view from navigation.")
     end
   end
 
@@ -490,6 +571,19 @@ defmodule MonolithWeb.HomeLive do
 
   defp visit_destination(socket, %{action: :settings}),
     do: transition(socket, "show_settings")
+
+  defp visit_destination(socket, %{action: :setting, section: section} = destination) do
+    socket = socket |> transition("show_settings") |> HomeNavigation.put(destination)
+
+    socket =
+      case section do
+        :startup -> load_startup_preference(socket)
+        :cache -> load_cache_preferences(socket)
+        :focus -> socket
+      end
+
+    assign(socket, :page_title, view_heading(socket.assigns))
+  end
 
   defp visit_destination(socket, %{action: :connections}),
     do: transition(socket, "show_connections")
@@ -846,7 +940,68 @@ defmodule MonolithWeb.HomeLive do
     end
   end
 
-  defp view_heading(%{settings: true}), do: "Settings"
+  defp load_cache_preferences(socket) do
+    case Monolith.Caching.preferences(actor: @owner) do
+      {:ok, preferences} ->
+        forms =
+          Map.new([:gmail, :calendar, :github], fn integration ->
+            preference = Enum.find(preferences, &(&1.integration == integration))
+            {integration, cache_form(Monolith.Caching.policy(integration, preference))}
+          end)
+
+        assign(socket,
+          cache_forms: forms,
+          cache_errors: %{},
+          cache_status: %{},
+          cache_load_error: false
+        )
+
+      _ ->
+        assign(socket,
+          cache_forms: %{},
+          cache_errors: %{},
+          cache_status: %{},
+          cache_load_error: true
+        )
+    end
+  end
+
+  defp cache_error(%Ash.Error.Invalid{errors: errors}) do
+    fields =
+      errors
+      |> Enum.flat_map(fn error ->
+        [Map.get(error, :field) | List.wrap(Map.get(error, :fields))]
+      end)
+      |> Enum.filter(&(&1 in [:refresh_minutes, :retention_hours]))
+      |> Enum.uniq()
+
+    %{fields: fields}
+  end
+
+  defp cache_error(_error), do: %{fields: []}
+
+  defp cache_form(preference) do
+    to_form(
+      %{
+        "refresh_minutes" => to_string(preference.refresh_minutes),
+        "retention_hours" => to_string(preference.retention_hours)
+      },
+      as: "cache"
+    )
+  end
+
+  defp view_heading(%{settings: true, settings_view: view}) do
+    Map.fetch!(
+      %{
+        index: "Settings",
+        focus: "Visual focus",
+        startup: "Startup scenery",
+        cache: "Caching and refresh"
+      },
+      view
+    )
+  end
+
   defp view_heading(%{scenes: true}), do: "Scenes"
   defp view_heading(%{connections: true, connection_view: :index}), do: "Connections"
 
@@ -868,30 +1023,24 @@ defmodule MonolithWeb.HomeLive do
   defp view_heading(%{mail: %{scope: :home}}), do: "Inbox"
   defp view_heading(_assigns), do: "Workspaces"
 
-  defp view_register(assigns) do
-    cond do
-      assigns.settings ->
-        "05 / Settings"
+  defp view_register(%{settings: true, settings_view: :index}), do: "05 / Settings"
 
-      assigns.scenes ->
-        "04 / Scenes"
+  defp view_register(%{settings: true} = assigns),
+    do: "05 / Settings / " <> view_heading(assigns)
 
-      assigns.connections ->
-        "03 / " <> view_heading(assigns)
+  defp view_register(%{scenes: true}), do: "04 / Scenes"
+  defp view_register(%{connections: true, connection_view: :index}), do: "03 / Connections"
 
-      assigns.mail.scope == :home ->
-        "01 / Email"
+  defp view_register(%{connections: true} = assigns),
+    do: "03 / Connections / " <> view_heading(assigns)
 
-      assigns.mail.adding ->
-        "02 / Add integration"
+  defp view_register(%{mail: %{scope: :home}}), do: "01 / Email"
 
-      assigns.selected ->
-        "02 / " <> assigns.selected.name
+  defp view_register(%{mail: %{adding: true}, selected: %{name: name}}),
+    do: "02 / Workspaces / " <> name <> " / Add integration"
 
-      true ->
-        "02 / Workspaces"
-    end
-  end
+  defp view_register(%{selected: %{name: name}}), do: "02 / Workspaces / " <> name
+  defp view_register(_assigns), do: "02 / Workspaces"
 
   @impl true
   def render(assigns) do
@@ -985,6 +1134,12 @@ defmodule MonolithWeb.HomeLive do
                 patch="/connections"
                 class="workspace-action workspace-action-link"
               >All connections</.link>
+              <.link
+                :if={@settings && @settings_view != :index}
+                id="back-to-settings"
+                patch="/settings"
+                class="workspace-action workspace-action-link"
+              >All settings</.link>
               <.lock_control />
             </div>
             <HomeComponents.daily_heading :if={@home} />
@@ -1012,7 +1167,7 @@ defmodule MonolithWeb.HomeLive do
                 :if={@selected && !@connections && !@editor && !@mail.adding}
                 class="workspace-heading-actions"
               >
-                <WorkspaceComponents.rename_button workspace={@selected} current />
+                <WorkspaceComponents.rename_button workspace={@selected} />
                 <.link
                   id="add-integration"
                   patch={HomeNavigation.workspace_path(@selected.id) <> "/integrations"}
@@ -1039,11 +1194,7 @@ defmodule MonolithWeb.HomeLive do
               return_focus={
                 if @editor == :new,
                   do: "#new-workspace",
-                  else:
-                    if(@selected,
-                      do: "#rename-current-workspace",
-                      else: "#rename-#{@form.source.data.id}"
-                    )
+                  else: "#rename-current-workspace"
               }
             >
               <.form
@@ -1187,9 +1338,14 @@ defmodule MonolithWeb.HomeLive do
 
             <HomeComponents.settings
               :if={@settings}
+              view={@settings_view}
               startup_preference={@startup_preference}
               startup_error={@startup_error}
               startup_status={@startup_status}
+              cache_forms={@cache_forms}
+              cache_errors={@cache_errors}
+              cache_status={@cache_status}
+              cache_load_error={@cache_load_error}
             />
 
             <SceneComponents.gallery

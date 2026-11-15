@@ -152,15 +152,22 @@ details[open] > summary.workspace-action-primary { background: var(--surface-act
 .stage-static > [data-static-brand] { z-index: 1; opacity: 0; visibility: hidden; transition: none; }
 .stage-static[data-first-run-state=playing] > #main-content { visibility: hidden; }
 .stage-static[data-first-run-state=playing] > [data-static-brand] { opacity: 1; visibility: visible; }
-.settings-panel { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); background: var(--card-surface); border-block: 1px solid var(--line); }
+.settings-panel { display: grid; grid-template-columns: minmax(0,1fr); background: var(--card-surface); border-block: 1px solid var(--line); }
 .settings-section { display: grid; align-content: start; min-width: 0; }
-.settings-section + .settings-section { border-left: 1px solid var(--line-interior); }
 .settings-section-content { display: grid; gap: 16px; min-width: 0; padding: 32px 24px 24px; }
 .settings-section-content p { color: var(--muted); font-size: 13px; }
+.settings-section-content > p { max-width: var(--measure-copy); }
 .settings-section form { display: grid; gap: 16px; }
 .settings-section [role=status]:empty { position: absolute; }
-.settings-section .field { display: grid; gap: 8px; }
+.settings-section .field { display: grid; gap: 8px; max-width: 32rem; }
 .settings-section .workspace-action { justify-self: start; }
+.settings-cache .settings-section-content { gap: 24px; }
+.settings-cache fieldset { display: grid; gap: 16px; min-width: 0; margin: 0; padding: 0; border: 0; }
+.settings-cache legend { padding: 0 0 16px; font-size: 23px; }
+.settings-cache-forms { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); min-width: 0; margin-inline: -24px; }
+.settings-cache-forms > form { min-width: 0; padding-inline: 24px; align-content: start; }
+.settings-cache-forms > form + form { border-inline-start: 1px solid var(--line-interior); }
+.settings-cache-guidance { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 24px; padding-top: 24px; border-top: 1px solid var(--line-interior); }
 .settings-accessibility { margin-top: 48px; display: grid; gap: 12px; padding-top: 32px; border-top: 1px solid var(--line); }
 .settings-accessibility h2 { font-size: 24px; line-height: 1.3; }
 .settings-accessibility p { color: var(--muted); max-width: var(--measure-copy); }
@@ -170,7 +177,13 @@ details[open] > summary.workspace-action-primary { background: var(--surface-act
 .monolith-flash button { flex: none; min-width: 44px; padding: 10px; }
 @media (min-width:1700px) { .workspace-shell { max-width: var(--layout-max-wide); } }
 @media (max-width:1200px) { .workspace-detail-grid { grid-template-columns: 1fr; } .workspace-detail-grid > :first-child { border-right: 0; border-bottom: 1px solid var(--line-interior); } }
-@media (max-width:1080px) { .settings-panel { grid-template-columns: 1fr; } .settings-section + .settings-section { border-left: 0; border-top: 1px solid var(--line-interior); } }
+@media (max-width:1080px) {
+  .settings-cache-forms { grid-template-columns: minmax(0,1fr); }
+  .settings-cache-forms > form + form { margin-top: 24px; padding-top: 24px; border-inline-start: 0; border-top: 1px solid var(--line-interior); }
+  .settings-cache fieldset { grid-template-columns: repeat(2,minmax(0,1fr)); gap: 16px 24px; }
+  .settings-cache fieldset > :not(.field) { grid-column: 1 / -1; }
+  .settings-cache-guidance { grid-template-columns: minmax(0,1fr); gap: 16px; }
+}
 @media (max-width:950px) {
   .workspace-shell { padding-top: 20px; }
   .product-sidebar { top: 20px; height: calc(100dvh - 20px); }
@@ -185,7 +198,12 @@ details[open] > summary.workspace-action-primary { background: var(--surface-act
   .workspace-directory-heading { align-items: start; flex-direction: column; gap: 16px; margin-bottom: 24px; }
   .page-header-row > .workspace-action-link { order: 1; flex-basis: 100%; text-align: end; }
 }
-@media (max-width:600px) { .settings-section-content { padding-inline: 16px; } }
+@media (max-width:600px) {
+  .settings-section-content { padding-inline: 16px; }
+  .settings-cache-forms { margin-inline: -16px; }
+  .settings-cache-forms > form { padding-inline: 16px; }
+  .settings-cache fieldset { grid-template-columns: minmax(0,1fr); }
+}
 @media (prefers-reduced-motion:reduce) { *, *::before, *::after { scroll-behavior: auto !important; animation: none !important; transition: none !important; } }
 @media (forced-colors:active) {
   .workspace-background, .glass-workspace::before { display: none; }

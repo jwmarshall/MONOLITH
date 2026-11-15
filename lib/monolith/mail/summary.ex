@@ -38,6 +38,7 @@ defmodule Monolith.Mail.Summary do
              query: [limit: @membership_limit + 1]
            ),
          true <- length(memberships) <= @membership_limit do
+      policy = Monolith.Caching.policy!(:gmail)
       by_id = Map.new(accounts, &{&1.id, &1})
       workspace_ids = Enum.group_by(memberships, & &1.account_id, & &1.workspace_id)
 
@@ -61,6 +62,8 @@ defmodule Monolith.Mail.Summary do
         |> Enum.map(fn account ->
           account
           |> Map.take(@summary_fields)
+          |> retained_counts(policy)
+          |> Map.put(:refresh_seconds, policy.refresh_seconds)
           |> Map.put(:workspace_ids, Map.get(workspace_ids, account.id, []))
         end)
 
@@ -72,6 +75,14 @@ defmodule Monolith.Mail.Summary do
        }}
     else
       _ -> {:error, "Gmail summary is unavailable."}
+    end
+  end
+
+  defp retained_counts(account, policy) do
+    if Monolith.Caching.retained?(policy, account.inbox_unread_at) do
+      account
+    else
+      Map.merge(account, %{inbox_unread_count: nil, inbox_unread_recent_count: nil})
     end
   end
 end

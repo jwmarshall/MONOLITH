@@ -41,7 +41,10 @@ defmodule MonolithWeb.MailComponents do
         class={["mail-register-row page-header-row", @mail.thread_id && "mail-reader-context"]}
       >
         <p :if={!@mail.thread_id} class="mail-eyebrow">
-          01 / Gmail / {if @workspace, do: @workspace.name, else: "Account"}
+          <span :if={@workspace}>
+            02 / Workspaces / {@workspace.name} / Gmail / {@account.email}
+          </span>
+          <span :if={!@workspace}>01 / Gmail / Account</span>
         </p>
         <.link
           :if={@mail.thread_id}
@@ -216,6 +219,7 @@ defmodule MonolithWeb.MailComponents do
         >
           <header class="mail-conversation-header">
             <p class="mail-eyebrow">
+              <span :if={@workspace}>02 / Workspaces / {@workspace.name} / Gmail / </span>
               {@account.email} / Read-only conversation
             </p>
             <h1 id="mail-conversation-heading" tabindex="-1" data-workspace-heading>
@@ -340,6 +344,7 @@ defmodule MonolithWeb.MailComponents do
             phx-hook="MailFreshness"
             phx-update="ignore"
             data-fetched-at={DateTime.to_iso8601(@mail.fetched_at)}
+            data-refresh-seconds={@mail.refresh_seconds}
             data-stale={to_string(@mail.stale || not is_nil(@mail.error))}
             data-cached={to_string(@mail.cached)}
           >

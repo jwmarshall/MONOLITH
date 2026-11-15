@@ -78,6 +78,7 @@ defmodule MonolithWeb.Router do
       live "/connections/:provider", HomeLive, :connection
       live "/scenes", HomeLive, :scenes
       live "/settings", HomeLive, :settings
+      live "/settings/:section", HomeLive, :setting
     end
   end
 

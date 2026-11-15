@@ -116,6 +116,13 @@ defmodule MonolithWeb.GitHubLiveTest do
     refute inspect(:sys.get_state(view.pid).socket.assigns) =~ TestGitHub.bundle().refresh_token
 
     render_patch(view, "/workspaces/#{workspace.id}/github/#{acme.id}")
+
+    assert has_element?(
+             view,
+             ".github-activity-heading .home-eyebrow",
+             "02 / Workspaces / #{workspace.name} / GitHub / #{acme.login}"
+           )
+
     assert has_element?(view, "#workspace-github-org-#{acme.id} .github-pr-title", hostile)
     refute has_element?(view, "#workspace-github-org-#{beta.id}")
     refute has_element?(view, "#github-owner-activity", "Independent personal change")

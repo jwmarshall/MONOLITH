@@ -332,7 +332,7 @@ defmodule MonolithWeb.SceneErrorStatesTest do
        } do
     digest = publish(settings, PNG.image())
     state = StageDesigner.get_state!(1, actor: @service)
-    {:ok, view, _} = live(conn, "/settings")
+    {:ok, view, _} = live(conn, "/settings/startup")
     view |> form("#startup-preference", enabled: "true") |> render_submit()
 
     for {saved, draft} <- [{true, false}, {false, true}] do
@@ -354,8 +354,9 @@ defmodule MonolithWeb.SceneErrorStatesTest do
 
       view |> element("#home-link") |> render_click()
       view |> element("#show-settings") |> render_click()
+      view |> element("#open-setting-startup") |> render_click()
       assert_startup_choice(view, draft)
-      {:ok, reloaded, _} = live(conn, "/settings")
+      {:ok, reloaded, _} = live(conn, "/settings/startup")
       assert_startup_choice(reloaded, draft)
       assert StageDesigner.get_state!(1, actor: @service) == state
       assert_background(reloaded, digest)
@@ -374,7 +375,7 @@ defmodule MonolithWeb.SceneErrorStatesTest do
 
     view =
       without_table("stage_designer_startup_preferences", fn ->
-        {:ok, view, _} = live(conn, "/settings")
+        {:ok, view, _} = live(conn, "/settings/startup")
         assert has_element?(view, "#settings-panel [role=alert]")
         refute has_element?(view, "#startup-preference")
 
@@ -391,7 +392,7 @@ defmodule MonolithWeb.SceneErrorStatesTest do
         view
       end)
 
-    view |> element("#gemini-generation-help a[href='/settings']") |> render_click()
+    view |> element("#gemini-generation-help a[href='/settings/startup']") |> render_click()
     refute has_element?(view, "#settings-panel [role=alert]")
     assert_startup_choice(view, true)
     view |> form("#startup-preference", enabled: "false") |> render_submit()
@@ -402,11 +403,11 @@ defmodule MonolithWeb.SceneErrorStatesTest do
 
   test "Gemini key checks stay available independently of saved startup choice and environment veto",
        %{conn: conn, settings: settings} do
-    {:ok, view, _} = live(conn, "/settings")
+    {:ok, view, _} = live(conn, "/settings/startup")
 
     for {saved, environment} <- [{false, true}, {true, false}, {true, true}] do
       Application.put_env(:monolith, :stage_designer, %{settings | enabled: environment})
-      render_patch(view, "/settings")
+      render_patch(view, "/settings/startup")
       view |> form("#startup-preference", enabled: to_string(saved)) |> render_submit()
       assert_startup_choice(view, saved)
 
@@ -426,7 +427,7 @@ defmodule MonolithWeb.SceneErrorStatesTest do
       assert {:ok, nil} = StageDesigner.get_state(1, actor: @service)
       assert_no_attempts()
 
-      view |> element("#gemini-generation-help a[href='/settings']") |> render_click()
+      view |> element("#gemini-generation-help a[href='/settings/startup']") |> render_click()
       assert_startup_choice(view, saved)
     end
 
@@ -435,7 +436,7 @@ defmodule MonolithWeb.SceneErrorStatesTest do
     complete(view)
     refute has_element?(view, "#gemini-remove-form")
     assert has_element?(view, "#gemini-key-form button[type=submit]:not([disabled])")
-    view |> element("#gemini-generation-help a[href='/settings']") |> render_click()
+    view |> element("#gemini-generation-help a[href='/settings/startup']") |> render_click()
     assert_startup_choice(view, true)
     assert_no_attempts()
   end
@@ -445,7 +446,7 @@ defmodule MonolithWeb.SceneErrorStatesTest do
   } do
     for saved <- [false, true] do
       StageDesigner.save_startup_preference!(%{enabled: saved}, actor: @owner)
-      {:ok, view, _} = live(conn, "/settings")
+      {:ok, view, _} = live(conn, "/settings/startup")
 
       for params <- [
             %{},
@@ -460,7 +461,15 @@ defmodule MonolithWeb.SceneErrorStatesTest do
         refute has_element?(view, "#settings-panel [role=alert]")
       end
 
-      for path <- ["/", "/connections", "/connections/gemini", "/scenes"] do
+      for path <- [
+            "/",
+            "/settings",
+            "/settings/focus",
+            "/settings/cache",
+            "/connections",
+            "/connections/gemini",
+            "/scenes"
+          ] do
         render_patch(view, path)
         complete(view)
         render_click(view, "settings:startup", %{"enabled" => to_string(!saved)})
@@ -468,7 +477,7 @@ defmodule MonolithWeb.SceneErrorStatesTest do
         assert_no_attempts()
       end
 
-      render_patch(view, "/settings")
+      render_patch(view, "/settings/startup")
       assert_startup_choice(view, saved)
       assert {:ok, nil} = StageDesigner.get_state(1, actor: @service)
     end

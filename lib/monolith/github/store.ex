@@ -35,6 +35,7 @@ defmodule Monolith.GitHub.Store do
       issues_truncated: false,
       actions_truncated: false,
       fetched_at: nil,
+      last_poll_at: nil,
       total_count: nil,
       last_error: error,
       truncated: false,
@@ -42,7 +43,7 @@ defmodule Monolith.GitHub.Store do
       claim_id: nil,
       claimed_until: nil,
       cooldown_until: nil,
-      next_poll_at: later(300)
+      next_poll_at: later(Monolith.Caching.policy!(:github).refresh_seconds)
     }
   end
 
@@ -169,8 +170,6 @@ defmodule Monolith.GitHub.Store do
   def later(seconds), do: DateTime.add(now(), seconds, :second)
   def future?(nil), do: false
   def future?(time), do: DateTime.compare(time, now()) == :gt
-  def recent?(nil), do: false
-  def recent?(time), do: DateTime.diff(now(), time, :second) < 86_400
 
   def safe_error(reason)
       when reason in [

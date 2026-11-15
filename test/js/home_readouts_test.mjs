@@ -20,22 +20,25 @@ test("daily orientation follows the local calendar across midnight and year boun
 test("observations age independently of page activity and preserve known failures", () => {
   const at = "2026-11-02T09:00:00Z"
   const now = Date.parse(at)
-  assert.equal(observationText(at, false, now), "Checked just now")
-  assert.equal(observationText(at, false, now + 179_000), "Checked 2 min ago")
-  assert.equal(observationText(at, false, now + 180_000), "Stale · last checked 3 min ago")
-  assert.equal(observationText(at, true, now), "Stale · last checked just now")
-  assert.equal(observationText(at, false, now + 3600_000), "Stale · last checked 1 hr ago")
-  assert.equal(observationText(at, false, now + 86400_000), "Stale · last checked 1 day ago")
-  assert.equal(observationText("invalid", false, now), "Unread count update unavailable")
+  assert.equal(observationText(at, false, 180, now), "Checked just now")
+  assert.equal(observationText(at, false, 180, now + 179_000), "Checked 2 min ago")
+  assert.equal(observationText(at, false, 180, now + 180_000), "Stale · last checked 3 min ago")
+  assert.equal(observationText(at, true, 180, now), "Stale · last checked just now")
+  assert.equal(observationText(at, false, 180, now + 3600_000), "Stale · last checked 1 hr ago")
+  assert.equal(observationText(at, false, 180, now + 86400_000), "Stale · last checked 1 day ago")
+  assert.equal(observationText(at, false, 1800, now + 600_000), "Checked 10 min ago")
+  assert.equal(observationText(at, false, 1800, now + 1800_000), "Stale · last checked 30 min ago")
+  assert.equal(observationText(at, false, 1800, now - 1000), "Stale · last checked just now")
+  assert.equal(observationText("invalid", false, 180, now), "Unread count update unavailable")
 })
 
 test("Home observations omit checked statuses but retain stale warnings", () => {
   const at = "2026-11-02T09:00:00Z"
   const now = Date.parse(at)
-  assert.equal(observationText(at, false, now, true), "")
-  assert.equal(observationText(at, false, now + 179_000, true), "")
-  assert.equal(observationText(at, false, now + 180_000, true), "Stale · 3 min ago")
-  assert.equal(observationText(at, true, now, true), "Stale · just now")
+  assert.equal(observationText(at, false, 180, now, true), "")
+  assert.equal(observationText(at, false, 180, now + 179_000, true), "")
+  assert.equal(observationText(at, false, 180, now + 180_000, true), "Stale · 3 min ago")
+  assert.equal(observationText(at, true, 180, now, true), "Stale · just now")
 })
 
 function timers(t) {
@@ -107,12 +110,15 @@ test("quiet Home observations age on timers/resume and recover without checked c
   let now = Date.parse("2026-11-02T09:00:00Z")
   Date.now = () => now
   t.after(() => { Date.now = realNow })
-  const hook = {...ObservationTime, el: {ownerDocument: doc, dataset: {observedAt: new Date(now).toISOString(), failed: "false", warningsOnly: "true"}}}
+  const hook = {...ObservationTime, el: {ownerDocument: doc, dataset: {observedAt: new Date(now).toISOString(), failed: "false", warningsOnly: "true", refreshSeconds: "180"}}}
   hook.mounted()
   assert.equal(hook.el.textContent, "")
   now += 180_000
   callbacks.values().next().value()
   assert.equal(hook.el.textContent, "Stale · 3 min ago")
+  hook.el.dataset.refreshSeconds = "1800"
+  hook.updated()
+  assert.equal(hook.el.textContent, "")
   hook.el.dataset.observedAt = new Date(now).toISOString()
   hook.updated()
   assert.equal(hook.el.textContent, "")
@@ -130,7 +136,7 @@ test("quiet Home observations age on timers/resume and recover without checked c
 test("observation hook uses patched metadata without duplicating timers", t => {
   const callbacks = timers(t)
   const doc = document()
-  const hook = {...ObservationTime, el: {ownerDocument: doc, dataset: {observedAt: new Date().toISOString(), failed: "false"}}}
+  const hook = {...ObservationTime, el: {ownerDocument: doc, dataset: {observedAt: new Date().toISOString(), failed: "false", refreshSeconds: "180"}}}
   hook.mounted()
   assert.equal(hook.el.textContent, "Checked just now")
   hook.el.dataset.failed = "true"

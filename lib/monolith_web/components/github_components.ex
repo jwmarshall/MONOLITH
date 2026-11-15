@@ -457,7 +457,11 @@ defmodule MonolithWeb.GitHubComponents do
     >
       <header class="github-activity-heading">
         <div class="github-section-heading page-header-row">
-          <p class="home-eyebrow">03 / GitHub · {@workspace.name}</p>
+          <p class="home-eyebrow">
+            02 / Workspaces / {@workspace.name} / GitHub<span :for={organization <- @organizations}>
+              / {organization.login}
+            </span>
+          </p>
           <.link
             patch={MonolithWeb.HomeNavigation.workspace_path(@workspace.id)}
             class="workspace-action workspace-action-link"
@@ -1044,7 +1048,7 @@ defmodule MonolithWeb.GitHubComponents do
         MONOLITH never fetches repository contents, comments, workflow logs, artifacts, avatars or remote images.
         Choose at most 100 repositories per installation; larger selections cannot be refreshed.
         It polls while unlocked and running; sleep, network failures and rate limits delay updates.
-        Refresh does not bypass cooldowns. Cached activity expires after 24 hours.
+        Refresh does not bypass cooldowns. Cached activity follows Settings retention: 24 hours by default, at most 24 hours.
       </p>
       <p class="mail-muted">
         Missing an organization? Both your GitHub user and the installed app need access.
@@ -1571,12 +1575,11 @@ defmodule MonolithWeb.GitHubComponents do
       else: Enum.join(names, " · ")
   end
 
-  defp observed?(org, now), do: not is_nil(org.fetched_at) && not expired?(org, now)
+  defp observed?(org, _now), do: org.cache_retained?
   defp expired?(%{fetched_at: nil}, _), do: false
-  defp expired?(org, now), do: DateTime.diff(now, org.fetched_at) >= 86_400
+  defp expired?(org, _now), do: not org.cache_retained?
 
-  defp stale?(org, now),
-    do: not is_nil(org.last_error) || DateTime.diff(now, org.fetched_at) >= 600
+  defp stale?(org, _now), do: not is_nil(org.last_error) or not org.cache_fresh?
 
   defp count(prs, :draft), do: Enum.count(prs, & &1["is_draft"])
 

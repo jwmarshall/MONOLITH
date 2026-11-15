@@ -170,20 +170,21 @@ defmodule MonolithWeb.OwnerControllerTest do
 
   test "Settings deep links require unlock and resume the requested destination", %{conn: conn} do
     configure()
-    conn = get(conn, "/settings")
+    conn = get(conn, "/settings/startup")
     assert redirected_to(conn) == "/unlock"
-    assert get_session(conn, :owner_return_to) == "/settings"
+    assert get_session(conn, :owner_return_to) == "/settings/startup"
 
     conn = conn |> recycle() |> post_password(@password)
-    assert redirected_to(conn) == "/settings"
+    assert redirected_to(conn) == "/settings/startup"
     assert {:ok, _} = Owner.verify_session(get_session(conn, :owner_session_token))
-    returned = conn |> recycle() |> get("/settings")
+    returned = conn |> recycle() |> get("/settings/startup")
     assert returned.assigns.workspace_unlock
     refute get_session(returned, :workspace_unlock)
     {:ok, view, _html} = Phoenix.LiveViewTest.live(returned)
     assert Phoenix.LiveViewTest.has_element?(view, "#main-content[data-enter-on-unlock=true]")
+    assert Phoenix.LiveViewTest.has_element?(view, "#startup-preference")
 
-    reloaded = returned |> recycle() |> get("/settings")
+    reloaded = returned |> recycle() |> get("/settings/startup")
     refute reloaded.assigns.workspace_unlock
     {:ok, view, _html} = Phoenix.LiveViewTest.live(reloaded)
     refute Phoenix.LiveViewTest.has_element?(view, "#main-content[data-enter-on-unlock=true]")

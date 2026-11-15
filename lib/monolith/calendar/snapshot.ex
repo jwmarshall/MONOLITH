@@ -1,10 +1,12 @@
 defmodule Monolith.Calendar.Snapshot do
   @moduledoc false
+  alias Monolith.Caching
   alias Monolith.Calendar.{Payload, Window}
   alias Monolith.Google.Access
   @event_fields [:id, :title, :start, :end, :all_day, :url, :calendar_id, :calendar_name]
 
   def build(account, state, window) do
+    policy = Caching.policy!(:calendar)
     enabled = enabled?(account)
     state = if current?(account, state), do: state
     matching = state && Window.matches?(state, window)
@@ -17,11 +19,12 @@ defmodule Monolith.Calendar.Snapshot do
         else: result
 
     result
-    |> Map.merge(content(visible))
+    |> Map.merge(content(visible, policy))
     |> Map.merge(%{
       explicit_selection: !!(state && state.explicit_selection),
-      pending: enabled and not visible_events?(visible),
-      stale: stale?(visible, result.error),
+      refresh_seconds: policy.refresh_seconds,
+      pending: enabled and not visible_events?(visible, policy),
+      stale: stale?(visible, result.error, policy),
       timezone: visible && visible.timezone,
       local_date: Date.to_iso8601(window.local_date)
     })
@@ -29,7 +32,7 @@ defmodule Monolith.Calendar.Snapshot do
 
   def failure do
     metadata(nil, false, :unavailable)
-    |> Map.merge(content(nil))
+    |> Map.merge(content(nil, nil))
     |> Map.merge(%{
       explicit_selection: false,
       pending: true,
@@ -56,20 +59,20 @@ defmodule Monolith.Calendar.Snapshot do
 
   def recent?(%DateTime{} = at), do: DateTime.diff(DateTime.utc_now(), at) in 0..86_399
   def recent?(_), do: false
-  defp visible_events?(nil), do: false
-  defp visible_events?(state), do: recent?(state.fetched_at)
+  defp visible_events?(nil, _), do: false
+  defp visible_events?(state, policy), do: Caching.retained?(policy, state.fetched_at)
 
-  defp stale?(state, error) do
-    visible_events?(state) and
-      (DateTime.diff(DateTime.utc_now(), state.fetched_at) >= 180 or not is_nil(error))
+  defp stale?(state, error, policy) do
+    visible_events?(state, policy) and
+      (not Caching.fresh?(policy, state.fetched_at) or not is_nil(error))
   end
 
-  defp content(state) do
-    Map.merge(event_content(state), calendar_content(state))
+  defp content(state, policy) do
+    Map.merge(event_content(state, policy), calendar_content(state, policy))
   end
 
-  defp event_content(state) do
-    if visible_events?(state) do
+  defp event_content(state, policy) do
+    if visible_events?(state, policy) do
       %{
         events: Enum.map(state.events, &Payload.display(&1, @event_fields)),
         fetched_at: state.fetched_at,
@@ -80,8 +83,8 @@ defmodule Monolith.Calendar.Snapshot do
     end
   end
 
-  defp calendar_content(state) do
-    if state && recent?(state.catalog_at) do
+  defp calendar_content(state, policy) do
+    if state && Caching.retained?(policy, state.catalog_at) do
       %{
         calendars: Enum.map(state.calendars, &Payload.display(&1, [:id, :name, :selected])),
         selected_ids: state.selected_ids,

@@ -4,7 +4,7 @@ defmodule Monolith.MailTest do
   alias Ecto.Adapters.SQL.Sandbox
   alias Monolith.Google.Access
   alias Monolith.Mail
-  alias Monolith.Mail.{CacheEntry, DisconnectWorker, Operations, PollWorker}
+  alias Monolith.Mail.{CacheEntry, DisconnectWorker, Operations, PollWorker, SweepWorker}
   require Ash.Query
 
   @owner %{role: :local_owner}
@@ -387,6 +387,173 @@ defmodule Monolith.MailTest do
     assert {:ok, %{data: nil, error: :unavailable}} = Mail.mail_page(w.id, a.id, actor: @owner)
   end
 
+  test "owner refresh controls cache reuse without hiding errors or changing explicit Refresh", %{
+    workspace: w,
+    a: a
+  } do
+    Monolith.Caching.save_preferences!(:gmail, 10, 168, actor: @owner)
+    Mail.mail_page!(w.id, a.id, actor: @owner)
+    entry = cached_entry(a)
+    fetched_at = DateTime.add(DateTime.utc_now(), -300)
+    store_entry(a, entry, fetched_at)
+    calls = Monolith.TestMail.calls()
+
+    assert %{cached: true, stale: false, refresh_seconds: 600, fetched_at: ^fetched_at} =
+             Mail.mail_page!(w.id, a.id, actor: @owner)
+
+    assert Monolith.TestMail.calls() == calls
+    Monolith.TestMail.response({:error, :offline})
+
+    assert %{stale: true, error: :unavailable, fetched_at: ^fetched_at} =
+             Mail.mail_page!(w.id, a.id, %{force: true}, actor: @owner)
+
+    calls = Monolith.TestMail.calls()
+
+    assert %{cached: true, stale: true, error: :unavailable} =
+             Mail.mail_page!(w.id, a.id, actor: @owner)
+
+    assert Monolith.TestMail.calls() == calls
+
+    Monolith.TestMail.response(:ok)
+
+    assert %{cached: false, stale: false, error: nil} =
+             Mail.mail_page!(w.id, a.id, %{force: true}, actor: @owner)
+
+    current = Mail.get_account!(a.id, actor: @owner)
+    assert DateTime.diff(current.next_poll_at, current.last_success_at) == 600
+  end
+
+  test "shortening then lengthening retention never revives an untouched account cache", %{
+    a: a,
+    b: b
+  } do
+    Mail.account_page!(a.id, actor: @owner)
+    Mail.account_page!(b.id, actor: @owner)
+    old = DateTime.add(DateTime.utc_now(), -7200)
+    store_entry(a, cached_entry(a), old)
+
+    Monolith.Caching.save_preferences!(:gmail, 10, 1, actor: @owner)
+    assert cached_entry(a).fetched_at == old
+    Monolith.Caching.save_preferences!(:gmail, 10, 168, actor: @owner)
+    assert cached_entry(a).fetched_at == old
+    Monolith.TestMail.response({:error, :offline})
+
+    assert %{data: nil, error: :unavailable} = Mail.account_page!(a.id, actor: @owner)
+    assert cached_entry(a) == nil
+    calls = Monolith.TestMail.calls()
+    assert %{data: data, cached: true, stale: false} = Mail.account_page!(b.id, actor: @owner)
+    assert data
+    assert Monolith.TestMail.calls() == calls
+    assert Mail.get_account!(b.id, actor: @owner).last_error == nil
+  end
+
+  test "retention filters paired unread values on summary and scrubs them on normal cleanup", %{
+    a: a,
+    b: b
+  } do
+    old = DateTime.add(DateTime.utc_now(), -7200)
+
+    for account <- [a, b] do
+      Mail.update_account!(
+        account,
+        %{
+          expected_generation: account.generation,
+          inbox_unread_count: 17,
+          inbox_unread_recent_count: 4,
+          inbox_unread_at: if(account.id == a.id, do: old, else: DateTime.utc_now()),
+          inbox_unread_error: :provider
+        },
+        actor: @owner
+      )
+    end
+
+    Monolith.Caching.save_preferences!(:gmail, 10, 1, actor: @owner)
+    summary = Mail.home_summary!(actor: @owner)
+    expired = Enum.find(summary.accounts, &(&1.id == a.id))
+    fresh = Enum.find(summary.accounts, &(&1.id == b.id))
+    assert expired.inbox_unread_count == nil
+    assert expired.inbox_unread_recent_count == nil
+    assert expired.inbox_unread_at == old
+    assert expired.inbox_unread_error == :provider
+    assert expired.refresh_seconds == 600
+    assert fresh.inbox_unread_count == 17
+    assert fresh.inbox_unread_recent_count == 4
+    assert Mail.get_account!(a.id, actor: @owner).inbox_unread_count == 17
+
+    Monolith.Caching.save_preferences!(:gmail, 10, 168, actor: @owner)
+    Operations.prune(a.id, @owner)
+    expired = Mail.get_account!(a.id, actor: @owner)
+    assert expired.inbox_unread_count == nil
+    assert expired.inbox_unread_recent_count == nil
+    assert expired.inbox_unread_at == old
+    assert expired.inbox_unread_error == :provider
+    assert Mail.get_account!(b.id, actor: @owner).inbox_unread_count == 17
+  end
+
+  test "normal poll evaluation applies changed refresh to persisted success deadlines", %{a: a} do
+    now = DateTime.utc_now()
+
+    account =
+      Mail.update_account!(
+        a,
+        %{
+          expected_generation: a.generation,
+          last_success_at: DateTime.add(now, -300),
+          next_poll_at: DateTime.add(now, -120)
+        },
+        actor: @owner
+      )
+
+    Monolith.Caching.save_preferences!(:gmail, 10, 168, actor: @owner)
+    refute PollWorker.due?(account, Monolith.Caching.policy!(:gmail))
+    calls = Monolith.TestMail.calls()
+    job = %Oban.Job{args: %{"account_id" => a.id, "generation" => a.generation}, attempt: 1}
+    assert :ok = PollWorker.perform(job)
+    assert Monolith.TestMail.calls() == calls
+
+    Monolith.Caching.save_preferences!(:gmail, 3, 168, actor: @owner)
+    assert PollWorker.due?(account, Monolith.Caching.policy!(:gmail))
+    assert :ok = PollWorker.perform(job)
+    assert Monolith.TestMail.calls() != calls
+    current = Mail.get_account!(a.id, actor: @owner)
+    assert DateTime.diff(current.next_poll_at, current.last_success_at) == 180
+
+    limited = %{current | last_error: :rate_limited, next_poll_at: DateTime.add(now, 300)}
+    refute PollWorker.due?(limited, Monolith.Caching.policy!(:gmail))
+  end
+
+  test "minute sweeps use current refresh without contacting Gmail", %{a: a, b: b} do
+    now = DateTime.utc_now()
+
+    for {account, age} <- [{a, 300}, {b, 0}] do
+      Mail.update_account!(
+        account,
+        %{
+          expected_generation: account.generation,
+          last_success_at: DateTime.add(now, -age),
+          next_poll_at: DateTime.add(now, 180 - age)
+        },
+        actor: @owner
+      )
+    end
+
+    Repo.delete_all(Oban.Job)
+    calls = Monolith.TestMail.calls()
+    Monolith.Caching.save_preferences!(:gmail, 10, 168, actor: @owner)
+    assert :ok = SweepWorker.perform(%Oban.Job{})
+    assert all_enqueued(worker: PollWorker) == []
+
+    Monolith.Caching.save_preferences!(:gmail, 3, 168, actor: @owner)
+    assert :ok = SweepWorker.perform(%Oban.Job{})
+
+    assert [%Oban.Job{args: %{"account_id" => id, "generation" => generation}}] =
+             all_enqueued(worker: PollWorker)
+
+    assert id == a.id
+    assert generation == a.generation
+    assert Monolith.TestMail.calls() == calls
+  end
+
   test "interrupted vault cleanup remains durably visible and retryable", %{a: a} do
     Application.put_env(:monolith, :gmail_vault, Monolith.TestMailDeleteFailure)
 
@@ -525,7 +692,7 @@ defmodule Monolith.MailTest do
           generation: a.generation,
           payload: %{"fixture" => i},
           bytes: 4,
-          fetched_at: DateTime.add(DateTime.utc_now(), i),
+          fetched_at: DateTime.add(DateTime.utc_now(), i - 123),
           expires_at: DateTime.add(DateTime.utc_now(), 60)
         },
         actor: @owner
@@ -777,5 +944,29 @@ defmodule Monolith.MailTest do
     assert data
     assert_receive {:mail_changed, id}
     assert id == a.id
+  end
+
+  defp cached_entry(account) do
+    CacheEntry
+    |> Ash.Query.for_read(:read, %{account_id: account.id}, actor: @owner)
+    |> Ash.read_one!()
+  end
+
+  defp store_entry(account, entry, fetched_at) do
+    CacheEntry
+    |> Ash.Changeset.for_create(
+      :store,
+      %{
+        account_id: account.id,
+        key: entry.key,
+        generation: account.generation,
+        payload: entry.payload,
+        bytes: entry.bytes,
+        fetched_at: fetched_at,
+        expires_at: entry.expires_at
+      },
+      actor: @owner
+    )
+    |> Ash.create!()
   end
 end

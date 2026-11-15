@@ -1,5 +1,6 @@
 defmodule Monolith.Calendar.Catalog do
   @moduledoc false
+  alias Monolith.Caching
   alias Monolith.Calendar.{Payload, Snapshot}
   alias Monolith.Google.Access
 
@@ -20,9 +21,10 @@ defmodule Monolith.Calendar.Catalog do
   def selection_limit, do: 20
 
   def build(account, cached) do
+    policy = if cached, do: Caching.policy!(:calendar)
     enabled = Snapshot.enabled?(account)
     cached = if Snapshot.current?(account, cached), do: cached
-    fresh = fresh?(cached)
+    fresh = fresh?(cached, policy)
     cooldown = Access.cooldown?(account) or cooling?(cached)
     error = error(account, cached, cooldown)
 
@@ -45,8 +47,8 @@ defmodule Monolith.Calendar.Catalog do
     build(nil, nil) |> Map.put(:error, :unavailable)
   end
 
-  defp fresh?(nil), do: false
-  defp fresh?(cached), do: Snapshot.recent?(cached.catalog_at)
+  defp fresh?(nil, _), do: false
+  defp fresh?(cached, policy), do: Caching.retained?(policy, cached.catalog_at)
 
   defp loading?(%{loading: true}, false), do: true
   defp loading?(_, _), do: false
