@@ -92,13 +92,13 @@ defmodule MonolithWeb.GitHubLiveTest do
 
     assert has_element?(
              view,
-             "#github-org-#{acme.id} .github-home-metric:first-child .github-home-attention",
+             "#github-org-#{acme.id} [data-metric=review] .github-home-detail-value",
              "1"
            )
 
     assert has_element?(
              view,
-             "#github-org-#{beta.id} .github-home-metric:first-child .github-home-attention",
+             "#github-org-#{beta.id} [data-metric=review] .github-home-detail-value",
              "0"
            )
 
@@ -200,7 +200,7 @@ defmodule MonolithWeb.GitHubLiveTest do
 
     assert has_element?(
              view,
-             "#github-org-#{org.id} .github-home-metric:first-child .github-home-attention",
+             "#github-org-#{org.id} [data-metric=review] .github-home-detail-value",
              "—"
            )
 
@@ -391,6 +391,7 @@ defmodule MonolithWeb.GitHubLiveTest do
           "status" => "completed",
           "conclusion" => "failure",
           "updated_at" => "2026-11-04T01:00:00Z",
+          "created_at" => DateTime.to_iso8601(DateTime.add(DateTime.utc_now(), -3600)),
           "url" => "https://github.com/#{repo["full_name"]}/actions/runs/#{number}"
         }
       end

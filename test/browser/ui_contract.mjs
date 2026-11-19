@@ -546,6 +546,18 @@ async function verifyHomeRepositories() {
   assert.equal(await evaluate("document.querySelectorAll('#github-readouts .github-home-workspaces a, #github-readouts .home-section-heading p').length"), 0, 'workspace labels are plain text and the GitHub header has no subtitle')
   assert.equal(await evaluate("[...document.querySelectorAll('#github-readouts .github-home-owner-heading .github-home-metrics')].every(metrics => metrics.getBoundingClientRect().height > 0)"), true, 'overall metrics remain visible while repositories are collapsed')
   assert.equal(await evaluate("document.querySelectorAll('#github-readouts .github-home-repository').length"), 5, 'Home follows selected repositories, not the entire catalog')
+  const metrics = await evaluate(`(() => {
+    const owner = document.querySelector('#github-readouts .github-home-owner-heading');
+    const value = name => owner.querySelector('[data-metric="' + name + '"] .github-home-detail-value').textContent.trim();
+    return {totals: [...owner.querySelectorAll('.github-home-total')].map(node => node.textContent.trim()),
+      review: value('review'), changes: value('changes'), checks: value('checks'),
+      failed: value('failed'), running: value('running')};
+  })()`)
+  assert.deepEqual(metrics, {totals: ['1', '1', '2'], review: '1', changes: '0', checks: '1', failed: '1', running: '0'},
+    'explicit PR states stay separate and an old run updated today is excluded from 24h counts')
+  const metricAccessibility = await send('Accessibility.getFullAXTree')
+  assert.ok(metricAccessibility.nodes.some(node => node.role?.value === 'StaticText' && node.name?.value === '1 in snapshot'),
+    'screen readers receive count scope as actual accessible text')
   const first = '#' + ownerIds[0]
   const second = '#' + ownerIds[1]
   const firstToggle = '[aria-controls="' + ownerIds[0] + '"]'
@@ -586,6 +598,16 @@ async function verifyHomeRepositories() {
     })()`)
     assert.equal(layout.fits, true, `repository identities and metrics fit at ${width}px`)
     assert.equal(layout.indented, true, `repository names are indented beneath their owner at ${width}px`)
+    const readout = await evaluate(`(() => {
+      const root = document.querySelector('#github-readouts');
+      const values = [...root.querySelectorAll('.github-home-number')];
+      return {large: values.every(value => parseFloat(getComputedStyle(value).fontSize) >= 32),
+        plain: values.every(value => /^(\\d+|—)$/.test(value.textContent.trim())),
+        visible: values.filter(value => value.getBoundingClientRect().height > 0).length};
+    })()`)
+    assert.equal(readout.large, true, `all dashboard counts stay large at ${width}px`)
+    assert.equal(readout.plain, true, 'dashboard counts use plain numbers or unavailable dashes')
+    assert.ok(readout.visible >= 16, 'both owners retain all primary and state counts')
     assert.deepEqual(layout.quiet, ['0', '0', '0'], 'unselected quiet repository is absent; whole-owner selection retains its observed zeroes')
     assert.equal(layout.names.filter(name => name.includes('deliberately-long')).length, 2, 'long repository identities remain intact')
     await evaluate("document.querySelector('#github-readouts').scrollIntoView({block:'start'})")
@@ -637,7 +659,7 @@ async function homeLayout(width, forced = false) {
     'Home Email, Calendar and GitHub readouts have no persistent charcoal fill')
   }
   const metrics = await evaluate(`(() => {
-    const labels = [...document.querySelectorAll('#home-overview .home-count > .metric-label, #github-readouts .github-home-metric dt')];
+    const labels = [...document.querySelectorAll('#home-overview .home-count > .metric-label, #github-readouts .github-home-metric .metric-label')];
     const typography = labels.map(label => {
       const style = getComputedStyle(label);
       return [style.fontFamily, style.fontSize, style.fontWeight, style.lineHeight, style.letterSpacing, style.textTransform];

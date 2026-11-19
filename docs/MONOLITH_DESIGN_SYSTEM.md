@@ -66,6 +66,13 @@ Display headings use the fluid 42–82px preset; section registers use 12px/1.6 
 
 Home email metrics use the shared GitHub `metric-label` style above counts: **UNREAD** and **LAST 24H**. Accessible descriptions retain unread inbox-conversation and rolling received-time meanings. Home omits per-account connection-warning copy; workspace readouts retain it, and connection recovery remains available.
 
+GitHub dashboard readouts are compact title/count groups, not prose summaries.
+Use 40px counts (32px at ≤440px) for every value, including review/check/run states;
+group titles are 16px and individual labels retain the shared 13px metric preset.
+Show plain snapshot numbers with no plus suffix, explanatory sentence or notation key.
+Preserve snapshot/lower-bound semantics in accessible descriptions and unavailable
+counts as a dash; activity details retain operational health and partial-result context.
+
 Home Calendar keeps the concise **No events today** heading without repeating it in supporting copy. Calendar-selection guidance and workspace agenda copy remain unchanged.
 
 ### M05 — Semantic rhythm, not baseline snapping

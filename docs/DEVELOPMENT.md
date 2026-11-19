@@ -571,15 +571,35 @@ Fixed-host private Mint transport has no redirects, automatic retries or payload
 instrumentation: 20-second individual requests, a 60-second snapshot deadline and
 2 MiB response limits. GraphQL queries run in batches of 20 repositories, fetching up
 to 50 open PRs and 50 open issues per repository, retaining the newest 50 of each per owner.
-Actions reads at most ten recent runs from each of ten repositories, retaining at most
-50 runs per owner. Larger repository sets, remaining runs, permissions, rate limits and
-optional-read deadlines are labeled as partial, not an all-repository health verdict.
+Actions attempts every verified repository (at most 100) within the existing shared
+deadline, reading at most ten recent runs per repository and retaining at most 50
+runs per owner. Remaining runs, permissions, rate limits and optional-read deadlines
+are labeled as partial, not an all-repository health verdict.
 
 Counts describe accessible repositories, never an entire organization. Workspace selections
 filter the bounded owner snapshot by immutable repository ID; shown rows are a subset,
 not selected-repository totals. Unknown counts are not zero. Home and workspaces show
 escaped text, explicit review/check/run states, UTC update times and constructed GitHub links.
 Missing optional permissions cannot become a successful empty readout.
+
+Home and workspace dashboards group large counts under **Pull requests**, **Issues**
+and **Runs · 24h**. PR values are **Open**, **Review needed** (non-draft
+`REVIEW_REQUIRED`), **Change req.** (non-draft `CHANGES_REQUESTED`) and
+**Checks failed** (latest commit rollup `FAILURE`/`ERROR`, including drafts).
+These are owner/repository snapshot counts, not personalized assignments.
+Missing review metadata does not hide known failed checks, or vice versa.
+**Runs · 24h** includes only runs created in the rolling `(now − 24h, now]` window,
+also applied to the activity list; a later update does not renew an older run.
+**Failed** counts `failure`, `timed_out` and `startup_failure`; `action_required`
+is not a failed run. **In progress** counts only `in_progress`, not queued/waiting.
+Run creation timestamps are validated at the provider boundary; older cached rows
+without them remain unavailable until the next normal successful refresh.
+Dashboard values are plain confirmed snapshot counts, without plus suffixes or
+explanatory sentences. Accessible descriptions preserve lower-bound semantics when
+rows/status fields are missing. An incomplete zero remains **—**, never a claim
+that nothing needs review or failed.
+The 24-hour run window is independent of snapshot retention and does not remove
+the existing per-repository/per-owner sampling limits.
 
 Settings → Caching selects GitHub's app-wide refresh interval in integer minutes
 (5–60; default 5) and observation retention in integer hours (1–24; default 24).

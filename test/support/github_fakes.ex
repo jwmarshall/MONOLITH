@@ -186,6 +186,7 @@ defmodule Monolith.TestGitHub do
         "repository" => "acme/repo",
         "repository_id" => "REPO_SYNTHETIC",
         "author" => "synthetic",
+        "created_at" => "2026-11-05T01:00:00Z",
         "updated_at" => "2026-11-04T01:00:00Z"
       },
       overrides

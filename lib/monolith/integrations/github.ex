@@ -9,7 +9,6 @@ defmodule Monolith.Integrations.GitHub do
   @max_installations 500
   @max_repositories 100
   @batch_size 20
-  @actions_repositories 10
 
   @impl true
   def exchange_code(client_id, client_secret, code, verifier, redirect_uri) do
@@ -564,17 +563,13 @@ defmodule Monolith.Integrations.GitHub do
     end)
   end
 
-  # Actions are optional and explicitly partial: at most ten repositories and
-  # ten recent runs per repository, without logs, artifacts or job detail calls.
+  # Actions cover every verified repository (at most 100), subject to the shared
+  # deadline. Read ten runs each, without logs, artifacts or job detail calls.
   defp workflow_runs(token, owner, repositories, deadline) do
-    reasons =
-      if length(repositories) > @actions_repositories, do: ["actions_repository_limit"], else: []
-
-    initial = %{workflow_runs: [], actions_truncated: reasons != [], partial_reasons: reasons}
+    initial = %{workflow_runs: [], actions_truncated: false, partial_reasons: []}
 
     repositories
     |> Enum.sort_by(& &1.id)
-    |> Enum.take(@actions_repositories)
     |> Enum.reduce_while(initial, fn repo, acc ->
       if now() >= deadline do
         {:halt, actions_partial(acc, "actions_deadline")}
@@ -635,6 +630,7 @@ defmodule Monolith.Integrations.GitHub do
              "status" => status,
              "conclusion" => conclusion,
              "updated_at" => updated,
+             "created_at" => created,
              "repository" => %{
                "node_id" => repository_id,
                "name" => repository_name,
@@ -664,6 +660,7 @@ defmodule Monolith.Integrations.GitHub do
              identity.github_id == owner.github_id and identity.owner_type == owner.owner_type and
                same_login?(identity.login, owner.login),
            {:ok, _, _} <- DateTime.from_iso8601(updated),
+           {:ok, _, _} <- DateTime.from_iso8601(created),
            false <- Enum.any?(acc, &(&1["id"] == id)) do
         actor = get_in(run, ["actor", "login"])
 
@@ -676,7 +673,8 @@ defmodule Monolith.Integrations.GitHub do
           "repository_id" => repo.id,
           "url" => "https://github.com/#{owner.login}/#{repo.name}/actions/runs/#{id}",
           "author" => if(valid_login?(actor), do: actor),
-          "updated_at" => updated
+          "updated_at" => updated,
+          "created_at" => created
         }
 
         {:cont, {:ok, [row | acc]}}

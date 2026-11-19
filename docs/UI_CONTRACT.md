@@ -307,14 +307,22 @@ Use the same hierarchy on static setup/unlock pages and authenticated views.
   an accessible repository with no matching rows shows zero only for a complete
   observation of that activity kind, otherwise a dash. A missing repository catalog
   retains header snapshot counts without inventing rows.
-  Snapshot metric labels are **PRS / ATTENTION**, **ISSUES**, and **RUNS / FAILED**.
-  PRs and runs pair the main count with the attention/failure count as `total / attention`,
-  using distinct semantic ink and visible accessible labels, not tooltip-only explanations.
-  Accessible metric descriptions retain snapshot scope.
-  Count each PR needing review or failing checks once. Unknown/unavailable or expired
-  counts use a dash, never a fabricated zero. Home omits per-owner status, partial-result
-  messages and last-checked timestamps; workspace details retain health, freshness and
-  partial-result context. Home has no Refresh buttons or detailed activity lists.
+  Dashboard metrics use compact title/count groups: **Pull requests** with **Open**,
+  **Review needed**, **Change req.**, **Checks failed**; **Issues** with **Open**;
+  **Runs · 24h** with **Total**, **Failed**, **In progress**. All values are large,
+  equally prominent numbers, not small-text secondary readouts.
+  Review/changes counts exclude drafts; failed checks include drafts and use the
+  latest commit rollup. Run totals and activity lists use creation time in the
+  rolling `(now − 24h, now]` window, never update time. Failed runs mean failure,
+  timeout or startup failure, not action required/cancelled/skipped.
+  Counts are not personalized assignments. Missing metadata affects only the
+  relevant count; show plain confirmed snapshot counts without a plus suffix.
+  Incomplete zeroes and unavailable/expired counts show **—**. Accessible descriptions
+  retain snapshot scope and lower-bound semantics. No explanatory sentences or
+  notation keys appear beside dashboard counts.
+  Home omits per-owner status, detailed partial-result messages and last-checked
+  timestamps; workspace details retain health, freshness and partial-result context.
+  Home has no Refresh buttons or detailed activity lists.
   Workspace names are noninteractive labels; activity remains available from Workspaces.
   Unattached owners offer **Add to workspace** through Connections.
   Workspace activity and its Refresh controls remain expanded and available.

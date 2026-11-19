@@ -1,6 +1,7 @@
 defmodule MonolithWeb.GitHubComponents do
   @moduledoc "Read-only GitHub App setup, workspace repository selections and activity readouts."
   use MonolithWeb, :html
+  alias Monolith.GitHub.Metrics
 
   attr :organizations, :list, required: true
   attr :memberships, :list, required: true
@@ -239,106 +240,73 @@ defmodule MonolithWeb.GitHubComponents do
     assigns =
       assign(
         assigns,
-        home_metrics(assigns.organization, observed?(assigns.organization, assigns.now))
+        :metrics,
+        Metrics.summary(assigns.organization, assigns.now)
       )
 
     ~H"""
-    <dl class="github-home-metrics" aria-label="Bounded installation snapshot">
-      <.snapshot_count label="PRS" total={@prs} paired attention={@prs_attention} />
-      <.snapshot_count label="ISSUES" total={@issues} />
-      <.snapshot_count
-        label="RUNS"
-        total={@runs}
-        paired
-        attention={@runs_attention}
-        attention_label="FAILED"
-        failure
-      />
-    </dl>
+    <div class="github-home-snapshot">
+      <dl class="github-home-metrics" aria-label="Selected GitHub snapshot">
+        <.snapshot_count label="Pull requests" total={@metrics.prs} columns={4}>
+          <.metric_detail label="Review needed" metric="review" count={@metrics.review} />
+          <.metric_detail label="Change req." metric="changes" count={@metrics.changes} />
+          <.metric_detail label="Checks failed" metric="checks" count={@metrics.checks} failure />
+        </.snapshot_count>
+        <.snapshot_count label="Issues" total={@metrics.issues} />
+        <.snapshot_count label="Runs · 24h" total={@metrics.runs} total_label="Total" columns={3}>
+          <.metric_detail label="Failed" metric="failed" count={@metrics.failed} failure />
+          <.metric_detail label="In progress" metric="running" count={@metrics.running} />
+        </.snapshot_count>
+      </dl>
+    </div>
     """
-  end
-
-  defp home_metrics(_org, false),
-    do: %{prs: nil, issues: nil, prs_attention: nil, runs: nil, runs_attention: nil}
-
-  defp home_metrics(org, true) do
-    prs_available = org.pull_requests != [] || !org.truncated
-    runs_available = org.workflow_runs != [] || !org.actions_truncated
-
-    %{
-      prs: if(prs_available, do: length(org.pull_requests)),
-      issues: if(org.issues != [] || !org.issues_truncated, do: length(org.issues)),
-      prs_attention:
-        if prs_available do
-          pr_attention_count(org.pull_requests)
-        end,
-      runs: if(runs_available, do: length(org.workflow_runs)),
-      runs_attention:
-        if runs_available do
-          Enum.count(
-            org.workflow_runs,
-            &(&1["conclusion"] in ["failure", "timed_out", "action_required", "startup_failure"])
-          )
-        end
-    }
-  end
-
-  defp pr_attention_count(prs) do
-    Enum.reduce_while(prs, 0, fn pr, count ->
-      cond do
-        (!pr["is_draft"] && pr["review_decision"] == "REVIEW_REQUIRED") ||
-            pr["checks"] in ["FAILURE", "ERROR"] ->
-          {:cont, count + 1}
-
-        (pr["is_draft"] || pr["review_decision"] in ["APPROVED", "CHANGES_REQUESTED"]) &&
-            pr["checks"] in ["SUCCESS", "PENDING"] ->
-          {:cont, count}
-
-        true ->
-          {:halt, nil}
-      end
-    end)
   end
 
   attr :label, :string, required: true
   attr :total, :any, required: true
-  attr :paired, :boolean, default: false
-  attr :attention, :any, default: nil
-  attr :attention_label, :string, default: "ATTENTION"
-  attr :failure, :boolean, default: false
+  attr :total_label, :string, default: "Open"
+  attr :columns, :integer, default: 1
+  slot :inner_block
 
   defp snapshot_count(assigns) do
-    assigns =
-      assign(assigns,
-        value: if(is_integer(assigns.total), do: assigns.total, else: "—"),
-        attention_value: if(is_integer(assigns.attention), do: assigns.attention, else: "—")
-      )
-
     ~H"""
-    <div class="github-home-metric">
-      <dt class="metric-label">{@label}<span :if={@paired}> / {@attention_label}</span></dt>
-      <dd class="github-home-number">
-        <span aria-hidden="true">
-          <span class="github-home-total">{@value}</span><span
-            :if={@paired}
-            class="github-home-separator"
-          > / </span><span
-            :if={@paired}
-            class={["github-home-attention", @failure && "github-home-failure"]}
-            title={"#{@attention_label} in the snapshot"}
-          >{@attention_value}</span>
+    <div class="github-home-metric" data-columns={@columns}>
+      <dt class="github-home-group-title">{@label}</dt>
+      <dd class="github-home-values">
+        <span class="github-home-detail">
+          <span class="metric-label">{@total_label}</span>
+          <span class="github-home-total github-home-number" aria-hidden="true">{metric_value(@total)}</span>
+          <span class="sr-only">{metric_description(@total)}</span>
         </span>
-        <span class="sr-only">
-          {@label} in snapshot: {if is_integer(@total), do: @total, else: "unavailable"}<span :if={
-            @paired
-          }>; {@attention_label} in snapshot: {if is_integer(@attention),
-            do: @attention,
-            else: "unavailable"}</span>
-        </span>
+        {render_slot(@inner_block)}
       </dd>
     </div>
     """
   end
+
+  attr :label, :string, required: true
+  attr :metric, :string, required: true
+  attr :count, :any, required: true
+  attr :failure, :boolean, default: false
+
+  defp metric_detail(assigns) do
+    ~H"""
+    <span class="github-home-detail" data-metric={@metric}>
+      <span class="metric-label">{@label}</span>
+      <span
+        class={["github-home-detail-value github-home-number", @failure && "github-home-failure"]}
+        aria-hidden="true"
+      >{metric_value(@count)}</span>
+      <span class="sr-only">{metric_description(@count)}</span>
+    </span>
+    """
+  end
+
+  defp metric_value(nil), do: "—"
+  defp metric_value(%{value: value}), do: value
+  defp metric_description(nil), do: "Unavailable"
+  defp metric_description(%{value: value, partial?: true}), do: "At least #{value} in snapshot"
+  defp metric_description(%{value: value}), do: "#{value} in snapshot"
 
   attr :organization, :any, required: true
   attr :memberships, :list, required: true
@@ -1290,6 +1258,13 @@ defmodule MonolithWeb.GitHubComponents do
   attr :now, :any, required: true
 
   defp related_activity(assigns) do
+    assigns =
+      assign(
+        assigns,
+        :organization,
+        Metrics.runs_snapshot(assigns.organization, assigns.now)
+      )
+
     ~H"""
     <div class="github-related-activity">
       <section
@@ -1358,7 +1333,7 @@ defmodule MonolithWeb.GitHubComponents do
       >
         <div class="github-review-heading">
           <h2 id={"github-actions-heading-#{@organization.id}"} class="github-readout-title">
-            Recent Actions
+            Actions · last 24h
           </h2>
           <span class="github-section-count">
             {snapshot_size(@organization, @now, :workflow_runs)} in snapshot
@@ -1366,7 +1341,7 @@ defmodule MonolithWeb.GitHubComponents do
         </div>
         <div :if={observed?(@organization, @now)}>
           <p class="mail-muted">
-            Recent runs, not a combined repository health verdict. At most 10 repositories are checked per owner snapshot.
+            Runs created in the last 24 hours, not a repository health verdict.
           </p>
           <p :if={@organization.actions_truncated} class="connection-warning">
             Partial Actions · some repositories or runs are unavailable. Check Actions read-only permission.
@@ -1377,8 +1352,8 @@ defmodule MonolithWeb.GitHubComponents do
           >
             {if Map.get(@organization, :repository_selection, false),
               do:
-                "No recent workflow runs match this workspace selection in the bounded owner snapshot.",
-              else: "No recent workflow runs found in accessible repositories."}
+                "No workflow runs created in the last 24 hours match this workspace selection in the bounded owner snapshot.",
+              else: "No workflow runs created in the last 24 hours found in accessible repositories."}
           </p>
           <p
             :if={@organization.workflow_runs == [] && @organization.actions_truncated}
@@ -1402,7 +1377,6 @@ defmodule MonolithWeb.GitHubComponents do
                   if run["conclusion"] in [
                        "failure",
                        "timed_out",
-                       "action_required",
                        "startup_failure"
                      ],
                      do: "github-check-failed"
@@ -1612,8 +1586,10 @@ defmodule MonolithWeb.GitHubComponents do
   defp run_signal(%{"status" => "completed", "conclusion" => "success"}), do: :ready
 
   defp run_signal(%{"status" => "completed", "conclusion" => conclusion})
-       when conclusion in ["failure", "timed_out", "action_required", "startup_failure"],
+       when conclusion in ["failure", "timed_out", "startup_failure"],
        do: :warning
+
+  defp run_signal(%{"status" => "completed", "conclusion" => "action_required"}), do: :warning
 
   defp run_signal(%{"status" => status})
        when status in ["in_progress", "queued", "requested", "waiting", "pending"],

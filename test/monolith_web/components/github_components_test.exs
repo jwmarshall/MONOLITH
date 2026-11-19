@@ -8,7 +8,7 @@ defmodule MonolithWeb.GitHubComponentsTest do
 
   @now ~U[2026-11-05 12:00:00Z]
 
-  test "Home separates bounded snapshot row counts from owner-wide totals and attention" do
+  test "Home separates snapshot counts, PR review states and failed runs from owner totals" do
     document =
       snapshot(%{
         total_count: 42,
@@ -26,7 +26,7 @@ defmodule MonolithWeb.GitHubComponentsTest do
     assert LazyHTML.query(document, ".github-home-metric:nth-child(1) .github-home-total")
            |> LazyHTML.text() == "2"
 
-    assert LazyHTML.query(document, ".github-home-metric:nth-child(1) .github-home-attention")
+    assert LazyHTML.query(document, "[data-metric=checks] .github-home-detail-value")
            |> LazyHTML.text() == "1"
 
     assert LazyHTML.query(document, ".github-home-metric:nth-child(2) .github-home-total")
@@ -35,7 +35,7 @@ defmodule MonolithWeb.GitHubComponentsTest do
     assert LazyHTML.query(document, ".github-home-metric:nth-child(3) .github-home-total")
            |> LazyHTML.text() == "2"
 
-    assert LazyHTML.query(document, ".github-home-metric:nth-child(3) .github-home-attention")
+    assert LazyHTML.query(document, "[data-metric=failed] .github-home-detail-value")
            |> LazyHTML.text() == "1"
   end
 
@@ -57,13 +57,8 @@ defmodule MonolithWeb.GitHubComponentsTest do
              |> LazyHTML.text() == "—"
     end
 
-    for index <- [1, 3] do
-      assert LazyHTML.query(
-               document,
-               ".github-home-metric:nth-child(#{index}) .github-home-attention"
-             )
-             |> LazyHTML.text() == "—"
-    end
+    assert LazyHTML.query(document, ".github-home-detail-value")
+           |> Enum.all?(&(LazyHTML.text(&1) == "—"))
   end
 
   test "unobserved and expired snapshots cannot present old counts as current" do
@@ -173,11 +168,8 @@ defmodule MonolithWeb.GitHubComponentsTest do
       assert LazyHTML.query(quiet, selector) |> LazyHTML.text() == "0"
     end
 
-    for index <- [1, 3] do
-      assert LazyHTML.query(
-               active,
-               ".github-home-metric:nth-child(#{index}) .github-home-attention"
-             )
+    for metric <- ["review", "checks", "failed"] do
+      assert LazyHTML.query(active, "[data-metric=#{metric}] .github-home-detail-value")
              |> LazyHTML.text() == "1"
     end
 
@@ -185,34 +177,97 @@ defmodule MonolithWeb.GitHubComponentsTest do
     assert Enum.count(LazyHTML.query(document, ".github-home-repository")) == 2
   end
 
-  test "Home attention is unknown for unavailable status unless the other status confirms attention" do
-    for repositories <- [[], [Monolith.TestGitHub.repository()]],
-        {fields, attention} <- [
-          {%{"review_decision" => nil, "checks" => nil}, "—"},
-          {%{"review_decision" => "APPROVED", "checks" => nil}, "—"},
-          {%{"review_decision" => nil, "checks" => "SUCCESS"}, "—"},
-          {%{"review_decision" => nil, "checks" => "FAILURE"}, "1"},
-          {%{"review_decision" => "REVIEW_REQUIRED", "checks" => nil}, "1"},
-          {%{"review_decision" => "REVIEW_REQUIRED", "checks" => "FAILURE"}, "1"},
-          {%{"is_draft" => true, "review_decision" => nil, "checks" => "SUCCESS"}, "0"}
+  test "PR review, requested changes and failed checks are independent, including drafts and unknowns" do
+    for {fields, expected} <- [
+          {%{"review_decision" => "REVIEW_REQUIRED", "checks" => "FAILURE"}, ["1", "0", "1"]},
+          {%{"review_decision" => "CHANGES_REQUESTED", "checks" => "SUCCESS"}, ["0", "1", "0"]},
+          {%{"review_decision" => "APPROVED", "checks" => "PENDING"}, ["0", "0", "0"]},
+          {%{"review_decision" => nil, "checks" => "FAILURE"}, ["—", "—", "1"]},
+          {%{"review_decision" => "REVIEW_REQUIRED", "checks" => nil}, ["1", "0", "—"]},
+          {%{"is_draft" => true, "review_decision" => "REVIEW_REQUIRED", "checks" => "ERROR"},
+           ["0", "0", "1"]}
+        ] do
+      document = snapshot(%{pull_requests: [Monolith.TestGitHub.row(fields)]})
+
+      assert LazyHTML.query(document, ".github-home-metric:first-child .github-home-detail-value")
+             |> Enum.map(&LazyHTML.text/1) == expected
+    end
+  end
+
+  test "an unknown PR status preserves confirmed counts as lower bounds in only affected metrics" do
+    document =
+      snapshot(%{
+        pull_requests: [
+          Monolith.TestGitHub.row(%{"checks" => "FAILURE"}),
+          Monolith.TestGitHub.row(%{"review_decision" => nil, "checks" => nil})
+        ]
+      })
+
+    assert LazyHTML.query(document, "[data-metric=review] .github-home-detail-value")
+           |> LazyHTML.text() == "1"
+
+    assert LazyHTML.query(document, "[data-metric=checks] .sr-only")
+           |> LazyHTML.text() == "At least 1 in snapshot"
+
+    assert LazyHTML.query(document, "[data-metric=changes] .github-home-detail-value")
+           |> LazyHTML.text() == "—"
+  end
+
+  test "runs use creation time in a rolling 24-hour window on Home and activity" do
+    runs =
+      for {id, seconds, overrides} <- [
+            {1, -86_401, %{"conclusion" => "failure"}},
+            {2, -86_400, %{"conclusion" => "failure"}},
+            {3, -86_399, %{"conclusion" => "timed_out"}},
+            {4, 0, %{"status" => "in_progress", "conclusion" => nil}},
+            {5, 1, %{"conclusion" => "failure"}},
+            {6, -3600, %{"conclusion" => "action_required"}},
+            {7, -3600, %{"conclusion" => "cancelled"}}
+          ] do
+        Monolith.TestGitHub.workflow_run(
+          Map.merge(
+            %{
+              "id" => id,
+              "name" => "Run #{id}",
+              "created_at" => DateTime.to_iso8601(DateTime.add(@now, seconds)),
+              "updated_at" => DateTime.to_iso8601(@now)
+            },
+            overrides
+          )
+        )
+      end
+
+    document = snapshot(%{workflow_runs: runs})
+
+    assert LazyHTML.query(document, ".github-home-metric:nth-child(3) .github-home-total")
+           |> LazyHTML.text() == "4"
+
+    assert LazyHTML.query(document, "[data-metric=failed] .github-home-detail-value")
+           |> LazyHTML.text() == "1"
+
+    assert LazyHTML.query(document, "[data-metric=running] .github-home-detail-value")
+           |> LazyHTML.text() == "1"
+
+    activity = workspace_snapshot(%{workflow_runs: runs})
+
+    assert LazyHTML.query(activity, ".github-workflow-run a") |> Enum.map(&LazyHTML.text/1) ==
+             Enum.map([3, 4, 6, 7], &"Run #{&1} (opens GitHub in a new tab)")
+  end
+
+  test "old or undated runs cannot become failed runs or an invented complete zero" do
+    for {fields, partial?} <- [
+          {%{"created_at" => nil}, false},
+          {%{"created_at" => "invalid"}, false},
+          {%{"created_at" => DateTime.to_iso8601(DateTime.add(@now, -90_000))}, true}
         ] do
       document =
         snapshot(%{
-          repositories: repositories,
-          pull_requests: [Monolith.TestGitHub.row(fields)]
+          workflow_runs: [Monolith.TestGitHub.workflow_run(fields)],
+          actions_truncated: partial?
         })
 
-      assert LazyHTML.query(
-               document,
-               ".github-home-owner-heading .github-home-metric:first-child .github-home-total"
-             )
-             |> LazyHTML.text() == "1"
-
-      assert LazyHTML.query(
-               document,
-               ".github-home-owner-heading .github-home-metric:first-child .github-home-attention"
-             )
-             |> LazyHTML.text() == attention
+      assert LazyHTML.query(document, ".github-home-metric:nth-child(3) .github-home-total")
+             |> LazyHTML.text() == "—"
     end
   end
 
@@ -301,13 +356,8 @@ defmodule MonolithWeb.GitHubComponentsTest do
                  if(Map.has_key?(overrides, :fetched_at), do: "—", else: "1")
       end
 
-      for index <- [1, 3] do
-        assert LazyHTML.query(
-                 quiet,
-                 ".github-home-metric:nth-child(#{index}) .github-home-attention"
-               )
-               |> LazyHTML.text() == "—"
-      end
+      assert LazyHTML.query(quiet, ".github-home-detail-value")
+             |> Enum.all?(&(LazyHTML.text(&1) == "—"))
     end
   end
 
@@ -333,13 +383,13 @@ defmodule MonolithWeb.GitHubComponentsTest do
              "No open issues found"
 
     assert LazyHTML.query(complete, ".github-related-activity .mail-muted") |> LazyHTML.text() =~
-             "No recent workflow runs found"
+             "No workflow runs created in the last 24 hours found"
 
     assert Enum.empty?(LazyHTML.query(complete, ".connection-warning, .github-pr"))
     assert Enum.count(LazyHTML.query(partial, ".connection-warning")) == 3
     refute LazyHTML.query(partial, ".github-summary") |> LazyHTML.text() =~ "open in"
     refute LazyHTML.query(partial, ".mail-muted") |> LazyHTML.text() =~ "No open"
-    refute LazyHTML.query(partial, ".mail-muted") |> LazyHTML.text() =~ "No recent"
+    assert Enum.empty?(LazyHTML.query(partial, ".github-workflow-run"))
 
     assert LazyHTML.query(partial, ".mail-muted") |> LazyHTML.text() =~
              "Pull request details are unavailable"
@@ -488,6 +538,9 @@ defmodule MonolithWeb.GitHubComponentsTest do
   test "Actions distinguish terminal failures, running, waiting and unavailable outcomes" do
     cases = [
       {"completed", "timed_out", "Timed out", true},
+      {"completed", "failure", "Failed", true},
+      {"completed", "startup_failure", "Startup failed", true},
+      {"completed", "action_required", "Action required", false},
       {"completed", "cancelled", "Cancelled", false},
       {"in_progress", nil, "In progress", false},
       {"waiting", nil, "Waiting", false},
@@ -529,8 +582,7 @@ defmodule MonolithWeb.GitHubComponentsTest do
     assert LazyHTML.query(document, ".github-related-activity .connection-warning")
            |> LazyHTML.text() =~ "Partial Actions"
 
-    refute LazyHTML.query(document, ".github-related-activity .mail-muted")
-           |> LazyHTML.text() =~ "No recent workflow runs"
+    assert Enum.count(LazyHTML.query(document, ".github-workflow-run")) == length(cases)
   end
 
   test "pending authorization is cancellable while token exchange cannot start a second attempt" do

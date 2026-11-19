@@ -462,8 +462,20 @@ try do
   Monolith.TestGitHub.configure(
     rows: [Monolith.TestGitHub.row(%{"checks" => "FAILURE"})],
     workflow_runs: [
-      Monolith.TestGitHub.workflow_run(%{"conclusion" => "failure"}),
-      Monolith.TestGitHub.workflow_run(%{"id" => 10})
+      Monolith.TestGitHub.workflow_run(%{
+        "conclusion" => "failure",
+        "created_at" => DateTime.to_iso8601(DateTime.add(now, -3600))
+      }),
+      Monolith.TestGitHub.workflow_run(%{
+        "id" => 10,
+        "created_at" => DateTime.to_iso8601(DateTime.add(now, -7200))
+      }),
+      Monolith.TestGitHub.workflow_run(%{
+        "id" => 11,
+        "conclusion" => "failure",
+        "created_at" => DateTime.to_iso8601(DateTime.add(now, -90_000)),
+        "updated_at" => DateTime.to_iso8601(now)
+      })
     ]
   )
 

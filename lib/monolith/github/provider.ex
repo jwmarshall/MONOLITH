@@ -13,6 +13,8 @@ defmodule Monolith.GitHub.Provider do
   runs, not a mirror. Optional/limited reads set truncation flags and safe partial
   reasons; unknown counts remain nil rather than becoming zero. The application adds
   publication freshness and expires private cache contents within the configured 1–24 hours.
+  Workflow runs carry validated `created_at` and `updated_at` timestamps. Presentation
+  uses creation time for its rolling 24-hour window; an update does not renew a run.
   """
 
   @type error :: :configuration | :denied | :expired | :reconnect | :rate_limited | :provider

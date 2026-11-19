@@ -24,6 +24,7 @@ defmodule Monolith.Integrations.GitHubTest do
   import Kernel, except: [node: 0, node: 1]
   import ExUnit.CaptureLog
   @callback_uri "http://localhost:4321/auth/github/callback"
+  alias Monolith.GitHub.Metrics
   alias Monolith.Integrations.GitHub
   alias Monolith.Integrations.GitHubTest.Transport
 
@@ -139,7 +140,7 @@ defmodule Monolith.Integrations.GitHubTest do
     ] ++
       List.duplicate(
         response(%{"total_count" => 0, "workflow_runs" => []}),
-        min(length(repos), 10)
+        length(repos)
       ) ++
       [response(installations([selected])), response(repositories(repos))]
   end
@@ -457,7 +458,7 @@ defmodule Monolith.Integrations.GitHubTest do
         batch,
         batch
       ] ++
-        List.duplicate(response(%{"total_count" => 0, "workflow_runs" => []}), 10) ++
+        List.duplicate(response(%{"total_count" => 0, "workflow_runs" => []}), length(repos)) ++
         [response(installations([selected])), response(repositories(repos))]
     )
 
@@ -606,6 +607,7 @@ defmodule Monolith.Integrations.GitHubTest do
     assert workflow["repository_id"] == "REPO_1"
     assert workflow["status"] == "completed"
     assert workflow["conclusion"] == "success"
+    assert workflow["created_at"] == "2026-11-04T00:00:00Z"
     refute snapshot.actions_truncated
     assert snapshot.partial_reasons == []
 
@@ -691,6 +693,8 @@ defmodule Monolith.Integrations.GitHubTest do
           run(%{"status" => "invented"}),
           run(%{"conclusion" => nil}),
           run(%{"updated_at" => "invalid"}),
+          run(%{"created_at" => "invalid"}),
+          Map.delete(run(), "created_at"),
           put_in(run(), ["repository", "node_id"], "PUBLIC_UNSELECTED"),
           put_in(run(), ["repository", "owner", "node_id"], "OTHER_OWNER")
         ] do
@@ -758,7 +762,7 @@ defmodule Monolith.Integrations.GitHubTest do
 
     enqueue(
       [response(installations([selected])), response(repositories(repos)), batch] ++
-        List.duplicate(actions, 10) ++
+        List.duplicate(actions, length(repos)) ++
         [response(installations([selected])), response(repositories(repos))]
     )
 
@@ -766,9 +770,55 @@ defmodule Monolith.Integrations.GitHubTest do
     assert length(snapshot.repositories) == 11
     assert length(snapshot.workflow_runs) == 50
     assert snapshot.actions_truncated
-    assert "actions_repository_limit" in snapshot.partial_reasons
     assert "actions_first_50" in snapshot.partial_reasons
-    assert Enum.count(requests(), &String.contains?(&1.path, "/actions/")) == 10
+    assert Enum.count(requests(), &String.contains?(&1.path, "/actions/")) == length(repos)
+  end
+
+  test "Actions include a repository beyond the first ten when only it has recent runs" do
+    selected = owner()
+    repos = Enum.map(1..11, &repository(selected, &1))
+    recent_repo = List.last(repos) |> Map.put("node_id", "REPO_Z")
+    repos = List.replace_at(repos, 10, recent_repo)
+    created = DateTime.utc_now() |> DateTime.add(-3600) |> DateTime.to_iso8601()
+
+    batch = fn request ->
+      data =
+        Jason.decode!(request.body)["variables"]
+        |> Map.new(fn {key, id} ->
+          repo = Enum.find(repos, &(&1["node_id"] == id))
+          {String.replace_prefix(key, "id", "r"), graph_repo(selected, repo, [])}
+        end)
+
+      response(%{"data" => data})
+    end
+
+    actions = fn request ->
+      repo = Enum.find(repos, &String.contains?(request.path, "/#{&1["name"]}/"))
+
+      runs =
+        if repo == recent_repo,
+          do: [run(%{"repository" => repo, "created_at" => created, "updated_at" => created})],
+          else: []
+
+      response(%{"total_count" => length(runs), "workflow_runs" => runs})
+    end
+
+    enqueue(
+      [response(installations([selected])), response(repositories(repos)), batch] ++
+        List.duplicate(actions, length(repos)) ++
+        [response(installations([selected])), response(repositories(repos))]
+    )
+
+    assert {:ok, snapshot} = GitHub.installation_snapshot("ghu_synthetic", selected)
+    assert [%{"repository_id" => "REPO_Z", "created_at" => ^created}] = snapshot.workflow_runs
+    refute snapshot.actions_truncated
+
+    metrics =
+      snapshot
+      |> Map.put(:cache_retained?, true)
+      |> Metrics.summary(DateTime.utc_now())
+
+    assert metrics.runs == %{value: 1, partial?: false}
   end
 
   test "rate-limited Actions are explicitly partial rather than a successful zero" do
@@ -827,6 +877,7 @@ defmodule Monolith.Integrations.GitHubTest do
         "status" => "completed",
         "conclusion" => "success",
         "updated_at" => "2026-11-04T00:00:00Z",
+        "created_at" => "2026-11-04T00:00:00Z",
         "actor" => %{"login" => "octocat"},
         "repository" => repository(owner()),
         "html_url" => "https://evil.invalid/private"
